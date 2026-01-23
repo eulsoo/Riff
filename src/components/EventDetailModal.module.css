@@ -1,0 +1,233 @@
+.modalOverlay {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+}
+
+.modalBackdrop {
+  position: absolute;
+  inset: 0;
+  background-color: rgba(0, 0, 0, 0.3);
+  cursor: pointer;
+}
+
+.modal {
+  position: relative;
+  background-color: white;
+  border-radius: 1.5rem;
+  box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
+  width: 100%;
+  max-width: 28rem;
+  min-height: 400px;
+  display: flex;
+  flex-direction: column;
+  border: 1px solid #e5e7eb;
+  padding: 1rem;
+}
+
+.modalHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 1rem 1.25rem;
+  border-bottom: 1px solid #f3f4f6;
+}
+
+.modalHeaderLeft {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.colorPickerWrapper {
+  position: relative;
+}
+
+.colorPickerButton {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  border: none;
+  background: none;
+  padding: 0;
+  cursor: pointer;
+  transition: opacity 0.2s ease-in-out;
+}
+
+.colorPickerButton:hover {
+  opacity: 0.8;
+}
+
+.colorChip {
+  width: 1.5rem;
+  height: 1.5rem;
+  border-radius: 9999px;
+  flex-shrink: 0;
+}
+
+.colorPickerIcon {
+  width: 1rem;
+  height: 1rem;
+  color: #9ca3af;
+}
+
+.colorPickerDropdown {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  margin-top: 0.5rem;
+  background-color: white;
+  border-radius: 0.75rem;
+  box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+  border: 1px solid #e5e7eb;
+  padding: 0.75rem;
+  z-index: 10;
+}
+
+.colorPickerOptions {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.colorOption {
+  width: 1.75rem;
+  height: 1.75rem;
+  border-radius: 9999px;
+  border: none;
+  transition: all 0.2s ease-in-out;
+  cursor: pointer;
+}
+
+.colorOption:hover {
+  transform: scale(1.1);
+}
+
+.colorOptionSelected {
+  box-shadow: 0 0 0 2px white, 0 0 0 4px #9ca3af;
+  transform: scale(1.1);
+}
+
+.modalTitleInput {
+  font-size: 1.125rem;
+  font-weight: 600;
+  color: #111827;
+  outline: none;
+  border-bottom: 2px solid #3b82f6;
+  background: transparent;
+  border-top: none;
+  border-left: none;
+  border-right: none;
+  padding: 0;
+}
+
+.modalCloseButton {
+  padding: 0.5rem;
+  border: none;
+  background: none;
+  border-radius: 0.5rem;
+  transition: background-color 0.2s ease-in-out;
+  cursor: pointer;
+}
+
+.modalCloseButton:hover {
+  background-color: #f3f4f6;
+}
+
+.modalCloseIcon {
+  width: 1.25rem;
+  height: 1.25rem;
+  color: #6b7280;
+}
+
+.modalDateSection {
+  padding: 1rem 1.25rem;
+  background-color: #f9fafb;
+  border-bottom: 1px solid #f3f4f6;
+}
+
+.modalDateSection > * + * {
+  margin-top: 0.75rem;
+}
+
+.modalDateText {
+  font-size: 0.875rem;
+  color: #6b7280;
+}
+
+.modalTimeInputs {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 0.75rem;
+}
+
+.modalTimeInputGroup {
+  display: flex;
+  flex-direction: column;
+}
+
+.modalTimeLabel {
+  display: block;
+  font-size: 0.75rem;
+  color: #6b7280;
+  margin-bottom: 0.25rem;
+}
+
+.modalTimeInput {
+  width: 100%;
+  padding: 0.5rem 0.75rem;
+  border: 1px solid #d1d5db;
+  border-radius: 0.5rem;
+  font-size: 0.875rem;
+}
+
+.modalMemoSection {
+  flex: 1;
+  padding: 1rem 1.25rem;
+}
+
+.modalMemoLabel {
+  display: block;
+  font-size: 0.875rem;
+  color: #6b7280;
+  margin-bottom: 0.5rem;
+}
+
+.modalMemoTextarea {
+  width: 100%;
+  padding: 0.5rem 0.75rem;
+  border: 1px solid #d1d5db;
+  border-radius: 0.5rem;
+  font-size: 0.875rem;
+  resize: none;
+}
+
+.modalDeleteSection {
+  padding: 1rem 1.25rem;
+  border-top: 1px solid #f3f4f6;
+}
+
+.modalDeleteButton {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  color: #ef4444;
+  border: none;
+  background: none;
+  padding: 0;
+  cursor: pointer;
+  transition: color 0.2s ease-in-out;
+  font-size: 0.875rem;
+}
+
+.modalDeleteButton:hover {
+  color: #dc2626;
+}
+
+.modalDeleteIcon {
+  width: 1rem;
+  height: 1rem;
+}

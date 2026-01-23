@@ -1,0 +1,218 @@
+.todoList {
+  border-top: 1px solid #e5e7eb;
+  /* background-color: rgba(249, 250, 251, 0.5); */
+  padding: 1rem 1.5rem;
+  display: flex;
+  align-items: center;
+}
+
+.todoListHeader {
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+  gap: 0.5rem;
+  margin-right: 1.5rem;
+  width: 80px;
+}
+
+.todoListHeaderWide {
+  width: 160px;
+}
+
+.todoListTitle {
+  font-size: 1rem;
+  font-weight: 600;
+  color: #808080;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.todoListItems {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.todoItem {
+  position: relative;
+}
+
+.todoItemEditing {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  background-color: white;
+  border: 1px solid #3b82f6;
+  border-radius: 0.5rem;
+  padding: 0.5rem 0.75rem;
+  box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
+}
+
+.todoItemDisplay {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  background-color: rgba(241, 241, 241, 0.8);
+  /* border: 1px solid #d1d5db; */
+  border-radius: 2rem;
+  padding: 0.3rem 0.5rem;
+  transition: all 0.2s ease-in-out;
+}
+
+.todoItemDisplayCompleted {
+  border-color: #d1d5db;
+  background-color: #f3f4f6;
+}
+
+.todoItemDisplayIncomplete {
+  border-color: #d1d5db;
+}
+
+.todoItemDisplayIncomplete:hover {
+  border-color: #9ca3af;
+}
+
+.todoCheckbox {
+  flex-shrink: 0;
+  width: 1.1rem;
+  height: 1.1rem;
+  border: none;
+  border-radius: 9999px;
+  transition: all 0.2s ease-in-out;
+  background: none;
+  padding: 0;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.todoCheckboxCompleted {
+  color: #2563eb;
+}
+
+.todoCheckboxIncomplete {
+  color: #9ca3af;
+}
+
+.todoCheckboxIncomplete:hover {
+  color: #3b82f6;
+}
+
+.todoCheckboxIcon {
+  width: 1.1rem;
+  height: 1.1rem;
+}
+
+.todoCheckboxEmpty {
+  width: 1.1rem;
+  height: 1.1rem;
+  border-radius: 9999px;
+  background: #ffffff;
+  /* border: 1px solid #d1d5db; */
+}
+
+.todoText {
+  font-size: 0.875rem;
+}
+
+.todoTextCompleted {
+  text-decoration: line-through;
+  color: #6b7280;
+}
+
+.todoTextIncomplete {
+  color: #111827;
+}
+
+.todoActions {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  opacity: 0;
+  margin-left: 0.25rem;
+  transition: opacity 0.2s ease-in-out;
+}
+
+.todoItem:hover .todoActions {
+  opacity: 1;
+}
+
+.todoActionButton {
+  padding: 0;
+  border: none;
+  background: none;
+  border-radius: 0.25rem;
+  transition: background-color 0.2s ease-in-out;
+  cursor: pointer;
+}
+
+.todoActionButtonDelete:hover {
+  background-color: transparent;
+}
+
+.todoActionIcon {
+  width: 0.75rem;
+  height: 0.75rem;
+}
+
+.todoActionIconDelete {
+  color: #6b7280;
+}
+
+.todoInput {
+  font-size: 0.875rem;
+  outline: none;
+  width: 10rem;
+  border: none;
+  background: transparent;
+}
+
+.todoInputButton {
+  padding: 0.25rem;
+  border: none;
+  background: none;
+  border-radius: 0.25rem;
+  transition: background-color 0.2s ease-in-out;
+  cursor: pointer;
+}
+
+.todoInputButton:hover {
+  background-color: #f3f4f6;
+}
+
+.todoInputIcon {
+  width: 0.875rem;
+  height: 0.875rem;
+}
+
+.todoInputIconCheck {
+  color: #16a34a;
+}
+
+.todoInputIconCancel {
+  color: #ef4444;
+}
+
+.todoAddButton {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background-color: white;
+  border: none;
+  border-radius: 0.5rem;
+  transition: all 0.2s ease-in-out;
+  cursor: pointer;
+  padding: 0;
+}
+
+.todoAddButton:hover {
+  border-color: transparent;
+  background-color: transparent;
+}
+
+.todoAddIcon {
+  width: 1rem;
+  height: 1rem;
+  color: #6b7280;
+}

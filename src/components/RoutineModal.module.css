@@ -1,0 +1,389 @@
+.modalOverlay {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+}
+
+.modalBackdrop {
+  position: absolute;
+  inset: 0;
+  background-color: rgba(0, 0, 0, 0.5);
+  backdrop-filter: blur(4px);
+  cursor: pointer;
+}
+
+.modal {
+  position: relative;
+  background-color: white;
+  border-radius: 0.75rem;
+  box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
+  width: 100%;
+  max-width: 42rem;
+  max-height: 90vh;
+  overflow-y: auto;
+}
+
+.modalHeader {
+  position: sticky;
+  top: 0;
+  background-color: white;
+  border-bottom: 1px solid #e5e7eb;
+  padding: 1rem 1.5rem;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.modalHeaderTitle {
+  font-weight: 600;
+  color: #111827;
+}
+
+.modalCloseButton {
+  padding: 0.5rem;
+  border: none;
+  background: none;
+  border-radius: 0.5rem;
+  transition: background-color 0.2s ease-in-out;
+  cursor: pointer;
+}
+
+.modalCloseButton:hover {
+  background-color: #f3f4f6;
+}
+
+.modalCloseIcon {
+  width: 1.25rem;
+  height: 1.25rem;
+  color: #6b7280;
+}
+
+.modalContent {
+  padding: 1.5rem;
+}
+
+.routinesSection {
+  margin-bottom: 1.5rem;
+}
+
+.routinesSectionTitle {
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: #374151;
+  margin-bottom: 0.75rem;
+}
+
+.routinesList {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.routinesEmpty {
+  font-size: 0.875rem;
+  color: #6b7280;
+  padding: 1rem 0;
+  text-align: center;
+}
+
+.routineItem {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.75rem;
+  background-color: #f9fafb;
+  border-radius: 0.5rem;
+}
+
+.routineItemLeft {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.routineIcon {
+  width: 2.5rem;
+  height: 2.5rem;
+  border-radius: 9999px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.routineIconSvg {
+  width: 1.25rem;
+  height: 1.25rem;
+  color: white;
+}
+
+.routineInfo {
+  display: flex;
+  flex-direction: column;
+}
+
+.routineName {
+  font-weight: 500;
+  color: #111827;
+}
+
+.routineDays {
+  font-size: 0.75rem;
+  color: #6b7280;
+}
+
+.routineDeleteButton {
+  padding: 0.5rem;
+  border: none;
+  background: none;
+  border-radius: 0.5rem;
+  transition: background-color 0.2s ease-in-out;
+  cursor: pointer;
+}
+
+.routineDeleteButton:hover {
+  background-color: #fee2e2;
+}
+
+.routineDeleteIcon {
+  width: 1rem;
+  height: 1rem;
+  color: #dc2626;
+}
+
+.addRoutineSection {
+  border-top: 1px solid #e5e7eb;
+  padding-top: 1.5rem;
+}
+
+.addRoutineSectionTitle {
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: #374151;
+  margin-bottom: 1rem;
+}
+
+.addRoutineForm {
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+}
+
+.formGroup {
+  display: flex;
+  flex-direction: column;
+}
+
+.formLabel {
+  display: block;
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: #374151;
+  margin-bottom: 0.5rem;
+}
+
+.formLabelLarge {
+  display: block;
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: #374151;
+  margin-bottom: 0.75rem;
+}
+
+.formInput {
+  width: 100%;
+  padding: 0.625rem 1rem;
+  border: 1px solid #d1d5db;
+  border-radius: 0.5rem;
+  outline: none;
+  transition: all 0.2s ease-in-out;
+}
+
+.formInput:focus {
+  border-color: transparent;
+  box-shadow: 0 0 0 2px #9333ea;
+}
+
+.formInputSmall {
+  width: 100%;
+  padding: 0.5rem 1rem;
+  border: 1px solid #d1d5db;
+  border-radius: 0.5rem;
+  font-size: 0.875rem;
+  outline: none;
+  margin-bottom: 0.75rem;
+  transition: all 0.2s ease-in-out;
+}
+
+.formInputSmall:focus {
+  border-color: transparent;
+  box-shadow: 0 0 0 2px #9333ea;
+}
+
+.iconGrid {
+  display: grid;
+  grid-template-columns: repeat(8, 1fr);
+  gap: 0.5rem;
+  max-height: 12rem;
+  overflow-y: auto;
+  padding: 0.5rem;
+  background-color: #f9fafb;
+  border-radius: 0.5rem;
+}
+
+.iconButton {
+  padding: 0.75rem;
+  border-radius: 0.5rem;
+  transition: all 0.2s ease-in-out;
+  border: none;
+  cursor: pointer;
+}
+
+.iconButtonSelected {
+  background-color: #9333ea;
+  color: white;
+  transform: scale(1.1);
+}
+
+.iconButtonUnselected {
+  background-color: white;
+  color: #374151;
+}
+
+.iconButtonUnselected:hover {
+  background-color: #f3f4f6;
+}
+
+.iconButtonSvg {
+  width: 1.25rem;
+  height: 1.25rem;
+  margin: 0 auto;
+}
+
+.colorPicker {
+  display: flex;
+  gap: 0.75rem;
+}
+
+.colorButton {
+  width: 2.5rem;
+  height: 2.5rem;
+  border-radius: 0.5rem;
+  border: none;
+  transition: all 0.2s ease-in-out;
+  cursor: pointer;
+}
+
+.colorButton:hover {
+  transform: scale(1.05);
+}
+
+.colorButtonSelected {
+  box-shadow: 0 0 0 2px white, 0 0 0 4px #9ca3af;
+  transform: scale(1.1);
+}
+
+.dayButtons {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.dayButton {
+  flex: 1;
+  padding: 0.625rem 0;
+  border-radius: 0.5rem;
+  font-weight: 500;
+  transition: all 0.2s ease-in-out;
+  border: none;
+  cursor: pointer;
+}
+
+.dayButtonSelected {
+  background-color: #9333ea;
+  color: white;
+}
+
+.dayButtonUnselected {
+  background-color: #f3f4f6;
+  color: #374151;
+}
+
+.dayButtonUnselected:hover {
+  background-color: #e5e7eb;
+}
+
+.preview {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 1rem;
+  background-color: #faf5ff;
+  border-radius: 0.5rem;
+}
+
+.previewIcon {
+  width: 3rem;
+  height: 3rem;
+  border-radius: 9999px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.previewIconSvg {
+  width: 1.5rem;
+  height: 1.5rem;
+  color: white;
+}
+
+.previewInfo {
+  display: flex;
+  flex-direction: column;
+}
+
+.previewLabel {
+  font-size: 0.875rem;
+  color: #4b5563;
+}
+
+.previewName {
+  font-weight: 500;
+  color: #111827;
+}
+
+.addButton {
+  width: 100%;
+  padding: 0.75rem 1rem;
+  background-color: #9333ea;
+  color: white;
+  border-radius: 0.5rem;
+  font-weight: 500;
+  transition: background-color 0.2s ease-in-out;
+  border: none;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+}
+
+.addButton:hover {
+  background-color: #7e22ce;
+}
+
+.addButton:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.addButton:disabled:hover {
+  background-color: #9333ea;
+}
+
+.addButtonIcon {
+  width: 1.25rem;
+  height: 1.25rem;
+}

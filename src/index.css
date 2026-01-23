@@ -1,0 +1,96 @@
+/* 기본 CSS 리셋 및 전역 스타일 */
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+:root {
+  /* Pretendard 웹폰트 (가변) */
+  font-family: 'Pretendard', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto',
+    'Oxygen', 'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue',
+    sans-serif;
+
+  /* 색상 팔레트 */
+  --color-gray-50: #f9fafb;
+  --color-gray-100: #f3f4f6;
+  --color-gray-200: #e5e7eb;
+  --color-gray-300: #d1d5db;
+  --color-gray-400: #9ca3af;
+  --color-gray-500: #6b7280;
+  --color-gray-600: #4b5563;
+  --color-gray-700: #374151;
+  --color-gray-900: #111827;
+
+  --color-blue-50: #eff6ff;
+  --color-blue-100: #dbeafe;
+  --color-blue-500: #3b82f6;
+  --color-blue-600: #2563eb;
+  --color-blue-700: #1d4ed8;
+
+  --color-purple-50: #faf5ff;
+  --color-purple-500: #9333ea;
+  --color-purple-600: #7e22ce;
+  --color-purple-700: #7e22ce;
+
+  --color-red-500: #ef4444;
+  --color-red-600: #dc2626;
+
+  --color-green-600: #16a34a;
+
+  --color-white: #ffffff;
+  --color-black: #000000;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  font-family: 'Pretendard', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto',
+    'Oxygen', 'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue',
+    sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+body {
+  background-color: var(--color-gray-50);
+  color: var(--color-gray-900);
+  line-height: 1.5;
+}
+
+#root {
+  min-height: 100vh;
+}
+
+/* 기본 버튼 스타일 리셋 */
+button {
+  font-family: inherit;
+  cursor: pointer;
+}
+
+/* 기본 입력 스타일 */
+input,
+textarea,
+select {
+  font-family: inherit;
+}
+
+/* 기본 링크 스타일 */
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+/* 기본 리스트 스타일 */
+ul,
+ol {
+  list-style: none;
+}
+
+/* 이미지 최대 너비 */
+img {
+  max-width: 100%;
+  height: auto;
+}

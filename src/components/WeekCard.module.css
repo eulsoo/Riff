@@ -1,0 +1,336 @@
+.weekCard {
+  background-color: white;
+  border-radius: 0.75rem;
+  box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
+  border: 3px solid #e5e7eb;
+  transition: all 0.2s ease-in-out;
+}
+
+.weekCardCurrent {
+  border-color: #3b82f6;
+  box-shadow: 0 0 0 10px rgba(59, 130, 246, 0.1);
+}
+
+.weekCardPrevNext {
+  /* border-color: #d1d5db; */
+}
+
+.weekCardOther {
+  /* border-color: #e5e7eb; */
+}
+
+.weekGrid {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+}
+
+.weekGrid > * {
+  border-right: 1px solid #e5e7eb;
+}
+
+.weekGrid > *:last-child {
+  border-right: none;
+}
+
+.dayCell {
+  min-height: 200px;
+  display: flex;
+  flex-direction: column;
+  position: relative;
+  min-width: 0;
+}
+
+.dayCellWeekend {
+  /* background-color: rgba(249, 250, 251, 0.5); */
+}
+
+.dayHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.5rem;
+  padding-top: 0.75rem;
+  padding-bottom: 0.5rem;
+  padding-left: 0.75rem;
+  padding-right: 0.75rem;
+  border-bottom: 1px solid #f3f4f6;
+  min-width: 0;
+}
+
+.dayMeta {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.375rem;
+  flex-shrink: 0;
+}
+
+.dayDefinition {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  padding: 0.2rem 0.4rem;
+  border: 1px dashed #e5e7eb;
+  border-radius: 0.5rem;
+  background: #ffffff;
+  cursor: text;
+  transition: border-color 0.2s ease, background-color 0.2s ease, opacity 0.15s ease;
+  overflow: hidden;
+  white-space: nowrap;
+  gap: 0.35rem;
+}
+
+.dayDefinitionHidden {
+  visibility: hidden;
+  opacity: 0;
+  border-color: transparent;
+  background: transparent;
+}
+
+.dayHeader:hover .dayDefinitionHidden {
+  visibility: visible;
+  opacity: 1;
+  border-color: #e5e7eb;
+  background: #ffffff;
+}
+
+.dayDefinition:hover {
+  border-color: #cbd5e1;
+  background-color: #f8fafc;
+}
+
+.dayDefinitionFilled {
+  border: none;
+  padding: 0 0.2rem 0 0;
+  background: transparent;
+}
+
+.dayDefinitionActive {
+  border-color: #2563eb;
+  box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.08);
+  padding: 0.2rem 0.4rem;
+}
+
+.dayDefinitionInput {
+  width: 100%;
+  min-width: 0;
+  border: none;
+  outline: none;
+  font-size: 0.75rem;
+  color: #111827;
+  background: transparent;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.dayDefinitionText {
+  display: block;
+  width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.75rem;
+  color: #111827;
+}
+
+.dayDefinitionPlaceholder {
+  color: #9ca3af;
+}
+
+.dayDefinitionDelete {
+  flex-shrink: 0;
+  width: 1.1rem;
+  height: 1.1rem;
+  border: none;
+  background: transparent;
+  border-radius: 0.25rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0;
+  transition: opacity 0.15s ease, background-color 0.15s ease;
+  cursor: pointer;
+  padding: 0;
+}
+
+.dayDefinitionFilled:hover .dayDefinitionDelete {
+  opacity: 1;
+}
+
+.dayDefinitionDelete:hover {
+  background: rgba(0, 0, 0, 0.05);
+}
+
+.dayDefinitionDeleteIcon {
+  width: 0.9rem;
+  height: 0.9rem;
+  color: #9ca3af;
+}
+
+.dayDefinitionDelete:hover .dayDefinitionDeleteIcon {
+  color: #ef4444;
+}
+
+.dayName {
+  font-size: 0.9rem;
+  font-weight: 500;
+}
+
+.dayNameWeekend {
+  color: #dc2626;
+}
+
+.dayNameWeekday {
+  color: #6b7280;
+}
+
+.dayNumber {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.5rem;
+  height: 1.75rem;
+  border-radius: 9999px;
+  font-size: 1.1rem;
+  font-weight: 700;
+}
+
+.dayNumberToday {
+  background-color: #2563eb;
+  color: white;
+  font-weight: 700;
+}
+
+.dayNumberWeekend {
+  color: #dc2626;
+  font-weight: 700;
+}
+
+.dayNumberWeekday {
+  color: #111827;
+}
+
+.dayEvents {
+  flex: 1;
+  padding: 0.75rem;
+  cursor: default;
+  transition: background-color 0.2s ease-in-out;
+  user-select: none;
+}
+
+.dayRoutine {
+  padding: 0.5rem 0.75rem;
+  border-top: 1px dashed #f3f4f6;
+  display: flex;
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.375rem;
+  min-height: 2.5rem;
+}
+
+.dayRoutineItem {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  min-width: 0;
+}
+
+.dayRoutineDiary {
+  transition: opacity 0.2s ease-in-out;
+}
+
+.dayRoutineDiaryHidden {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.dayRoutineDiaryCompleted {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.dayRoutine:hover .dayRoutineDiaryHidden {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+
+.eventsList {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.eventItem {
+  position: relative;
+  padding: 0.375rem 0.5rem;
+  border-radius: 0.25rem;
+  font-size: 0.75rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: opacity 0.2s ease-in-out;
+  user-select: none;
+}
+
+.eventItemSelected {
+  opacity: 1;
+  color: #ffffff !important;
+}
+
+.eventContent {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.25rem;
+  user-select: none;
+}
+
+.eventContentLeft {
+  flex: 1;
+  min-width: 0;
+  user-select: none;
+}
+
+.eventTime {
+  font-size: 0.625rem;
+  opacity: 0.75;
+  margin-bottom: 0.125rem;
+  user-select: none;
+}
+
+.eventTitle {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  line-height: 1.25;
+  user-select: none;
+}
+
+.eventDeleteButton {
+  opacity: 0;
+  flex-shrink: 0;
+  padding: 0.125rem;
+  border: none;
+  background: none;
+  border-radius: 0.25rem;
+  transition: opacity 0.2s ease-in-out, background-color 0.2s ease-in-out;
+  cursor: pointer;
+}
+
+.eventItem:hover .eventDeleteButton {
+  opacity: 1;
+}
+
+.eventDeleteButtonSelected {
+  opacity: 1;
+  color: #ffffff;
+}
+
+
+.eventDeleteIcon {
+  width: 0.75rem;
+  height: 0.75rem;
+}

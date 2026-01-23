@@ -1,0 +1,246 @@
+.overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(255, 255, 255, 0.98);
+  z-index: 1000;
+  display: block;
+}
+
+.sidebar {
+  position: fixed;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 200px;
+  background: #f3f4f6;
+  border-right: 1px solid #e5e7eb;
+  display: flex;
+  flex-direction: column;
+}
+
+.sidebarContent {
+  padding: 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  height: 100%;
+  overflow: hidden;
+}
+
+.main {
+  margin-left: 200px;
+  height: 100vh;
+  overflow-y: auto;
+}
+
+.container {
+  flex: 1;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  padding: 2.5rem 3rem;
+  gap: 1.5rem;
+  max-width: 800px;
+  margin: 0 auto;
+}
+
+.closeButton {
+  position: fixed;
+  top: 1.5rem;
+  right: 1.5rem;
+  border: none;
+  background: none;
+  cursor: pointer;
+  padding: 0.25rem;
+}
+
+.closeIcon {
+  width: 1.5rem;
+  height: 1.5rem;
+  color: #6b7280;
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.dateLabel {
+  font-size: 0.9rem;
+  color: #6b7280;
+}
+
+.saveStatus {
+  font-size: 1.2rem;
+  color: #9ca3af;
+  position: fixed;
+  right: 5rem;
+  top: 1.5rem;
+}
+
+.titleInput {
+  font-size: 2rem;
+  font-weight: 600;
+  border: none;
+  outline: none;
+  padding: 0;
+}
+
+.titleInput::placeholder {
+  color: #d8d8d8;
+}
+
+.contentInput {
+  flex: 1;
+  font-size: 1.5rem;
+  border: none;
+  outline: none;
+  line-height: 1.6;
+  padding: 0;
+  min-height: 40vh;
+  overflow: visible;
+}
+
+.contentInput[data-empty="true"]::before {
+  content: attr(data-placeholder);
+  color: #d8d8d8;
+}
+
+.contentInput :global(.diaryParagraph) {
+  margin: 0;
+}
+
+.contentInput :global(.diaryParagraph) + :global(.diaryParagraph) {
+  margin-top: 1rem;
+}
+
+.contentInput :global(.diaryParagraph):first-child {
+  margin-top: 0;
+}
+
+.deleteButton {
+  position: fixed;
+  right: 1.5rem;
+  bottom: 1.5rem;
+  border: none;
+  background: #111827;
+  color: #ffffff;
+  width: 2.5rem;
+  height: 2.5rem;
+  border-radius: 9999px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.12);
+}
+
+.deleteIcon {
+  width: 1.25rem;
+  height: 1.25rem;
+}
+
+.dayHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.dayHeaderLeft {
+  flex: 1;
+  min-width: 0;
+}
+
+.dayDefinition {
+  font-size: 0.75rem;
+  color: #6b7280;
+  background: #ffffff;
+  border: 1px dashed #e5e7eb;
+  border-radius: 0.5rem;
+  padding: 0.35rem 0.5rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.dayMeta {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  flex-shrink: 0;
+}
+
+.dayName {
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
+.dayNameWeekend {
+  color: #dc2626;
+}
+
+.dayNameWeekday {
+  color: #6b7280;
+}
+
+.dayNumber {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.5rem;
+  height: 1.5rem;
+  border-radius: 9999px;
+  font-size: 0.9rem;
+  font-weight: 700;
+}
+
+.dayNumberWeekend {
+  color: #dc2626;
+  background: #fee2e2;
+}
+
+.dayNumberWeekday {
+  color: #111827;
+  background: #e5e7eb;
+}
+
+.dayEvents {
+  flex: 1;
+  overflow-y: auto;
+}
+
+.eventsList {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.eventItem {
+  padding: 0.4rem 0.5rem;
+  background: #ffffff;
+  border-radius: 0.4rem;
+  border-left: 3px solid transparent;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
+}
+
+.eventTime {
+  font-size: 0.65rem;
+  color: #9ca3af;
+  margin-bottom: 0.15rem;
+}
+
+.eventTitle {
+  font-size: 0.75rem;
+  color: #111827;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.emptyEvents {
+  font-size: 0.75rem;
+  color: #9ca3af;
+}

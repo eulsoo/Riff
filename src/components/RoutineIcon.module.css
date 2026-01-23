@@ -1,0 +1,39 @@
+.routineIcon {
+  width: 1.5rem;
+  height: 1.5rem;
+  border-radius: 9999px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s ease-in-out;
+  border: none;
+  background: none;
+  padding: 0;
+}
+
+.routineIcon:disabled {
+  cursor: default;
+}
+
+.routineIcon:not(:disabled) {
+  cursor: pointer;
+}
+
+.routineIcon:not(:disabled):hover {
+  transform: scale(1.1);
+}
+
+.routineIconCompleted {
+  opacity: 1;
+  transform: scale(1);
+}
+
+.routineIconIncomplete {
+  opacity: 0.4;
+  transform: scale(0.9);
+}
+
+.routineIconIcon {
+  width: 1rem;
+  height: 1rem;
+}

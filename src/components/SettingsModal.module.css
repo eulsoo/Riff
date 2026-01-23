@@ -1,0 +1,172 @@
+.modalOverlay {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 50;
+}
+
+.modalBackdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.35);
+}
+
+.modal {
+  position: relative;
+  width: min(720px, 90vw);
+  background: #fff;
+  border-radius: 12px;
+  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.12);
+  padding: 20px;
+  z-index: 51;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.modalHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.modalTitle {
+  font-size: 1.15rem;
+  font-weight: 700;
+  color: #111827;
+}
+
+.closeButton {
+  border: none;
+  background: transparent;
+  font-size: 1rem;
+  cursor: pointer;
+  color: #6b7280;
+}
+
+.section {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.sectionTitle {
+  font-weight: 700;
+  color: #111827;
+}
+
+.weekOrderOptions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 8px 0 4px;
+}
+
+.weekOrderOption {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.95rem;
+  color: #374151;
+}
+
+.previewRow {
+  display: flex;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.avatarPreview {
+  position: relative;
+  width: 240px;
+  height: 240px;
+  border-radius: 50%;
+  background: #f3f4f6;
+  overflow: hidden;
+  border: 4px solid #d1d5db;
+}
+
+.previewImage {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform-origin: center;
+  user-select: none;
+  pointer-events: none;
+}
+
+.placeholder {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #9ca3af;
+  font-size: 0.9rem;
+}
+
+.dragLayer {
+  position: absolute;
+  inset: 0;
+  cursor: grab;
+}
+
+.dragLayer:active {
+  cursor: grabbing;
+}
+
+.controls {
+  flex: 1;
+  min-width: 240px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.uploadButton,
+.resetButton,
+.saveButton,
+.cancelButton {
+  border: none;
+  border-radius: 8px;
+  padding: 10px 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.uploadButton {
+  background: #2563eb;
+  color: white;
+}
+
+.resetButton {
+  background: #e5e7eb;
+  color: #111827;
+}
+
+.saveButton {
+  background: #10b981;
+  color: white;
+}
+
+.cancelButton {
+  background: #f3f4f6;
+  color: #111827;
+}
+
+.sliderLabel {
+  font-size: 0.85rem;
+  color: #4b5563;
+}
+
+.hiddenInput {
+  display: none;
+}
+
+.modalFooter {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
