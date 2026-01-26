@@ -3,8 +3,67 @@ import { supabase } from '../lib/supabase';
 import { DayDefinition, DiaryEntry, Event, Routine, RoutineCompletion, Todo } from '../App';
 
 // 캘린더 URL 정규화: 끝의 슬래시 제거
-const normalizeCalendarUrl = (url?: string | null) =>
+export const normalizeCalendarUrl = (url?: string | null) =>
   url ? url.replace(/\/+$/, '') : url;
+
+// 캘린더 메타데이터 저장을 위한 로컬 스토리지 키
+const CALENDAR_METADATA_KEY = 'caldavCalendarMetadata';
+const LOCAL_CALENDAR_METADATA_KEY = 'localCalendarMetadata';
+
+export interface CalendarMetadata {
+  url: string; // 로컬 캘린더의 경우 'local:' 접두사가 붙은 ID
+  displayName: string;
+  color: string;
+  isLocal?: boolean;
+}
+
+export const saveCalendarMetadata = (metadata: CalendarMetadata[]) => {
+  if (typeof window === 'undefined') return;
+  try {
+    const map = metadata.reduce((acc, item) => {
+      const normalizedUrl = normalizeCalendarUrl(item.url)!;
+      acc[normalizedUrl] = { ...item, url: normalizedUrl };
+      return acc;
+    }, {} as Record<string, CalendarMetadata>);
+    window.localStorage.setItem(CALENDAR_METADATA_KEY, JSON.stringify(map));
+  } catch (error) {
+    console.error('Error saving calendar metadata:', error);
+  }
+};
+
+export const saveLocalCalendarMetadata = (metadata: CalendarMetadata[]) => {
+  if (typeof window === 'undefined') return;
+  try {
+    // 로컬 캘린더만 필터링해서 저장
+    const localOnly = metadata.filter(m => m.isLocal);
+    window.localStorage.setItem(LOCAL_CALENDAR_METADATA_KEY, JSON.stringify(localOnly));
+  } catch (error) {
+    console.error('Error saving local calendar metadata:', error);
+  }
+};
+
+export const getCalendarMetadata = (): Record<string, CalendarMetadata> => {
+  if (typeof window === 'undefined') return {};
+  try {
+    // CalDAV 캘린더
+    const rawCalDAV = window.localStorage.getItem(CALENDAR_METADATA_KEY);
+    const caldavMap = rawCalDAV ? JSON.parse(rawCalDAV) : {};
+
+    // 로컬 캘린더
+    const rawLocal = window.localStorage.getItem(LOCAL_CALENDAR_METADATA_KEY);
+    const localList: CalendarMetadata[] = rawLocal ? JSON.parse(rawLocal) : [];
+    
+    // 로컬 캘린더를 맵에 병합
+    localList.forEach(cal => {
+      caldavMap[cal.url] = { ...cal, isLocal: true };
+    });
+
+    return caldavMap;
+  } catch {
+    return {};
+  }
+};
+
 
 // 아바타 업로드
 export const uploadAvatar = async (file: File, userId: string): Promise<string | null> => {
@@ -82,6 +141,7 @@ export const fetchEvents = async (startDate?: string, endDate?: string) => {
     ...event,
     startTime: event.start_time,
     endTime: event.end_time,
+    calendarUrl: normalizeCalendarUrl(event.calendar_url), // calendar_url 매핑 추가
   }));
 };
 
@@ -126,6 +186,7 @@ export const createEvent = async (event: Omit<Event, 'id'> & { uid?: string; cal
     ...data,
     startTime: data.start_time,
     endTime: data.end_time,
+    calendarUrl: data.calendar_url,
   };
 };
 
@@ -390,6 +451,7 @@ export const updateEvent = async (id: string, updates: Partial<{
   startTime?: string;
   endTime?: string;
   color: string;
+  calendarUrl?: string;
 }>) => {
   const payload: any = { ...updates };
   if (updates.startTime !== undefined) {
@@ -399,6 +461,11 @@ export const updateEvent = async (id: string, updates: Partial<{
   if (updates.endTime !== undefined) {
     payload.end_time = updates.endTime;
     delete payload.endTime;
+  }
+  // calendarUrl -> calendar_url 매핑
+  if ('calendarUrl' in updates) {
+    payload.calendar_url = updates.calendarUrl;
+    delete payload.calendarUrl;
   }
 
   const { data, error } = await supabase
@@ -416,6 +483,7 @@ export const updateEvent = async (id: string, updates: Partial<{
     ...data,
     startTime: data.start_time,
     endTime: data.end_time,
+    calendarUrl: data.calendar_url,
   };
 };
 

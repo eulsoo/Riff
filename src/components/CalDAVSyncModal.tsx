@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { X } from 'lucide-react';
 import { Calendar, CalDAVConfig, getCalendars, syncSelectedCalendars } from '../services/caldav';
-import { saveCalDAVSyncSettings, getCalDAVSyncSettings, deleteAllCalDAVData } from '../services/api';
+import { saveCalDAVSyncSettings, getCalDAVSyncSettings, deleteAllCalDAVData, saveCalendarMetadata } from '../services/api';
 import styles from './CalDAVSyncModal.module.css';
 
 interface CalDAVSyncModalProps {
@@ -99,6 +99,16 @@ export function CalDAVSyncModal({ onClose, onSyncComplete }: CalDAVSyncModalProp
     setError(null);
     try {
       const config: CalDAVConfig = { serverUrl, username, password };
+
+      // 선택된 캘린더들의 메타데이터 저장
+      const metadataToSave = calendars
+        .filter(cal => selectedCalendars.has(cal.url))
+        .map(cal => ({
+          url: cal.url,
+          displayName: cal.displayName,
+          color: cal.color || '#3b82f6'
+        }));
+      saveCalendarMetadata(metadataToSave);
 
       // 기존 설정이 있고, 서버 정보가 같으면 마지막 동기화 시점부터 가져오기
       // 서버 정보가 다르거나 첫 동기화면 null 전달

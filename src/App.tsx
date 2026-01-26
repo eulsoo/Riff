@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useLayoutEffect, useMemo } from 'react';
+import { useState, useEffect, useRef, useLayoutEffect, useMemo, useCallback, memo } from 'react';
 import { Session } from '@supabase/supabase-js';
 import { supabase } from './lib/supabase';
 import { Login } from './components/Login';
@@ -16,10 +16,13 @@ import {
   fetchDiaryEntry, fetchDiaryEntriesByRange, upsertDiaryEntry, deleteDiaryEntry,
   fetchDayDefinitions, upsertDayDefinition, deleteDayDefinition,
   getCalDAVSyncSettings, updateLastSyncTime,
-  deleteDuplicateEvents, getUserAvatar
+  deleteDuplicateEvents, getUserAvatar,
+  getCalendarMetadata, CalendarMetadata, saveCalendarMetadata,
+  normalizeCalendarUrl
 } from './services/api';
-import { syncSelectedCalendars, CalDAVConfig } from './services/caldav';
+import { syncSelectedCalendars, CalDAVConfig, getCalendars } from './services/caldav';
 import { encryptData, decryptData } from './lib/crypto';
+import { CalendarListPopup, CalendarToggleButton } from './components/CalendarListPopup';
 
 export interface Event {
   id: string;
@@ -29,6 +32,7 @@ export interface Event {
   startTime?: string;
   endTime?: string;
   color: string;
+  calendarUrl?: string;
 }
 
 export interface Routine {
@@ -68,6 +72,13 @@ export interface DayDefinition {
 
 export type WeekOrder = 'mon' | 'sun';
 
+const formatLocalDate = (date: Date) => {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+};
+
 function App() {
   const [events, setEvents] = useState<Event[]>([]);
   const [routines, setRoutines] = useState<Routine[]>([]);
@@ -98,6 +109,215 @@ function App() {
     return saved ? parseInt(saved, 10) : 8; // 기본값 8주
   });
   const [futureWeeks, setFutureWeeks] = useState(12);
+
+  const [calendarMetadata, setCalendarMetadata] = useState<CalendarMetadata[]>([]);
+  const [visibleCalendarUrlSet, setVisibleCalendarUrlSet] = useState<Set<string>>(new Set());
+  const [isCalendarPopupOpen, setIsCalendarPopupOpen] = useState(false);
+  const [popupPosition, setPopupPosition] = useState<{
+    anchorId: string;
+    align: 'left' | 'right';
+  } | null>(null);
+
+  const [draftEvent, setDraftEvent] = useState<Event | null>(null);
+  const [modalSessionId, setModalSessionId] = useState<number>(0);
+  const debouncedUpdateRef = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
+
+  const handleDateClick = useCallback((date: string, anchorEl?: HTMLElement) => {
+    setSelectedDate(date);
+    const defaultColor = calendarMetadata.length > 0 ? calendarMetadata[0].color : '#3b82f6';
+    const newDraft: Event = {
+      id: 'draft-new',
+      date: date,
+      title: '새로운 일정',
+      startTime: '09:00',
+      endTime: '10:00',
+      color: defaultColor,
+      calendarUrl: calendarMetadata.length > 0 ? calendarMetadata[0].url : undefined,
+    };
+    setDraftEvent(newDraft);
+    setSelectedEvent(null);
+    setModalSessionId(prev => prev + 1); // 새 모달 세션 시작
+
+    if (anchorEl) {
+      const rect = anchorEl.getBoundingClientRect();
+      const isLeft = rect.left < window.innerWidth / 2;
+      setPopupPosition({
+        anchorId: `day-cell-${date}`,
+        align: isLeft ? 'left' : 'right',
+      });
+    } else {
+      setPopupPosition(null);
+    }
+    setIsEventModalOpen(true);
+  }, []);
+
+  const handleEventClick = useCallback((event: Event, multi: boolean) => {
+    setSelectedEventIds(prev => {
+      if (multi) {
+        return prev.includes(event.id)
+          ? prev.filter(id => id !== event.id)
+          : [...prev, event.id];
+      }
+      return [event.id];
+    });
+  }, []);
+
+  const handleUpdateDraft = useCallback((updates: Partial<Event>) => {
+    setDraftEvent(prev => prev ? { ...prev, ...updates } : null);
+  }, []);
+
+  const handleEventDoubleClick = useCallback((event: Event, anchorEl?: HTMLElement) => {
+    setSelectedEvent(event);
+    setDraftEvent(null);
+    setSelectedDate(event.date);
+    setModalSessionId(prev => prev + 1); // 새 모달 세션 시작
+
+    if (anchorEl) {
+      const rect = anchorEl.getBoundingClientRect();
+      const isLeft = rect.left < window.innerWidth / 2;
+      setPopupPosition({
+        anchorId: `event-item-${event.id}`,
+        align: isLeft ? 'left' : 'right',
+      });
+    } else {
+      setPopupPosition(null);
+    }
+    setIsEventModalOpen(true);
+  }, []);
+
+  const handleToggleCalendarVisibility = useCallback((url: string) => {
+    setVisibleCalendarUrlSet(prev => {
+      const next = new Set(prev);
+      if (next.has(url)) next.delete(url);
+      else next.add(url);
+      return next;
+    });
+  }, []);
+
+  const getWeekStartForDate = useCallback((date: Date) => {
+    const weekStart = new Date(date);
+    const dayOfWeek = weekStart.getDay();
+    const diff = weekOrder === 'sun'
+      ? -dayOfWeek
+      : (dayOfWeek === 0 ? -6 : 1 - dayOfWeek);
+    weekStart.setDate(weekStart.getDate() + diff);
+    weekStart.setHours(0, 0, 0, 0);
+    return weekStart;
+  }, [weekOrder]);
+
+  // calendarMetadata의 URL 집합 (필터링 대상 확인용)
+  const calendarUrlSet = useMemo(() =>
+    new Set(calendarMetadata.map(c => c.url)),
+    [calendarMetadata]
+  );
+
+  // 캘린더 메타데이터가 변경되면, 새로운 캘린더를 visible set에 자동으로 추가
+  // (이전에 숨김 처리된 적이 없다면 기본적으로 보이게 함)
+  useEffect(() => {
+    if (calendarMetadata.length === 0) return;
+
+    setVisibleCalendarUrlSet(prev => {
+      let changed = false;
+      const next = new Set(prev);
+
+      calendarMetadata.forEach(cal => {
+        // 아직 리스트에 없는 캘린더 URL이 있다면 추가
+        if (!next.has(cal.url)) {
+          next.add(cal.url);
+          changed = true;
+        }
+      });
+
+      return changed ? next : prev;
+    });
+  }, [calendarMetadata]);
+
+  const filteredEvents = useMemo(() => {
+    // 캘린더 메타데이터가 없으면 모든 이벤트 표시
+    if (calendarMetadata.length === 0) return events;
+
+    // visible set이 비어있으면 모든 이벤트 표시 (초기화 전)
+    if (visibleCalendarUrlSet.size === 0) return events;
+
+    return events.filter(event => {
+      // 현재 모달에 열려있는 일정은 필터와 관계없이 항상 표시
+      if (selectedEvent && event.id === selectedEvent.id) return true;
+      // calendarUrl이 없는 이벤트는 항상 표시
+      if (!event.calendarUrl) return true;
+      // visible set에 있는 캘린더의 이벤트만 표시
+      if (visibleCalendarUrlSet.has(event.calendarUrl)) return true;
+
+      // 깜빡임 방지: 메타데이터에는 있는데 VisibleSet에 아직 없는 경우 (동기화 딜레이)
+      if (calendarUrlSet.has(event.calendarUrl)) return true;
+
+      // 메타데이터에도 없는 캘린더 (알 수 없는 캘린더) -> 안전하게 표시
+      return true;
+    });
+  }, [events, visibleCalendarUrlSet, calendarMetadata, selectedEvent, calendarUrlSet]);
+
+  const eventsByWeek = useMemo(() => {
+    const map: Record<string, Event[]> = {};
+    const allEvents = draftEvent ? [...filteredEvents, draftEvent] : filteredEvents;
+
+    allEvents.forEach(e => {
+      const [y, m, d] = e.date.split('-').map(Number);
+      const dateObj = new Date(y, m - 1, d);
+      const ws = getWeekStartForDate(dateObj);
+      const wsStr = formatLocalDate(ws);
+      if (!map[wsStr]) map[wsStr] = [];
+      map[wsStr].push(e);
+    });
+    return map;
+  }, [filteredEvents, draftEvent, getWeekStartForDate]);
+
+  const todosByWeek = useMemo(() => {
+    const map: Record<string, Todo[]> = {};
+    todos.forEach(t => {
+      if (!map[t.weekStart]) map[t.weekStart] = [];
+      map[t.weekStart].push(t);
+    });
+    return map;
+  }, [todos]);
+
+  const lastSelectedIdsByWeekRef = useRef<Record<string, string[]>>({});
+  const selectedEventIdsByWeek = useMemo(() => {
+    const nextMap: Record<string, string[]> = {};
+    const selectedSet = new Set(selectedEventIds);
+    const lastMap = lastSelectedIdsByWeekRef.current;
+    const EMPTY: string[] = [];
+
+    Object.keys(eventsByWeek).forEach(weekStr => {
+      const ids = eventsByWeek[weekStr]
+        .map(e => e.id)
+        .filter(id => selectedSet.has(id));
+
+      const prevIds = lastMap[weekStr] || EMPTY;
+      const isEqual = ids.length === prevIds.length && ids.every((val, index) => val === prevIds[index]);
+
+      if (isEqual) {
+        nextMap[weekStr] = prevIds;
+      } else {
+        nextMap[weekStr] = ids.length > 0 ? ids : EMPTY;
+      }
+    });
+
+    lastSelectedIdsByWeekRef.current = nextMap;
+    return nextMap;
+  }, [selectedEventIds, eventsByWeek]);
+
+  const getTodoWeekStart = useCallback((weekStart: Date) => {
+    const base = new Date(weekStart);
+    if (weekOrder === 'sun') {
+      base.setDate(base.getDate() + 1);
+    }
+    return formatLocalDate(base);
+  }, [weekOrder]);
+
+  const getCurrentTodoWeekStart = useCallback(() => {
+    const currentWeekStart = getWeekStartForDate(new Date());
+    return getTodoWeekStart(currentWeekStart);
+  }, [getWeekStartForDate, getTodoWeekStart]);
+
   // URL 해시에서 일기 날짜 파싱: #diary/2026-01-20
   const parseDiaryFromHash = (): string | null => {
     if (typeof window === 'undefined') return null;
@@ -161,36 +381,6 @@ function App() {
     }
   };
 
-  const formatLocalDate = (date: Date) => {
-    const year = date.getFullYear();
-    const month = String(date.getMonth() + 1).padStart(2, '0');
-    const day = String(date.getDate()).padStart(2, '0');
-    return `${year}-${month}-${day}`;
-  };
-
-  const getWeekStartForDate = (date: Date) => {
-    const weekStart = new Date(date);
-    const dayOfWeek = weekStart.getDay();
-    const diff = weekOrder === 'sun'
-      ? -dayOfWeek
-      : (dayOfWeek === 0 ? -6 : 1 - dayOfWeek);
-    weekStart.setDate(weekStart.getDate() + diff);
-    weekStart.setHours(0, 0, 0, 0);
-    return weekStart;
-  };
-
-  const getTodoWeekStart = (weekStart: Date) => {
-    const base = new Date(weekStart);
-    if (weekOrder === 'sun') {
-      base.setDate(base.getDate() + 1); // 기존 투두는 월요일 기준으로 저장됨
-    }
-    return formatLocalDate(base);
-  };
-
-  const getCurrentTodoWeekStart = () => {
-    const currentWeekStart = getWeekStartForDate(new Date());
-    return getTodoWeekStart(currentWeekStart);
-  };
 
   useEffect(() => {
     if (typeof window !== 'undefined' && 'scrollRestoration' in window.history) {
@@ -271,7 +461,12 @@ function App() {
         }>(cacheKey, cacheTtlMs);
 
         if (cached) {
-          setEvents(cached.events || []);
+          // 캐시 복원 시에도 로컬 이벤트 유지
+          setEvents(prev => {
+            const cachedIds = new Set((cached.events || []).map(e => e.id));
+            const localOnly = prev.filter(e => !cachedIds.has(e.id));
+            return [...(cached.events || []), ...localOnly];
+          });
           setRoutines(cached.routines || []);
           setRoutineCompletions(cached.routineCompletions || []);
           setTodos(cached.todos || []);
@@ -290,7 +485,13 @@ function App() {
         fetchTodos(),
         fetchDayDefinitions(),
       ]);
-      setEvents(eventsData);
+      // 서버 데이터와 로컬 상태 병합: 서버에 없는 로컬 이벤트 유지
+      setEvents(prev => {
+        const serverIds = new Set(eventsData.map(e => e.id));
+        // 로컬에만 있는 이벤트 (아직 서버 응답에 포함되지 않은 것) 유지
+        const localOnly = prev.filter(e => !serverIds.has(e.id));
+        return [...eventsData, ...localOnly];
+      });
       setRoutines(routinesData);
       setRoutineCompletions(completionsData);
       const rolledTodos = await rolloverTodosToCurrentWeek(todosData);
@@ -516,6 +717,35 @@ function App() {
           password: settings.password,
         };
 
+        // 캘린더 메타데이터 갱신 (기존 사용자 마이그레이션용)
+        try {
+          const allCalendars = await getCalendars(config);
+          const selectedSet = new Set(settings.selectedCalendarUrls);
+          const metadataToSave = allCalendars
+            .filter(cal => selectedSet.has(cal.url))
+            .map(cal => {
+              const normalizedUrl = normalizeCalendarUrl(cal.url)!;
+              return {
+                url: normalizedUrl,
+                displayName: cal.displayName,
+                color: cal.color || '#3b82f6'
+              };
+            });
+
+          saveCalendarMetadata(metadataToSave);
+
+          // 기존 로컬 캘린더 보존: 스토리지에서 로컬 캘린더만 가져와서 병합
+          const currentFullMetadata = getCalendarMetadata();
+          const localCalendars = Object.values(currentFullMetadata).filter(c => c.isLocal);
+          const combinedMetadata = [...metadataToSave, ...localCalendars];
+
+          setCalendarMetadata(combinedMetadata);
+
+
+        } catch (metaError) {
+          console.warn('메타데이터 자동 갱신 실패:', metaError);
+        }
+
         const syncResult = await syncSelectedCalendars(
           config,
           settings.selectedCalendarUrls,
@@ -559,6 +789,41 @@ function App() {
           username: settings.username,
           password: settings.password,
         };
+
+        // 캘린더 메타데이터 갱신 (기존 사용자 마이그레이션용)
+        try {
+          const allCalendars = await getCalendars(config);
+          const selectedSet = new Set(settings.selectedCalendarUrls);
+          const metadataToSave = allCalendars
+            .filter(cal => selectedSet.has(cal.url))
+            .map(cal => {
+              const normalizedUrl = normalizeCalendarUrl(cal.url)!;
+              return {
+                url: normalizedUrl,
+                displayName: cal.displayName,
+                color: cal.color || '#3b82f6'
+              };
+            });
+
+          saveCalendarMetadata(metadataToSave);
+
+          // 기존 로컬 캘린더 보존
+          const currentFullMetadata = getCalendarMetadata();
+          const localCalendars = Object.values(currentFullMetadata).filter(c => c.isLocal);
+          const combinedMetadata = [...metadataToSave, ...localCalendars];
+
+          setCalendarMetadata(combinedMetadata);
+
+          // 가시성 설정 초기화
+          setVisibleCalendarUrlSet(prev => {
+            if (prev.size === 0 && metadataToSave.length > 0) {
+              return new Set(metadataToSave.map(m => m.url));
+            }
+            return prev;
+          });
+        } catch (metaError) {
+          console.warn('메타데이터 초기 갱신 실패:', metaError);
+        }
 
         const syncResult = await syncSelectedCalendars(
           config,
@@ -633,6 +898,16 @@ function App() {
     }
 
     await loadData(true);
+
+    // 메타데이터 리로드 & 가시성 업데이트
+    const metadata = Object.values(getCalendarMetadata());
+    setCalendarMetadata(metadata);
+    setVisibleCalendarUrlSet(prev => {
+      const newSet = new Set(prev);
+      metadata.forEach(m => newSet.add(m.url));
+      return newSet;
+    });
+
     const message = deletedCount > 0
       ? `${count}개의 일정이 동기화되었습니다. (${deletedCount}개 중복 삭제)`
       : `${count}개의 일정이 동기화되었습니다.`;
@@ -803,186 +1078,224 @@ function App() {
     }
   }, [pastWeeks]);
 
-  const generateWeeks = () => {
-    const weeks = [];
+  const weeks = useMemo(() => {
+    const res = [];
     const today = new Date();
     const currentWeekStart = new Date(today);
     const dayOfWeek = currentWeekStart.getDay();
     const diff = weekOrder === 'sun'
       ? -dayOfWeek
       : (dayOfWeek === 0 ? -6 : 1 - dayOfWeek);
-    currentWeekStart.setDate(currentWeekStart.getDate() + diff);
-
-    // 과거 주간 생성 (역순으로 추가되지 않도록 계산 주의)
-    for (let i = -pastWeeks; i < futureWeeks; i++) {
-      const weekStart = new Date(currentWeekStart);
-      weekStart.setDate(weekStart.getDate() + (i * 7));
-      weeks.push(weekStart);
-    }
-
-    return weeks;
-  };
-
-  const weeks = generateWeeks();
-
-
-
-  const getWeekStatus = (weekStart: Date): 'current' | 'prev' | 'next' | 'other' => {
-    const today = new Date();
-    const currentWeekStart = new Date(today);
-    const dayOfWeek = currentWeekStart.getDay();
-    const diff = weekOrder === 'sun'
-      ? -dayOfWeek
-      : (dayOfWeek === 0 ? -6 : 1 - dayOfWeek);
-    currentWeekStart.setDate(currentWeekStart.getDate() + diff);
+    currentWeekStart.setDate(today.getDate() + diff);
     currentWeekStart.setHours(0, 0, 0, 0);
 
-    const weekStartCopy = new Date(weekStart);
-    weekStartCopy.setHours(0, 0, 0, 0);
-
-    // 이번 주
-    if (weekStartCopy.getTime() === currentWeekStart.getTime()) {
-      return 'current';
+    for (let i = -pastWeeks; i < futureWeeks; i++) {
+      const weekStart = new Date(currentWeekStart);
+      weekStart.setDate(currentWeekStart.getDate() + (i * 7));
+      res.push(weekStart);
     }
+    return res;
+  }, [pastWeeks, futureWeeks, weekOrder]);
 
-    // 지난 주
-    const prevWeekStart = new Date(currentWeekStart);
-    prevWeekStart.setDate(prevWeekStart.getDate() - 7);
-    if (weekStartCopy.getTime() === prevWeekStart.getTime()) {
-      return 'prev';
-    }
+  const renderedWeeksData = useMemo(() => {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const dayOfWeek = today.getDay();
+    const diff = weekOrder === 'sun' ? -dayOfWeek : (dayOfWeek === 0 ? -6 : 1 - dayOfWeek);
+    const currentWS = new Date(today);
+    currentWS.setDate(today.getDate() + diff);
+    currentWS.setHours(0, 0, 0, 0);
+    const currentMs = currentWS.getTime();
 
-    // 다음 주
-    const nextWeekStart = new Date(currentWeekStart);
-    nextWeekStart.setDate(nextWeekStart.getDate() + 7);
-    if (weekStartCopy.getTime() === nextWeekStart.getTime()) {
-      return 'next';
-    }
+    return weeks.map(weekStart => {
+      const weekStartStr = formatLocalDate(weekStart);
+      const todoWeekStartStr = getTodoWeekStart(weekStart);
 
-    return 'other';
-  };
+      const ms = weekStart.getTime();
+      let weekStatus: 'current' | 'prev' | 'next' | 'other' = 'other';
+      if (ms === currentMs) weekStatus = 'current';
+      else if (ms === currentMs - 7 * 86400000) weekStatus = 'prev';
+      else if (ms === currentMs + 7 * 86400000) weekStatus = 'next';
 
-  const handleDateClick = (date: string) => {
-    setSelectedDate(date);
-    setIsEventModalOpen(true);
-  };
+      return {
+        weekStart,
+        weekStartStr,
+        todoWeekStartStr,
+        weekStatus
+      };
+    });
+  }, [weeks, weekOrder, getTodoWeekStart]);
 
-  const handleAddEvent = async (event: Omit<Event, 'id'>) => {
+
+
+  const handleAddEvent = useCallback(async (event: Omit<Event, 'id'>, keepOpen?: boolean) => {
+    console.log('[handleAddEvent] 저장할 이벤트:', event);
     const newEvent = await createEvent(event);
+    console.log('[handleAddEvent] 서버 응답:', newEvent);
     if (newEvent) {
-      setEvents([...events, newEvent]);
-      setIsEventModalOpen(false);
-    }
-  };
+      setEvents(prev => [...prev, newEvent]);
 
-  const handleDeleteEvent = async (eventId: string) => {
+      // 같은 날짜의 드래프트만 지움 (다른 날짜의 새 드래프트 보호)
+      setDraftEvent(prev => {
+        if (prev && prev.date === newEvent.date) {
+          return null;
+        }
+        return prev;
+      });
+
+      // 새 이벤트의 캘린더가 visible set에 없으면 추가
+      if (newEvent.calendarUrl) {
+        setVisibleCalendarUrlSet(prev => {
+          if (!prev.has(newEvent.calendarUrl!)) {
+            const next = new Set(prev);
+            next.add(newEvent.calendarUrl!);
+            return next;
+          }
+          return prev;
+        });
+      }
+
+      if (keepOpen) {
+        // 모달이 아직 같은 이벤트를 보고 있을 때만 selectedEvent 설정
+        setSelectedEvent(prev => {
+          // 이미 다른 이벤트를 선택했거나, 다른 날짜로 이동한 경우 무시
+          if (prev !== null) return prev;
+          return newEvent;
+        });
+      } else {
+        setIsEventModalOpen(false);
+      }
+      // 캐시 무효화 제거: loadData가 서버에서 다시 가져올 때까지 로컬 상태 유지
+    }
+  }, [createEvent, setEvents, setDraftEvent, setSelectedEvent, setIsEventModalOpen]);
+
+  const handleDeleteEvent = useCallback(async (eventId: string) => {
     const success = await deleteEvent(eventId);
     if (success) {
-      setEvents(events.filter(e => e.id !== eventId));
+      setEvents(prev => prev.filter(e => e.id !== eventId));
       setSelectedEvent(prev => (prev?.id === eventId ? null : prev));
       setSelectedEventIds(prev => prev.filter(id => id !== eventId));
+      // 캐시 무효화 제거
     }
-  };
+  }, [deleteEvent, setEvents, setSelectedEvent, setSelectedEventIds]);
 
-  const handleUpdateEvent = async (eventId: string, updates: Partial<Event>) => {
-    const updated = await updateEvent(eventId, updates);
-    if (updated) {
-      setEvents(events.map(e => e.id === eventId ? updated : e));
-      setSelectedEvent(prev => (prev?.id === eventId ? updated : prev));
+  const handleUpdateEvent = useCallback(async (eventId: string, updates: Partial<Event>) => {
+    // Optimistic Update
+    setEvents(prev => prev.map(e => e.id === eventId ? { ...e, ...updates } : e));
+    setSelectedEvent(prev => (prev?.id === eventId ? { ...prev, ...updates } : prev));
+
+    // Debounce API call
+    if (debouncedUpdateRef.current[eventId]) {
+      clearTimeout(debouncedUpdateRef.current[eventId]);
     }
-  };
 
-  const handleDeleteSelectedEvents = async () => {
+    debouncedUpdateRef.current[eventId] = setTimeout(async () => {
+      await updateEvent(eventId, updates);
+      delete debouncedUpdateRef.current[eventId];
+    }, 1000);
+  }, [setEvents, setSelectedEvent, debouncedUpdateRef, updateEvent]);
+
+  const handleDeleteSelectedEvents = useCallback(async () => {
     if (selectedEventIds.length === 0) return;
     const idsToDelete = [...selectedEventIds];
     const results = await Promise.all(idsToDelete.map(id => deleteEvent(id)));
     const deletedIds = idsToDelete.filter((_, idx) => results[idx]);
     if (deletedIds.length > 0) {
-      setEvents(events.filter(e => !deletedIds.includes(e.id)));
+      setEvents(prev => prev.filter(e => !deletedIds.includes(e.id)));
       setSelectedEvent(prev => (prev && deletedIds.includes(prev.id) ? null : prev));
       setSelectedEventIds(prev => prev.filter(id => !deletedIds.includes(id)));
+      // 캐시 무효화 제거
     }
-  };
+  }, [selectedEventIds, deleteEvent, setEvents, setSelectedEvent, setSelectedEventIds]);
 
-  const handleAddRoutine = async (routine: Omit<Routine, 'id'>) => {
+  const handleAddRoutine = useCallback(async (routine: Omit<Routine, 'id'>) => {
     const newRoutine = await createRoutine(routine);
     if (newRoutine) {
-      setRoutines([...routines, newRoutine]);
+      setRoutines(prev => [...prev, newRoutine]);
     }
-  };
+  }, [createRoutine, setRoutines]);
 
-  const handleDeleteRoutine = async (routineId: string) => {
+  const handleDeleteRoutine = useCallback(async (routineId: string) => {
     const success = await deleteRoutine(routineId);
     if (success) {
-      setRoutines(routines.filter(r => r.id !== routineId));
-      setRoutineCompletions(routineCompletions.filter(rc => rc.routineId !== routineId));
+      setRoutines(prev => prev.filter(r => r.id !== routineId));
+      setRoutineCompletions(prev => prev.filter(rc => rc.routineId !== routineId));
     }
-  };
+  }, [deleteRoutine, setRoutines, setRoutineCompletions]);
 
-  const handleToggleRoutine = async (routineId: string, date: string) => {
-    const existing = routineCompletions.find(
-      rc => rc.routineId === routineId && rc.date === date
-    );
-    const completed = existing ? !existing.completed : true;
+  const handleToggleRoutine = useCallback(async (routineId: string, date: string) => {
+    // We need current routineCompletions to calculate next state.
+    // Better use functional update to avoid stale closure.
+    setRoutineCompletions(prev => {
+      const existing = prev.find(rc => rc.routineId === routineId && rc.date === date);
+      const completed = existing ? !existing.completed : true;
 
-    const updated = await toggleRoutineCompletion(routineId, date, completed);
-    if (updated) {
+      // We handle the background API call separately.
+      // But we need to update state immediately.
+      toggleRoutineCompletion(routineId, date, completed).then(updated => {
+        if (!updated) {
+          // Revert? (Complex for now).
+        }
+      });
+
       if (existing) {
-        setRoutineCompletions(
-          routineCompletions.map(rc =>
-            rc.routineId === routineId && rc.date === date
-              ? updated
-              : rc
-          )
+        return prev.map(rc =>
+          rc.routineId === routineId && rc.date === date
+            ? { ...rc, completed }
+            : rc
         );
       } else {
-        setRoutineCompletions([...routineCompletions, updated]);
+        // When adding a new completion, we need the full object structure.
+        // For now, we'll use a simplified version for optimistic update.
+        // The actual `updated` object from the API call would be more complete.
+        return [...prev, { routineId, date, completed, id: 'temp-id', createdAt: new Date().toISOString() }];
       }
-    }
-  };
+    });
+  }, [setRoutineCompletions, toggleRoutineCompletion]);
 
-  const handleAddTodo = async (weekStart: string, text: string) => {
+  const handleAddTodo = useCallback(async (weekStart: string, text: string) => {
     const newTodo = await createTodo({
       weekStart,
       text,
       completed: false,
     });
     if (newTodo) {
-      setTodos([...todos, newTodo]);
+      setTodos(prev => [...prev, newTodo]);
     }
-  };
+  }, [createTodo, setTodos]);
 
-  const handleToggleTodo = async (todoId: string) => {
-    const todo = todos.find(t => t.id === todoId);
-    if (!todo) return;
-    const updated = await updateTodo(todoId, { completed: !todo.completed });
-    if (updated) {
-      setTodos(todos.map(t => t.id === todoId ? updated : t));
-    }
-  };
+  const handleToggleTodo = useCallback(async (todoId: string) => {
+    setTodos(prev => {
+      const todo = prev.find(t => t.id === todoId);
+      if (!todo) return prev;
+      const completed = !todo.completed;
+      updateTodo(todoId, { completed }); // Fire and forget for optimistic update
+      return prev.map(t => t.id === todoId ? { ...t, completed } : t);
+    });
+  }, [setTodos, updateTodo]);
 
-  const handleUpdateTodo = async (todoId: string, text: string) => {
+  const handleUpdateTodo = useCallback(async (todoId: string, text: string) => {
     const updated = await updateTodo(todoId, { text });
     if (updated) {
-      setTodos(todos.map(t => t.id === todoId ? updated : t));
+      setTodos(prev => prev.map(t => t.id === todoId ? updated : t));
     }
-  };
+  }, [updateTodo, setTodos]);
 
-  const handleDeleteTodo = async (todoId: string) => {
+  const handleDeleteTodo = useCallback(async (todoId: string) => {
     const success = await deleteTodo(todoId);
     if (success) {
-      setTodos(todos.filter(t => t.id !== todoId));
+      setTodos(prev => prev.filter(t => t.id !== todoId));
     }
-  };
+  }, [deleteTodo, setTodos]);
 
-  const handleSaveDayDefinition = async (date: string, text: string) => {
+  const handleSaveDayDefinition = useCallback(async (date: string, text: string) => {
     const saved = await upsertDayDefinition(date, text);
     if (saved) {
       setDayDefinitions(prev => ({ ...prev, [date]: text }));
     }
-  };
+  }, [upsertDayDefinition, setDayDefinitions]);
 
-  const handleDeleteDayDefinition = async (date: string) => {
+  const handleDeleteDayDefinition = useCallback(async (date: string) => {
     const success = await deleteDayDefinition(date);
     if (success) {
       setDayDefinitions(prev => {
@@ -991,7 +1304,7 @@ function App() {
         return next;
       });
     }
-  };
+  }, [deleteDayDefinition, setDayDefinitions]);
 
   const handleOpenDiary = async (date: string) => {
     setActiveDiaryDate(date);
@@ -1182,11 +1495,72 @@ function App() {
   const userInitial = session?.user?.email?.[0]?.toUpperCase() || 'U';
 
 
+  const handleAddLocalCalendar = (name: string, color: string) => {
+    // 임의의 고유 ID 생성 (local:timestamp:random)
+    const newId = `local:${Date.now()}:${Math.floor(Math.random() * 1000)}`;
+    const newCal: CalendarMetadata = {
+      url: newId,
+      displayName: name,
+      color: color,
+      isLocal: true,
+    };
+
+    const nextMetadata = [...calendarMetadata, newCal];
+    setCalendarMetadata(nextMetadata);
+    saveCalendarMetadata(nextMetadata);
+
+    // 새 캘린더는 기본적으로 보이게 설정
+    setVisibleCalendarUrlSet(prev => {
+      const next = new Set(prev);
+      next.add(newId);
+      return next;
+    });
+
+    return newId;
+  };
+
+  const handleUpdateLocalCalendar = (url: string, updates: Partial<CalendarMetadata>) => {
+    const nextMetadata = calendarMetadata.map(cal => {
+      if (cal.url === url) {
+        return { ...cal, ...updates };
+      }
+      return cal;
+    });
+    setCalendarMetadata(nextMetadata);
+    saveCalendarMetadata(nextMetadata);
+  };
+
+  const handleDeleteLocalCalendar = (url: string) => {
+    const nextMetadata = calendarMetadata.filter(cal => cal.url !== url);
+    setCalendarMetadata(nextMetadata);
+    saveCalendarMetadata(nextMetadata);
+  };
+
+
   return (
-    <div className={styles.app}>
-      {/* 캘린더가 마운트된 경우에만 렌더링 */}
-      {calendarMounted && (
-        <div>
+    <div className={styles.appContainer}>
+      {sessionLoading ? null : !session ? (
+        <Login />
+      ) : (
+        <div className={styles.appLayout}>
+          <>
+            {!isCalendarPopupOpen && (
+              <CalendarToggleButton onClick={() => setIsCalendarPopupOpen(true)} />
+            )}
+            {isCalendarPopupOpen && (
+              <CalendarListPopup
+                calendars={calendarMetadata}
+                visibleUrlSet={visibleCalendarUrlSet}
+                onToggle={handleToggleCalendarVisibility}
+                onClose={() => setIsCalendarPopupOpen(false)}
+                onOpenSyncSettings={handleOpenCalDAVModal}
+                onAddLocalCalendar={handleAddLocalCalendar}
+                onUpdateLocalCalendar={handleUpdateLocalCalendar}
+                onDeleteLocalCalendar={handleDeleteLocalCalendar}
+              />
+            )}
+          </>
+
           <AppHeader
             currentYear={currentYear}
             currentMonth={currentMonth}
@@ -1206,93 +1580,60 @@ function App() {
             onLogout={handleLogoutFromMenu}
           />
 
-          {/* 주간 리스트 */}
           <div className={styles.appContent} ref={containerRef}>
-            <div className={styles.appWeeksList}>
-              {/* Top Sentinel for Infinite Scroll */}
-              <div ref={topSentinelRef} className={styles.appSentinel} />
-
-              {weeks.map((weekStart) => {
-                const weekStatus = getWeekStatus(weekStart);
-                const isCurrentWeek = weekStatus === 'current';
-                // Use local date string instead of toISOString() to identify the week
-                const weekStartStr = formatLocalDate(weekStart);
-                const todoWeekStartStr = getTodoWeekStart(weekStart);
-
-                return (
-                  <div
-                    key={weekStartStr}
-                    id={isCurrentWeek ? 'current-week' : undefined}
-                  >
-                    <ObserverWrapper
-                      onIntersect={() => {
-                        setCurrentYear(weekStart.getFullYear());
-                        setCurrentMonth(weekStart.getMonth() + 1);
-                      }}
-                    >
-                      <WeekCard
-                        weekStart={weekStart}
-                        events={events}
-                        routines={routines}
-                        routineCompletions={routineCompletions}
-                        todos={todos.filter(t => t.weekStart === todoWeekStartStr)}
-                        dayDefinitions={dayDefinitions}
-                        selectedEventIds={selectedEventIds}
-                        weekOrder={weekOrder}
-                        onDateClick={handleDateClick}
-                        onEventClick={(event: Event, multi: boolean) => {
-                          setSelectedEventIds(prev => {
-                            if (multi) {
-                              return prev.includes(event.id)
-                                ? prev.filter(id => id !== event.id)
-                                : [...prev, event.id];
-                            }
-                            return [event.id];
-                          });
-                        }}
-                        onEventDoubleClick={(event: Event) => {
-                          setSelectedEvent(event);
-                          setSelectedEventIds([event.id]);
-                        }}
-                        onDeleteEvent={handleDeleteEvent}
-                        onToggleRoutine={handleToggleRoutine}
-                        onAddTodo={(text) => handleAddTodo(todoWeekStartStr, text)}
-                        onToggleTodo={handleToggleTodo}
-                        onUpdateTodo={handleUpdateTodo}
-                        onDeleteTodo={handleDeleteTodo}
-                        onSaveDayDefinition={handleSaveDayDefinition}
-                        onDeleteDayDefinition={handleDeleteDayDefinition}
-                        onOpenDiary={handleOpenDiary}
-                        diaryCompletions={diaryCompletionMap}
-                        weekStatus={weekStatus}
-                        showRoutines={showRoutines}
-                        showTodos={showTodos}
-                      />
-                    </ObserverWrapper>
-                  </div>
-                );
-              })}
-
-              {/* Bottom Sentinel for Infinite Scroll */}
-              <div ref={bottomSentinelRef} className={styles.appSentinel} />
-            </div>
+            <CalendarList
+              weeksData={renderedWeeksData}
+              eventsByWeek={eventsByWeek}
+              todosByWeek={todosByWeek}
+              routines={routines}
+              routineCompletions={routineCompletions}
+              dayDefinitions={dayDefinitions}
+              selectedEventIdsByWeek={selectedEventIdsByWeek}
+              weekOrder={weekOrder}
+              diaryCompletionMap={diaryCompletionMap}
+              showRoutines={showRoutines}
+              showTodos={showTodos}
+              onDateClick={handleDateClick}
+              onEventClick={handleEventClick}
+              onEventDoubleClick={handleEventDoubleClick}
+              onDeleteEvent={handleDeleteEvent}
+              onToggleRoutine={handleToggleRoutine}
+              onAddTodo={handleAddTodo}
+              onToggleTodo={handleToggleTodo}
+              onUpdateTodo={handleUpdateTodo}
+              onDeleteTodo={handleDeleteTodo}
+              onSaveDayDefinition={handleSaveDayDefinition}
+              onDeleteDayDefinition={handleDeleteDayDefinition}
+              onOpenDiary={handleOpenDiary}
+              setCurrentYear={setCurrentYear}
+              setCurrentMonth={setCurrentMonth}
+              topSentinelRef={topSentinelRef}
+              bottomSentinelRef={bottomSentinelRef}
+            />
           </div>
 
           <AppModals
+            popupPosition={popupPosition}
             selectedDate={selectedDate}
             isEventModalOpen={isEventModalOpen}
             selectedEvent={selectedEvent}
+            draftEvent={draftEvent}
+            modalSessionId={modalSessionId}
             routines={routines}
+            calendars={calendarMetadata}
             isRoutineModalOpen={isRoutineModalOpen}
             isCalDAVModalOpen={isCalDAVModalOpen}
             isSettingsModalOpen={isSettingsModalOpen}
             avatarUrl={avatarUrl}
             weekOrder={weekOrder}
-            onCloseEventModal={() => setIsEventModalOpen(false)}
+            onCloseEventModal={() => {
+              setIsEventModalOpen(false);
+              setDraftEvent(null);
+            }}
             onAddEvent={handleAddEvent}
-            onCloseEventDetail={() => setSelectedEvent(null)}
             onUpdateEvent={handleUpdateEvent}
             onDeleteEvent={handleDeleteEvent}
+            onDraftUpdate={handleUpdateDraft}
             onCloseRoutineModal={() => setIsRoutineModalOpen(false)}
             onAddRoutine={handleAddRoutine}
             onDeleteRoutine={handleDeleteRoutine}
@@ -1321,11 +1662,112 @@ function App() {
           onDelete={handleDiaryDelete}
         />
       )}
-
-    </div >
+    </div>
   );
 }
 
+interface CalendarListProps {
+  weeksData: any[];
+  eventsByWeek: Record<string, Event[]>;
+  todosByWeek: Record<string, Todo[]>;
+  routines: Routine[];
+  routineCompletions: RoutineCompletion[];
+  dayDefinitions: Record<string, string>;
+  selectedEventIdsByWeek: Record<string, string[]>;
+  weekOrder: WeekOrder;
+  diaryCompletionMap: Record<string, boolean>;
+  showRoutines: boolean;
+  showTodos: boolean;
+  onDateClick: any;
+  onEventClick: any;
+  onEventDoubleClick: any;
+  onDeleteEvent: any;
+  onToggleRoutine: any;
+  onAddTodo: any;
+  onToggleTodo: any;
+  onUpdateTodo: any;
+  onDeleteTodo: any;
+  onSaveDayDefinition: any;
+  onDeleteDayDefinition: any;
+  onOpenDiary: any;
+  setCurrentYear: any;
+  setCurrentMonth: any;
+  topSentinelRef: any;
+  bottomSentinelRef: any;
+}
 
+const CalendarList = memo(({
+  weeksData,
+  eventsByWeek,
+  todosByWeek,
+  routines,
+  routineCompletions,
+  dayDefinitions,
+  selectedEventIdsByWeek,
+  weekOrder,
+  diaryCompletionMap,
+  showRoutines,
+  showTodos,
+  onDateClick,
+  onEventClick,
+  onEventDoubleClick,
+  onDeleteEvent,
+  onToggleRoutine,
+  onAddTodo,
+  onToggleTodo,
+  onUpdateTodo,
+  onDeleteTodo,
+  onSaveDayDefinition,
+  onDeleteDayDefinition,
+  onOpenDiary,
+  setCurrentYear,
+  setCurrentMonth,
+  topSentinelRef,
+  bottomSentinelRef
+}: CalendarListProps) => {
+  return (
+    <div className={styles.appWeeksList}>
+      <div ref={topSentinelRef} className={styles.appSentinel} />
+      {weeksData.map(({ weekStart, weekStartStr, todoWeekStartStr, weekStatus }) => (
+        <div key={weekStartStr} id={weekStatus === 'current' ? 'current-week' : undefined}>
+          <ObserverWrapper
+            onIntersect={() => {
+              setCurrentYear(weekStart.getFullYear());
+              setCurrentMonth(weekStart.getMonth() + 1);
+            }}
+          >
+            <WeekCard
+              weekStart={weekStart}
+              events={eventsByWeek[weekStartStr] || []}
+              routines={routines}
+              routineCompletions={routineCompletions}
+              todos={todosByWeek[todoWeekStartStr] || []}
+              dayDefinitions={dayDefinitions}
+              selectedEventIds={selectedEventIdsByWeek[weekStartStr] || []}
+              weekOrder={weekOrder}
+              onDateClick={onDateClick}
+              onEventClick={onEventClick}
+              onEventDoubleClick={onEventDoubleClick}
+              onDeleteEvent={onDeleteEvent}
+              onToggleRoutine={onToggleRoutine}
+              onAddTodo={onAddTodo}
+              onToggleTodo={onToggleTodo}
+              onUpdateTodo={onUpdateTodo}
+              onDeleteTodo={onDeleteTodo}
+              onSaveDayDefinition={onSaveDayDefinition}
+              onDeleteDayDefinition={onDeleteDayDefinition}
+              onOpenDiary={onOpenDiary}
+              diaryCompletions={diaryCompletionMap}
+              weekStatus={weekStatus}
+              showRoutines={showRoutines}
+              showTodos={showTodos}
+            />
+          </ObserverWrapper>
+        </div>
+      ))}
+      <div ref={bottomSentinelRef} className={styles.appSentinel} />
+    </div>
+  );
+});
 
 export default App;

@@ -1,6 +1,6 @@
 import { Event, Routine, WeekOrder } from '../App';
+import { CalendarMetadata } from '../services/api';
 import { CalDAVSyncModal } from './CalDAVSyncModal';
-import { EventDetailModal } from './EventDetailModal';
 import { EventModal } from './EventModal';
 import { RoutineModal } from './RoutineModal';
 import { SettingsModal } from './SettingsModal';
@@ -9,15 +9,21 @@ interface AppModalsProps {
   selectedDate: string | null;
   isEventModalOpen: boolean;
   selectedEvent: Event | null;
+  draftEvent: Event | null;
+  modalSessionId: number;
   routines: Routine[];
+  calendars: CalendarMetadata[];
+  popupPosition?: {
+    anchorId: string;
+    align: 'left' | 'right';
+  } | null;
   isRoutineModalOpen: boolean;
   isCalDAVModalOpen: boolean;
   isSettingsModalOpen: boolean;
   avatarUrl: string | null;
   weekOrder: WeekOrder;
   onCloseEventModal: () => void;
-  onAddEvent: (event: Omit<Event, 'id'>) => void;
-  onCloseEventDetail: () => void;
+  onAddEvent: (event: Omit<Event, 'id'>, keepOpen?: boolean) => void;
   onUpdateEvent: (eventId: string, updates: Partial<Event>) => void;
   onDeleteEvent: (eventId: string) => void;
   onCloseRoutineModal: () => void;
@@ -27,13 +33,18 @@ interface AppModalsProps {
   onSyncComplete: (count: number) => void;
   onCloseSettings: () => void;
   onSettingsSaved: (data: { avatarUrl: string | null; weekOrder: WeekOrder }) => void;
+  onDraftUpdate?: (updates: Partial<Event>) => void;
 }
 
 export function AppModals({
   selectedDate,
   isEventModalOpen,
   selectedEvent,
+  draftEvent,
+  modalSessionId,
   routines,
+  calendars,
+  popupPosition,
   isRoutineModalOpen,
   isCalDAVModalOpen,
   isSettingsModalOpen,
@@ -41,7 +52,6 @@ export function AppModals({
   weekOrder,
   onCloseEventModal,
   onAddEvent,
-  onCloseEventDetail,
   onUpdateEvent,
   onDeleteEvent,
   onCloseRoutineModal,
@@ -51,23 +61,23 @@ export function AppModals({
   onSyncComplete,
   onCloseSettings,
   onSettingsSaved,
+  onDraftUpdate,
 }: AppModalsProps) {
   return (
     <>
       {isEventModalOpen && selectedDate && (
         <EventModal
+          key={`session-${modalSessionId}`}
           date={selectedDate}
+          initialTitle={draftEvent?.title}
+          event={selectedEvent || undefined}
+          calendars={calendars}
+          position={popupPosition}
           onClose={onCloseEventModal}
           onSave={onAddEvent}
-        />
-      )}
-
-      {selectedEvent && (
-        <EventDetailModal
-          event={selectedEvent}
-          onClose={onCloseEventDetail}
           onUpdate={onUpdateEvent}
           onDelete={onDeleteEvent}
+          onDraftUpdate={onDraftUpdate}
         />
       )}
 

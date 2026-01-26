@@ -1,187 +1,415 @@
-import { useState } from 'react';
-import { X } from 'lucide-react';
+import { useState, useRef, useEffect, useLayoutEffect } from 'react';
+import { X, ChevronDown, Trash2 } from 'lucide-react';
 import { Event } from '../App';
+import { CalendarMetadata } from '../services/api';
 import styles from './EventModal.module.css';
 
 interface EventModalProps {
   date: string;
+  initialTitle?: string;
+  event?: Event;
+  calendars: CalendarMetadata[];
+  position?: {
+    anchorId: string;
+    align: 'left' | 'right';
+  } | null;
   onClose: () => void;
-  onSave: (event: Omit<Event, 'id'>) => void;
+  onSave: (event: Omit<Event, 'id'>, keepOpen?: boolean) => void;
+  onUpdate?: (eventId: string, updates: Partial<Event>) => void;
+  onDelete?: (eventId: string) => void;
+  onDraftUpdate?: (updates: Partial<Event>) => void;
 }
 
-const COLORS = [
-  '#3b82f6', // blue
-  '#ef4444', // red
-  '#10b981', // green
-  '#f59e0b', // amber
-  '#8b5cf6', // violet
-  '#ec4899', // pink
-  '#06b6d4', // cyan
-];
+// Custom Time Input Component
+interface TimeInputProps {
+  value: string; // "HH:mm" (24h)
+  onChange: (val: string) => void;
+  highlightColor: string;
+}
 
-export function EventModal({ date, onClose, onSave }: EventModalProps) {
-  const [title, setTitle] = useState('');
-  const [memo, setMemo] = useState('');
-  const [startTime, setStartTime] = useState('');
-  const [endTime, setEndTime] = useState('');
-  const [color, setColor] = useState(COLORS[0]);
-
-  const formatDate = (dateStr: string) => {
-    const date = new Date(dateStr + 'T00:00:00');
-    const year = date.getFullYear();
-    const month = date.getMonth() + 1;
-    const day = date.getDate();
-    const dayNames = ['일', '월', '화', '수', '목', '금', '토'];
-    const dayName = dayNames[date.getDay()];
-
-    return `${year}년 ${month}월 ${day}일 (${dayName})`;
+function TimeInput({ value, onChange, highlightColor }: TimeInputProps) {
+  // Parse 24h "HH:mm" to 12h parts
+  const parseTime = (v: string) => {
+    const [h, m] = v.split(':').map(Number);
+    const isPm = h >= 12;
+    const ampm = isPm ? '오후' : '오전';
+    const hour12 = h % 12 || 12;
+    const minute = m;
+    return { ampm, hour12, minute };
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!title.trim()) return;
+  const { ampm, hour12, minute } = parseTime(value);
 
-    onSave({
-      date,
-      title: title.trim(),
-      memo: memo.trim() || undefined,
-      startTime: startTime || undefined,
-      endTime: endTime || undefined,
-      color,
-    });
+  const updateTime = (newAmpm: string, newH: number, newM: number) => {
+    let h24 = newH === 12 ? 0 : newH;
+    if (newAmpm === '오후') {
+      h24 = h24 + 12;
+    }
+    // Handle 12 AM/PM edge cases
+    if (newAmpm === '오전' && newH === 12) h24 = 0;
+    if (newAmpm === '오후' && newH === 12) h24 = 12;
 
-    setTitle('');
-    setMemo('');
-    setStartTime('');
-    setEndTime('');
+    const hStr = String(h24).padStart(2, '0');
+    const mStr = String(newM).padStart(2, '0');
+    onChange(`${hStr}:${mStr}`);
+  };
+
+  const handleAmpmChange = () => {
+    const newAmpm = ampm === '오전' ? '오후' : '오전';
+    updateTime(newAmpm, hour12, minute);
+  };
+
+  const handleHourChange = (delta: number) => {
+    let newH = hour12 + delta;
+    if (newH > 12) newH = 1;
+    if (newH < 1) newH = 12;
+    updateTime(ampm, newH, minute);
+  };
+
+  const handleMinuteChange = (delta: number) => {
+    let newM = minute + delta;
+    if (newM > 59) newM = 0;
+    if (newM < 0) newM = 59;
+    updateTime(ampm, hour12, newM);
+  };
+
+  const handleHourInput = (e: React.ChangeEvent<HTMLInputElement>) => {
+    let val = parseInt(e.target.value);
+    if (isNaN(val)) return;
+    if (val > 12) val = 12;
+    if (val < 0) val = 0;
+    if (val === 0) return;
+    updateTime(ampm, val, minute);
+  };
+
+  const handleMinuteInput = (e: React.ChangeEvent<HTMLInputElement>) => {
+    let val = parseInt(e.target.value);
+    if (isNaN(val)) return;
+    if (val > 59) val = 59;
+    if (val < 0) val = 0;
+    updateTime(ampm, hour12, val);
   };
 
   return (
-    <div className={styles.modalOverlay}>
-      {/* 백드롭 */}
+    <div className={styles.customTimeInput}>
+      <div
+        className={styles.timeSegment}
+        tabIndex={0}
+        onClick={handleAmpmChange}
+        onKeyDown={(e) => {
+          if (e.key === 'ArrowUp' || e.key === 'ArrowDown' || e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
+            handleAmpmChange();
+          }
+        }}
+        style={{ '--highlight-color': highlightColor } as React.CSSProperties}
+      >
+        {ampm}
+      </div>
+
+      <input
+        type="text"
+        inputMode="numeric"
+        className={styles.timeNumInput}
+        value={hour12}
+        onChange={handleHourInput}
+        onKeyDown={(e) => {
+          if (e.key === 'ArrowUp') { e.preventDefault(); handleHourChange(1); }
+          if (e.key === 'ArrowDown') { e.preventDefault(); handleHourChange(-1); }
+        }}
+        onFocus={(e) => e.target.select()}
+        style={{ '--highlight-color': highlightColor } as React.CSSProperties}
+      />
+
+      <span className={styles.timeColon}>:</span>
+
+      <input
+        type="text"
+        inputMode="numeric"
+        className={styles.timeNumInput}
+        value={String(minute).padStart(2, '0')}
+        onChange={handleMinuteInput}
+        onKeyDown={(e) => {
+          if (e.key === 'ArrowUp') { e.preventDefault(); handleMinuteChange(1); }
+          if (e.key === 'ArrowDown') { e.preventDefault(); handleMinuteChange(-1); }
+        }}
+        onFocus={(e) => e.target.select()}
+        style={{ '--highlight-color': highlightColor } as React.CSSProperties}
+      />
+    </div>
+  );
+}
+
+export function EventModal({ date, initialTitle, event, calendars, position, onClose, onSave, onUpdate, onDelete, onDraftUpdate }: EventModalProps) {
+  // 이 모달 세션이 "새 일정 생성"으로 시작했는지 기억 (저장 후에도 삭제 버튼 숨김)
+  const isCreateSession = useRef(!event);
+
+  const [title, setTitle] = useState(event?.title || initialTitle || '');
+  const [memo, setMemo] = useState(event?.memo || '');
+  const [startTime, setStartTime] = useState(event?.startTime || '09:00');
+  const [endTime, setEndTime] = useState(event?.endTime || '10:00');
+
+  // 기본 캘린더 선택
+  const [selectedCalendar, setSelectedCalendar] = useState<CalendarMetadata | null>(() => {
+    if (event?.calendarUrl) {
+      return calendars.find(c => c.url === event.calendarUrl) || null;
+    }
+    return calendars.length > 0 ? calendars[0] : null;
+  });
+
+  const [isCalendarDropdownOpen, setIsCalendarDropdownOpen] = useState(false);
+  const dropdownRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
+        setIsCalendarDropdownOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  // Auto-Save Effect
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      // 제목이 없거나, 새 일정인데 제목이 기본값인 경우 자동 저장 안함
+      if (!title.trim() || (!event && title.trim() === '새로운 일정')) return;
+
+      const currentData = {
+        title: title.trim(),
+        memo: memo.trim() || undefined,
+        startTime: startTime || undefined,
+        endTime: endTime || undefined,
+        color: selectedCalendar?.color || '#3b82f6',
+        calendarUrl: selectedCalendar?.url
+      };
+
+      if (event) {
+        if (onUpdate) {
+          const isChanged =
+            title !== event.title ||
+            memo !== (event.memo || '') ||
+            startTime !== (event.startTime || '09:00') ||
+            endTime !== (event.endTime || '10:00') ||
+            selectedCalendar?.url !== event.calendarUrl;
+
+          if (isChanged) {
+            onUpdate(event.id, currentData);
+          }
+        }
+      } else {
+        // Create Mode: Only save if user has changed something
+        onSave({ ...currentData, date }, true);
+      }
+    }, 1000); // 1초 뒤에 저장 (사용자가 입력할 시간을 충분히 줌)
+    return () => clearTimeout(timer);
+  }, [title, memo, startTime, endTime, selectedCalendar, event, onUpdate, onSave, date]);
+
+  const currentColor = selectedCalendar?.color || '#3b82f6';
+
+  // 드래프트 상태 동기화: 사용자가 입력할 때 서버 저장 전이라도 달력 미리보기 업데이트
+  useEffect(() => {
+    if (!event && onDraftUpdate) {
+      onDraftUpdate({
+        title: title.trim(),
+        memo: memo.trim() || undefined,
+        startTime: startTime || undefined,
+        endTime: endTime || undefined,
+        color: currentColor,
+        calendarUrl: selectedCalendar?.url
+      });
+    }
+  }, [title, memo, startTime, endTime, currentColor, selectedCalendar, event, onDraftUpdate]);
+
+  const memoRef = useRef<HTMLTextAreaElement>(null);
+
+  useEffect(() => {
+    if (memoRef.current) {
+      memoRef.current.style.height = 'auto';
+      memoRef.current.style.height = `${memoRef.current.scrollHeight}px`;
+    }
+  }, [memo]);
+
+  const [styleState, setStyleState] = useState<{ top: number, left?: number, right?: number }>();
+
+  useLayoutEffect(() => {
+    if (!position?.anchorId) return;
+
+    const update = () => {
+      const anchor = document.getElementById(position.anchorId);
+      if (!anchor) return;
+
+      const rect = anchor.getBoundingClientRect();
+      const scrollY = window.scrollY;
+      const gap = 12;
+
+      const top = rect.top + scrollY;
+      let left: number | undefined;
+      let right: number | undefined;
+
+      if (position.align === 'left') {
+        left = rect.right + gap;
+      } else {
+        right = (document.documentElement.clientWidth - rect.left) + gap;
+      }
+
+      setStyleState({ top, left, right });
+    };
+
+    update();
+    window.addEventListener('resize', update);
+    return () => window.removeEventListener('resize', update);
+  }, [position?.anchorId, position?.align]);
+
+  const absoluteStyle: React.CSSProperties | undefined = styleState ? {
+    position: 'absolute',
+    top: styleState.top,
+    left: styleState.left,
+    right: styleState.right,
+    transform: 'none',
+    margin: 0,
+  } : undefined;
+
+  const isPositioned = !position || styleState !== undefined;
+
+  const handleDelete = (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (event && onDelete) {
+      if (window.confirm('정말 삭제하시겠습니까?')) {
+        onDelete(event.id);
+        onClose();
+      }
+    }
+  };
+
+  const formattedDateLine = (() => {
+    const [y, m, d] = date.split('-').map(Number);
+    return `${y}. ${m}. ${d}.`;
+  })();
+
+  // currentColor is already defined above, no need to redefine
+  // const currentColor = selectedCalendar?.color || '#3b82f6';
+
+  return (
+    <div className={position ? styles.modalOverlayAbsolute : styles.modalOverlay}>
       <div
         className={styles.modalBackdrop}
         onClick={onClose}
       />
 
-      {/* 모달 */}
-      <div className={styles.modal}>
-        {/* 헤더 */}
-        <div className={styles.modalHeader}>
-          <div className={styles.modalHeaderContent}>
-            <h2>일정 추가</h2>
-            <p>{formatDate(date)}</p>
-          </div>
-          <button
-            onClick={onClose}
-            className={styles.modalCloseButton}
-          >
-            <X className={styles.modalCloseIcon} />
-          </button>
-        </div>
+      <div
+        className={`${styles.modal} ${position ? styles.modalPositioned : ''}`}
+        style={position ? (absoluteStyle || { visibility: 'hidden' }) : undefined}
+      >
+        {isPositioned && (
+          <>
+            {position && (
+              <div
+                className={`${styles.modalArrow} ${position.align === 'left' ? styles.arrowLeft : styles.arrowRight}`}
+                style={{
+                  top: '20px'
+                }}
+              />
+            )}
+            <div className={styles.modalForm}>
 
-        {/* 폼 */}
-        <form onSubmit={handleSubmit} className={styles.modalForm}>
-          {/* 제목 입력 */}
-          <div className={styles.formGroup}>
-            <label htmlFor="title" className={styles.formLabel}>
-              일정 제목
-            </label>
-            <input
-              id="title"
-              type="text"
-              value={title}
-              onChange={(e) => setTitle(e.target.value)}
-              placeholder="일정을 입력하세요"
-              className={styles.formInput}
-              autoFocus
-            />
-          </div>
-
-          {/* 메모 입력 */}
-          <div className={styles.formGroup}>
-            <label htmlFor="memo" className={styles.formLabel}>
-              메모 (선택사항)
-            </label>
-            <textarea
-              id="memo"
-              value={memo}
-              onChange={(e) => setMemo(e.target.value)}
-              placeholder="메모를 입력하세요"
-              rows={3}
-              className={styles.formTextarea}
-            />
-          </div>
-
-          {/* 시간 입력 */}
-          <div className={styles.formGroup}>
-            <label className={styles.formLabel}>
-              시간 (선택사항)
-            </label>
-            <div className={styles.timeInputs}>
-              <div>
-                <label htmlFor="startTime" className={styles.formLabelSmall}>
-                  시작 시간
-                </label>
+              <div className={`${styles.inputWrapper} ${styles.titleRow}`}>
                 <input
-                  id="startTime"
-                  type="time"
+                  type="text"
+                  value={title}
+                  onChange={(e) => setTitle(e.target.value)}
+                  placeholder="새로운 일정"
+                  className={styles.titleInput}
+                  autoFocus
+                />
+
+                <div className={styles.calendarSelector} ref={dropdownRef}>
+                  <button
+                    type="button"
+                    className={styles.calendarConfigButton}
+                    onClick={() => setIsCalendarDropdownOpen(!isCalendarDropdownOpen)}
+                    title={selectedCalendar?.displayName || '캘린더 선택'}
+                  >
+                    <div
+                      className={styles.calendarDot}
+                      style={{ backgroundColor: currentColor }}
+                    />
+                    <ChevronDown size={14} className={styles.calendarArrow} />
+                  </button>
+
+                  {isCalendarDropdownOpen && (
+                    <div className={styles.calendarDropdown}>
+                      {calendars.map(cal => (
+                        <button
+                          key={cal.url}
+                          type="button"
+                          className={styles.calendarOption}
+                          onClick={() => {
+                            setSelectedCalendar(cal);
+                            setIsCalendarDropdownOpen(false);
+                          }}
+                        >
+                          <span
+                            className={styles.calendarOptionDot}
+                            style={{ backgroundColor: cal.color }}
+                          />
+                          <span className={styles.calendarOptionName}>{cal.displayName}</span>
+                          {cal.isLocal && <span className={styles.localBadge}>로컬</span>}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              <div className={`${styles.inputWrapper} ${styles.dateTimeRow}`}>
+                <span className={styles.dateText}>{formattedDateLine}</span>
+                <TimeInput
                   value={startTime}
-                  onChange={(e) => setStartTime(e.target.value)}
-                  className={styles.formInput}
+                  onChange={setStartTime}
+                  highlightColor={currentColor}
                 />
-              </div>
-              <div>
-                <label htmlFor="endTime" className={styles.formLabelSmall}>
-                  종료 시간
-                </label>
-                <input
-                  id="endTime"
-                  type="time"
+                <span className={styles.timeSeparator}>~</span>
+                <TimeInput
                   value={endTime}
-                  onChange={(e) => setEndTime(e.target.value)}
-                  className={styles.formInput}
+                  onChange={setEndTime}
+                  highlightColor={currentColor}
                 />
               </div>
-            </div>
-          </div>
 
-          {/* 색상 선택 */}
-          <div className={styles.formGroup}>
-            <label className={styles.formLabel}>
-              라벨 색상
-            </label>
-            <div className={styles.colorPicker}>
-              {COLORS.map((c) => (
-                <button
-                  key={c}
-                  type="button"
-                  onClick={() => setColor(c)}
-                  className={`${styles.colorButton} ${color === c ? styles.colorButtonSelected : ''}`}
-                  style={{ backgroundColor: c }}
+              <div className={styles.inputWrapper}>
+                <textarea
+                  ref={memoRef}
+                  value={memo}
+                  onChange={(e) => setMemo(e.target.value)}
+                  placeholder="메모"
+                  rows={1}
+                  className={styles.memoTextarea}
                 />
-              ))}
-            </div>
-          </div>
+              </div>
 
-          {/* 버튼 */}
-          <div className={styles.modalActions}>
-            <button
-              type="button"
-              onClick={onClose}
-              className={`${styles.modalButton} ${styles.modalButtonCancel}`}
-            >
-              취소
+              <div className={styles.modalActions}>
+                {event && onDelete && !isCreateSession.current && (
+                  <button
+                    type="button"
+                    onClick={handleDelete}
+                    className={styles.addButton}
+                    style={{ backgroundColor: 'transparent', color: '#ef4444', marginRight: 'auto', paddingLeft: 0, paddingRight: 0, minWidth: 'auto', boxShadow: 'none' }}
+                    title="삭제"
+                  >
+                    <Trash2 size={18} />
+                  </button>
+                )}
+              </div>
+            </div>
+
+            <button onClick={onClose} className={styles.closeButton}>
+              <X size={14} />
             </button>
-            <button
-              type="submit"
-              disabled={!title.trim()}
-              className={`${styles.modalButton} ${styles.modalButtonSubmit}`}
-            >
-              추가
-            </button>
-          </div>
-        </form>
+          </>
+        )}
       </div>
     </div>
   );

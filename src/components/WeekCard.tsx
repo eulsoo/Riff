@@ -1,4 +1,4 @@
-import { KeyboardEvent, useEffect, useRef, useState } from 'react';
+import { KeyboardEvent, useEffect, useRef, useState, memo } from 'react';
 import { Event, Routine, RoutineCompletion, Todo, WeekOrder } from '../App';
 import { RoutineIcon } from './RoutineIcon';
 import { TodoList } from './TodoList';
@@ -14,12 +14,12 @@ interface WeekCardProps {
   dayDefinitions: Record<string, string>;
   selectedEventIds: string[];
   weekOrder: WeekOrder;
-  onDateClick: (date: string) => void;
+  onDateClick: (date: string, anchorEl?: HTMLElement) => void;
   onEventClick: (event: Event, multi: boolean) => void;
-  onEventDoubleClick: (event: Event) => void;
+  onEventDoubleClick: (event: Event, anchorEl?: HTMLElement) => void;
   onDeleteEvent: (eventId: string) => void;
   onToggleRoutine: (routineId: string, date: string) => void;
-  onAddTodo: (text: string) => void;
+  onAddTodo: (weekStart: string, text: string) => void;
   onToggleTodo: (todoId: string) => void;
   onUpdateTodo: (todoId: string, text: string) => void;
   onDeleteTodo: (todoId: string) => void;
@@ -40,7 +40,7 @@ const DIARY_ROUTINE: Routine = {
   days: [],
 };
 
-export function WeekCard({
+export const WeekCard = memo(function WeekCard({
   weekStart,
   events,
   routines,
@@ -132,7 +132,10 @@ export function WeekCard({
   };
 
   const getEventsForDate = (date: Date) => {
-    const dateStr = date.toISOString().split('T')[0];
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    const dateStr = `${year}-${month}-${day}`;
     return events.filter(event => event.date === dateStr);
   };
 
@@ -237,7 +240,10 @@ export function WeekCard({
           const dayEvents = getEventsForDate(date);
           const routineDayIndex = weekOrder === 'sun' ? (index === 0 ? 6 : index - 1) : index;
           const dayRoutines = getRoutinesForDay(routineDayIndex);
-          const dateStr = date.toISOString().split('T')[0];
+          const year = date.getFullYear();
+          const month = String(date.getMonth() + 1).padStart(2, '0');
+          const day = String(date.getDate()).padStart(2, '0');
+          const dateStr = `${year}-${month}-${day}`;
           const today = isToday(date);
           const dayNames = weekOrder === 'sun'
             ? ['일', '월', '화', '수', '목', '금', '토']
@@ -251,6 +257,7 @@ export function WeekCard({
           return (
             <div
               key={dateStr}
+              id={`day-cell-${dateStr}`}
               className={`${styles.dayCell} ${isWeekend ? styles.dayCellWeekend : ''}`}
             >
               {/* 날짜 헤더 */}
@@ -322,12 +329,26 @@ export function WeekCard({
               {/* 이벤트 영역 */}
               <div
                 className={styles.dayEvents}
-                onDoubleClick={() => onDateClick(dateStr)}
+                onClick={(e) => {
+                  // 이벤트 버블링 방지: 자식 요소(일정) 클릭 시에는 무시
+                  if (e.target !== e.currentTarget && (e.target as HTMLElement).closest('[data-event-item]')) {
+                    return;
+                  }
+                  // 빈 공간 클릭 동작 (필요 시 선택 해제 로직 등 추가 가능)
+                }}
+                onDoubleClick={(e) => {
+                  // 빈 공간 더블 클릭 시 새로운 일정 생성
+                  if (e.target !== e.currentTarget && (e.target as HTMLElement).closest('[data-event-item]')) {
+                    return;
+                  }
+                  onDateClick(dateStr, e.currentTarget as HTMLElement);
+                }}
               >
                 <div className={styles.eventsList}>
                   {dayEvents.map(event => (
                     <div
                       key={event.id}
+                      id={`event-item-${event.id}`}
                       className={`${styles.eventItem} ${selectedEventIds.includes(event.id) ? styles.eventItemSelected : ''}`}
                       data-event-item="true"
                       style={(() => {
@@ -349,7 +370,7 @@ export function WeekCard({
                       }}
                       onDoubleClick={e => {
                         e.stopPropagation();
-                        onEventDoubleClick(event);
+                        onEventDoubleClick(event, e.currentTarget);
                       }}
                     >
                       <div className={styles.eventContent}>
@@ -421,7 +442,7 @@ export function WeekCard({
         return (
           <TodoList
             todos={todos}
-            onAdd={onAddTodo}
+            onAdd={(text) => onAddTodo(weekId, text)}
             onToggle={onToggleTodo}
             onUpdate={onUpdateTodo}
             onDelete={onDeleteTodo}
@@ -432,4 +453,4 @@ export function WeekCard({
       })()}
     </div>
   );
-}
+});
