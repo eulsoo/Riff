@@ -216,7 +216,7 @@
   flex: 1;
   width: 100%;
   padding: 0.75rem;
-  cursor: pointer;
+  cursor: default;
   transition: background-color 0.2s ease-in-out;
   user-select: none;
   min-height: 40px;
