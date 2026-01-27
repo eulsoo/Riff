@@ -409,6 +409,17 @@ export const MainLayout = ({
     return events.filter(e => e.date === activeDiaryDate);
   }, [events, activeDiaryDate]);
 
+  const handleBackgroundClick = useCallback((e: React.MouseEvent) => {
+    // If event bubbled up here, it means it wasn't handled by specific elements (like EventItem)
+    // so we clear selection.
+    if (selectedEventIds.length > 0) {
+      clearSelection();
+    }
+    // Note: We don't clear selectedEvent (modal state) here instantly because
+    // usually clicking background doesn't close modal unless it's the modal backdrop.
+    // But user request was "deselect" which usually refers to the highlighted selection.
+  }, [selectedEventIds, clearSelection]);
+
   return (
     <div className={styles.appLayout}>
       <>
@@ -446,7 +457,11 @@ export const MainLayout = ({
         onOpenSettings={() => setIsSettingsModalOpen(true)}
       />
 
-      <div className={styles.appContent} ref={containerRef}>
+      <div
+        className={styles.appContent}
+        ref={containerRef}
+        onClick={handleBackgroundClick}
+      >
         <CalendarList
           weeksData={renderedWeeksData}
           eventsByWeek={eventsByWeek}
