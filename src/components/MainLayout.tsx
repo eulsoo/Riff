@@ -46,7 +46,10 @@ export const MainLayout = ({
     fetchDiary, saveDiary, deleteDiary,
   } = useData();
 
-  const { selectedEventIds, setSelectedIds, removeIdFromSelection, clearSelection } = useSelection();
+  const {
+    selectedEventIds, setSelectedIds, removeIdFromSelection, clearSelection,
+    hoveredDate, clipboardEvent, setClipboardEvent
+  } = useSelection();
   const {
     calendarMetadata,
     visibleCalendarUrlSet,
@@ -126,6 +129,31 @@ export const MainLayout = ({
         e.preventDefault(); // 백스페이스로 페이지 뒤로가기 방지
         selectedEventIds.forEach(id => deleteEvent(id));
         clearSelection();
+      }
+
+      // Copy (Cmd/Ctrl + C)
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'c') {
+        if (selectedEventIds.length > 0) {
+          const eventToCopy = events.find(ev => ev.id === selectedEventIds[0]);
+          if (eventToCopy) {
+            setClipboardEvent(eventToCopy);
+            console.log('Event copied:', eventToCopy.title);
+          }
+        }
+      }
+
+      // Paste (Cmd/Ctrl + V)
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'v') {
+        if (clipboardEvent && hoveredDate) {
+          // eslint-disable-next-line @typescript-eslint/no-unused-vars
+          const { id, ...rest } = clipboardEvent;
+          addEvent({
+            ...rest,
+            date: hoveredDate,
+            // Keep original times and props
+          });
+          console.log(`Event pasted to ${hoveredDate}`);
+        }
       }
     };
 

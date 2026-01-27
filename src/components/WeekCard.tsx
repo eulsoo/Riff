@@ -64,7 +64,7 @@ export const WeekCard = memo(function WeekCard({
   showRoutines,
   showTodos,
 }: WeekCardProps) {
-  const { clearSelection } = useSelection();
+  const { clearSelection, setHoveredDate } = useSelection();
   // Performance Monitoring
   if (process.env.NODE_ENV === 'development') {
     const dateStr = weekStart.toISOString().split('T')[0];
@@ -246,6 +246,8 @@ export const WeekCard = memo(function WeekCard({
               key={dateStr}
               id={`day-cell-${dateStr}`}
               className={`${styles.dayCell} ${isWeekend ? styles.dayCellWeekend : ''}`}
+              onMouseEnter={() => setHoveredDate(dateStr)}
+              onMouseLeave={() => setHoveredDate(null)}
             >
               {/* 날짜 헤더 */}
               <div className={styles.dayHeader}>

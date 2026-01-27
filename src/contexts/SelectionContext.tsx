@@ -1,4 +1,5 @@
 import { createContext, useContext, useState, useCallback, useMemo, ReactNode } from 'react';
+import { Event } from '../types';
 
 interface SelectionContextType {
   selectedEventIds: string[];
@@ -7,12 +8,18 @@ interface SelectionContextType {
   setSelectedIds: (ids: string[]) => void;
   removeIdFromSelection: (id: string) => void;
   selectedIdsSet: Set<string>; // 빠른 조회를 위한 Set
+  hoveredDate: string | null;
+  setHoveredDate: (date: string | null) => void;
+  clipboardEvent: Event | null;
+  setClipboardEvent: (event: Event | null) => void;
 }
 
 const SelectionContext = createContext<SelectionContextType | undefined>(undefined);
 
 export const SelectionProvider = ({ children }: { children: ReactNode }) => {
   const [selectedEventIds, setSelectedEventIds] = useState<string[]>([]);
+  const [hoveredDate, setHoveredDate] = useState<string | null>(null);
+  const [clipboardEvent, setClipboardEvent] = useState<Event | null>(null);
 
   const toggleSelection = useCallback((id: string, multi: boolean) => {
     setSelectedEventIds(prev => {
@@ -44,8 +51,12 @@ export const SelectionProvider = ({ children }: { children: ReactNode }) => {
     clearSelection,
     setSelectedIds,
     removeIdFromSelection,
-    selectedIdsSet: new Set(selectedEventIds)
-  }), [selectedEventIds, toggleSelection, clearSelection, setSelectedIds, removeIdFromSelection]);
+    selectedIdsSet: new Set(selectedEventIds),
+    hoveredDate,
+    setHoveredDate,
+    clipboardEvent,
+    setClipboardEvent,
+  }), [selectedEventIds, toggleSelection, clearSelection, setSelectedIds, removeIdFromSelection, hoveredDate, clipboardEvent]);
 
   return (
     <SelectionContext.Provider value={value}>
