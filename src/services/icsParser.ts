@@ -1,6 +1,6 @@
 import { Event } from '../types';
 import { createEvent } from './api';
-import * as ICAL from 'ical.js';
+import ICAL from 'ical.js';
 
 /**
  * ICS 파일을 파싱하여 이벤트 배열로 변환
@@ -34,11 +34,11 @@ export function parseICSFile(icsContent: string): Omit<Event, 'id'>[] {
  */
 function parseICalEvent(vevent: ICAL.Component): Omit<Event, 'id'> | null {
   try {
-    const summary = vevent.getFirstPropertyValue('summary') || '';
-    const description = vevent.getFirstPropertyValue('description') || '';
-    const dtstart = vevent.getFirstPropertyValue('dtstart');
-    const dtend = vevent.getFirstPropertyValue('dtend');
-    const color = vevent.getFirstPropertyValue('color') || '#3b82f6';
+    const summary = (vevent.getFirstPropertyValue('summary') || '') as string;
+    const description = (vevent.getFirstPropertyValue('description') || '') as string;
+    const dtstart = vevent.getFirstPropertyValue('dtstart') as any;
+    const dtend = vevent.getFirstPropertyValue('dtend') as any;
+    const color = (vevent.getFirstPropertyValue('color') || '#3b82f6') as string;
     
     if (!dtstart) return null;
     
@@ -107,4 +107,74 @@ export async function importICSFile(file: File): Promise<number> {
     
     reader.readAsText(file);
   });
+}
+
+/**
+ * URL에서 ICS를 가져와서 지정된 기간 내의 이벤트를 파싱 (RRULE 지원)
+ */
+export async function fetchAndParseICS(url: string, rangeStart: Date, rangeEnd: Date): Promise<Omit<Event, 'id'>[]> {
+  try {
+    // CORS 프록시 사용 (corsproxy.io)
+    // Note: corsproxy.io requires the URL to be partially encoded or just plain depending on special chars.
+    // Encoding usually safer.
+    const proxyUrl = 'https://corsproxy.io/?' + encodeURIComponent(url);
+    const text = await fetch(proxyUrl).then(r => {
+      if (!r.ok) throw new Error('Fetch failed: ' + r.status);
+      return r.text();
+    });
+
+    const jcalData = ICAL.parse(text);
+    const comp = new ICAL.Component(jcalData);
+    const vevents = comp.getAllSubcomponents('vevent');
+    
+    const events: Omit<Event, 'id'>[] = [];
+
+    for (const vevent of vevents) {
+      const event = new ICAL.Event(vevent);
+      const summary = event.summary;
+      const description = event.description;
+      const uid = event.uid;
+      
+      if (event.isRecurring()) {
+        const iterator = event.iterator();
+        let next;
+        let count = 0;
+        
+        while ((next = iterator.next())) {
+            const dt = (next as any).toJSDate();
+            
+            if (dt < rangeStart) continue;
+            if (dt > rangeEnd) break;
+            
+            events.push({
+                date: dt.toISOString().split('T')[0],
+                title: summary,
+                memo: description,
+                color: '#EF4444',
+                calendarUrl: url,
+                caldavUid: uid ? `${uid}-${dt.getTime()}` : undefined // Recurrence ID substitute
+            } as any);
+            
+            count++;
+            if (count > 2000) break;
+        }
+      } else {
+        const dt = event.startDate.toJSDate();
+        if (dt >= rangeStart && dt <= rangeEnd) {
+           events.push({
+                date: dt.toISOString().split('T')[0],
+                title: summary,
+                memo: description,
+                color: '#EF4444',
+                calendarUrl: url,
+                caldavUid: uid
+           } as any);
+        }
+      }
+    }
+    return events;
+  } catch (e) {
+    console.error('Error fetching/parsing ICS:', e);
+    return [];
+  }
 }
