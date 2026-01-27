@@ -8,11 +8,17 @@ interface ObserverWrapperProps {
 export function ObserverWrapper({ children, onIntersect }: ObserverWrapperProps) {
   const ref = useRef<HTMLDivElement>(null);
 
+  const onIntersectRef = useRef(onIntersect);
+
+  useEffect(() => {
+    onIntersectRef.current = onIntersect;
+  }, [onIntersect]);
+
   useEffect(() => {
     const observer = new IntersectionObserver(
       ([entry]) => {
         if (entry.isIntersecting) {
-          onIntersect();
+          onIntersectRef.current();
         }
       },
       { threshold: 0.6 } // 60% 이상 보일 때 연도 업데이트
@@ -23,7 +29,7 @@ export function ObserverWrapper({ children, onIntersect }: ObserverWrapperProps)
     }
 
     return () => observer.disconnect();
-  }, [onIntersect]);
+  }, []);
 
   return <div ref={ref}>{children}</div>;
 }

@@ -1,6 +1,6 @@
 
 import { supabase } from '../lib/supabase';
-import { DayDefinition, DiaryEntry, Event, Routine, RoutineCompletion, Todo } from '../App';
+import { DayDefinition, DiaryEntry, Event, Routine, RoutineCompletion, Todo } from '../types';
 
 // 캘린더 URL 정규화: 끝의 슬래시 제거
 export const normalizeCalendarUrl = (url?: string | null) =>
@@ -15,6 +15,7 @@ export interface CalendarMetadata {
   displayName: string;
   color: string;
   isLocal?: boolean;
+  isVisible?: boolean;
 }
 
 export const saveCalendarMetadata = (metadata: CalendarMetadata[]) => {

@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { X, Trash2, ChevronDown } from 'lucide-react';
-import { Event } from '../App';
+import { Event } from '../types';
 import styles from './EventDetailModal.module.css';
 
 interface EventDetailModalProps {

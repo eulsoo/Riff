@@ -1,4 +1,4 @@
-import { Event } from '../App';
+import { Event } from '../types';
 import { createEvent, eventExists, eventExistsByUID, deleteRemovedEvents, updateEventUID, updateEventByUID, fetchEventByUID, findEventByDetails } from './api';
 import { supabase, supabaseAnonKey } from '../lib/supabase';
 

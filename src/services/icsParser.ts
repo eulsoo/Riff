@@ -1,4 +1,4 @@
-import { Event } from '../App';
+import { Event } from '../types';
 import { createEvent } from './api';
 import * as ICAL from 'ical.js';
 

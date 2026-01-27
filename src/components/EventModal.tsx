@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect, useLayoutEffect } from 'react';
 import { X, ChevronDown, Trash2 } from 'lucide-react';
-import { Event } from '../App';
-import { CalendarMetadata } from '../services/api';
+import { Event } from '../types';
+import { CalendarMetadata, normalizeCalendarUrl } from '../services/api';
 import styles from './EventModal.module.css';
 
 interface EventModalProps {
@@ -152,7 +152,8 @@ export function EventModal({ date, initialTitle, event, calendars, position, onC
   // 기본 캘린더 선택
   const [selectedCalendar, setSelectedCalendar] = useState<CalendarMetadata | null>(() => {
     if (event?.calendarUrl) {
-      return calendars.find(c => c.url === event.calendarUrl) || null;
+      const targetUrl = normalizeCalendarUrl(event.calendarUrl);
+      return calendars.find(c => normalizeCalendarUrl(c.url) === targetUrl) || null;
     }
     return calendars.length > 0 ? calendars[0] : null;
   });

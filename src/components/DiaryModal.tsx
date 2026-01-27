@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import type { KeyboardEvent as ReactKeyboardEvent } from 'react';
 import { X, Trash2 } from 'lucide-react';
-import { DiaryEntry, Event, WeekOrder } from '../App';
+import { DiaryEntry, Event, WeekOrder } from '../types';
 import styles from './DiaryModal.module.css';
 
 interface DiaryModalProps {
@@ -341,31 +341,31 @@ export function DiaryModal({
 
       <div className={styles.main}>
         <div className={styles.container}>
-        <button className={styles.closeButton} onClick={onClose} aria-label="닫기">
-          <X className={styles.closeIcon} />
-        </button>
-        <div className={styles.header}>
-          <div className={styles.saveStatus}>
-            {isSaving ? '저장 중...' : saveError ? saveError : lastSavedAt ? '저장됨' : ''}
+          <button className={styles.closeButton} onClick={onClose} aria-label="닫기">
+            <X className={styles.closeIcon} />
+          </button>
+          <div className={styles.header}>
+            <div className={styles.saveStatus}>
+              {isSaving ? '저장 중...' : saveError ? saveError : lastSavedAt ? '저장됨' : ''}
+            </div>
           </div>
+          <input
+            className={styles.titleInput}
+            placeholder="제목"
+            value={title}
+            onChange={(event) => setTitle(event.target.value)}
+          />
+          <div
+            ref={contentRef}
+            className={styles.contentInput}
+            contentEditable
+            suppressContentEditableWarning
+            data-placeholder="오늘은 어땠나요?"
+            data-empty={isContentEmpty}
+            onInput={handleContentInput}
+            onKeyDown={handleContentKeyDown}
+          />
         </div>
-        <input
-          className={styles.titleInput}
-          placeholder="제목"
-          value={title}
-          onChange={(event) => setTitle(event.target.value)}
-        />
-        <div
-          ref={contentRef}
-          className={styles.contentInput}
-          contentEditable
-          suppressContentEditableWarning
-          data-placeholder="오늘은 어땠나요?"
-          data-empty={isContentEmpty}
-          onInput={handleContentInput}
-          onKeyDown={handleContentKeyDown}
-        />
-      </div>
         <button
           type="button"
           className={styles.deleteButton}

@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Todo } from '../App';
+import { Todo } from '../types';
 import { Plus, Trash2, Check, X } from 'lucide-react';
 import styles from './TodoList.module.css';
 
@@ -56,9 +56,8 @@ export function TodoList({
   return (
     <div className={styles.todoList}>
       <div
-        className={`${styles.todoListHeader} ${
-          isMultiMonthWeek ? styles.todoListHeaderWide : ''
-        }`}
+        className={`${styles.todoListHeader} ${isMultiMonthWeek ? styles.todoListHeaderWide : ''
+          }`}
       >
         <h3 className={styles.todoListTitle}>
           {weekLabel}
@@ -93,15 +92,13 @@ export function TodoList({
               </div>
             ) : (
               <div
-                className={`${styles.todoItemDisplay} ${
-                  todo.completed ? styles.todoItemDisplayCompleted : styles.todoItemDisplayIncomplete
-                }`}
+                className={`${styles.todoItemDisplay} ${todo.completed ? styles.todoItemDisplayCompleted : styles.todoItemDisplayIncomplete
+                  }`}
               >
                 <button
                   onClick={() => onToggle(todo.id)}
-                  className={`${styles.todoCheckbox} ${
-                    todo.completed ? styles.todoCheckboxCompleted : styles.todoCheckboxIncomplete
-                  }`}
+                  className={`${styles.todoCheckbox} ${todo.completed ? styles.todoCheckboxCompleted : styles.todoCheckboxIncomplete
+                    }`}
                   aria-label={todo.completed ? '완료 해제' : '완료'}
                 >
                   {todo.completed ? (
@@ -111,9 +108,8 @@ export function TodoList({
                   )}
                 </button>
                 <span
-                  className={`${styles.todoText} ${
-                    todo.completed ? styles.todoTextCompleted : styles.todoTextIncomplete
-                  }`}
+                  className={`${styles.todoText} ${todo.completed ? styles.todoTextCompleted : styles.todoTextIncomplete
+                    }`}
                   onClick={() => handleEdit(todo)}
                 >
                   {todo.text}

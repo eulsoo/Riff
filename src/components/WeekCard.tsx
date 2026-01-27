@@ -1,8 +1,9 @@
 import { KeyboardEvent, useEffect, useRef, useState, memo } from 'react';
-import { Event, Routine, RoutineCompletion, Todo, WeekOrder } from '../App';
+import { EventItem } from './EventItem';
+import { Event, Routine, RoutineCompletion, Todo, WeekOrder } from '../types';
 import { RoutineIcon } from './RoutineIcon';
 import { TodoList } from './TodoList';
-import { Trash2, X } from 'lucide-react';
+import { Trash2 } from 'lucide-react';
 import styles from './WeekCard.module.css';
 
 interface WeekCardProps {
@@ -12,10 +13,8 @@ interface WeekCardProps {
   routineCompletions: RoutineCompletion[];
   todos: Todo[];
   dayDefinitions: Record<string, string>;
-  selectedEventIds: string[];
   weekOrder: WeekOrder;
   onDateClick: (date: string, anchorEl?: HTMLElement) => void;
-  onEventClick: (event: Event, multi: boolean) => void;
   onEventDoubleClick: (event: Event, anchorEl?: HTMLElement) => void;
   onDeleteEvent: (eventId: string) => void;
   onToggleRoutine: (routineId: string, date: string) => void;
@@ -47,10 +46,8 @@ export const WeekCard = memo(function WeekCard({
   routineCompletions,
   todos,
   dayDefinitions,
-  selectedEventIds,
   weekOrder,
   onDateClick,
-  onEventClick,
   onEventDoubleClick,
   onDeleteEvent,
   onToggleRoutine,
@@ -66,6 +63,11 @@ export const WeekCard = memo(function WeekCard({
   showRoutines,
   showTodos,
 }: WeekCardProps) {
+  // Performance Monitoring
+  if (process.env.NODE_ENV === 'development') {
+    const dateStr = weekStart.toISOString().split('T')[0];
+    console.log(`[Render] WeekCard ${dateStr} Re-rendered`);
+  }
   const [draftDefinitions, setDraftDefinitions] = useState<Record<string, string>>({});
   const [activeDefinitionDate, setActiveDefinitionDate] = useState<string | null>(null);
   const dayDefinitionInputRefs = useRef<Record<string, HTMLInputElement | null>>({});
@@ -170,24 +172,7 @@ export const WeekCard = memo(function WeekCard({
     return true;
   };
 
-  const formatEventTime = (startTime?: string, endTime?: string) => {
-    const formatTime = (time: string) => {
-      const [hours, minutes] = time.split(':');
-      const hour = parseInt(hours);
-      const ampm = hour >= 12 ? 'PM' : 'AM';
-      const displayHour = hour % 12 || 12;
-      return `${displayHour}:${minutes} ${ampm}`;
-    };
 
-    if (startTime && endTime) {
-      return `${formatTime(startTime)} - ${formatTime(endTime)}`;
-    } else if (startTime) {
-      return formatTime(startTime);
-    } else if (endTime) {
-      return `~ ${formatTime(endTime)}`;
-    }
-    return '';
-  };
 
   const getWeekCardClassName = () => {
     if (weekStatus === 'current') {
@@ -346,56 +331,12 @@ export const WeekCard = memo(function WeekCard({
               >
                 <div className={styles.eventsList}>
                   {dayEvents.map(event => (
-                    <div
+                    <EventItem
                       key={event.id}
-                      id={`event-item-${event.id}`}
-                      className={`${styles.eventItem} ${selectedEventIds.includes(event.id) ? styles.eventItemSelected : ''}`}
-                      data-event-item="true"
-                      style={(() => {
-                        // 8자리 HEX(#RRGGBBAA)인 경우 끝에 2자리(AA) 제거하여 6자리(#RRGGBB)로 만듦
-                        const baseColor = event.color.length > 7 ? event.color.substring(0, 7) : event.color;
-                        return selectedEventIds.includes(event.id)
-                          ? { backgroundColor: baseColor, color: '#fff' }
-                          : { backgroundColor: baseColor + '20', color: baseColor };
-                      })()}
-                      onMouseDown={(e) => {
-                        // Shift 선택 시 텍스트 드래그 기본 동작 방지
-                        if (e.shiftKey) {
-                          e.preventDefault();
-                        }
-                      }}
-                      onClick={e => {
-                        e.stopPropagation();
-                        onEventClick(event, e.shiftKey);
-                      }}
-                      onDoubleClick={e => {
-                        e.stopPropagation();
-                        onEventDoubleClick(event, e.currentTarget);
-                      }}
-                    >
-                      <div className={styles.eventContent}>
-                        <div className={styles.eventContentLeft}>
-                          {(event.startTime || event.endTime) && (
-                            <div className={styles.eventTime}>
-                              {formatEventTime(event.startTime, event.endTime)}
-                            </div>
-                          )}
-                          <div className={styles.eventTitle}>{event.title}</div>
-                        </div>
-                        {selectedEventIds.includes(event.id) && (
-                          <button
-                            onClick={e => {
-                              e.stopPropagation();
-                              onDeleteEvent(event.id);
-                            }}
-                            className={`${styles.eventDeleteButton} ${styles.eventDeleteButtonSelected}`}
-                            aria-label="일정 삭제"
-                          >
-                            <X className={styles.eventDeleteIcon} />
-                          </button>
-                        )}
-                      </div>
-                    </div>
+                      event={event}
+                      onEventDoubleClick={onEventDoubleClick}
+                      onDeleteEvent={onDeleteEvent}
+                    />
                   ))}
                 </div>
               </div>

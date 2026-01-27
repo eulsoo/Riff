@@ -1,6 +1,6 @@
-import { useEffect, useRef, useState } from 'react';
+import { useRef, useState } from 'react';
 import styles from './SettingsModal.module.css';
-import { WeekOrder } from '../App';
+import { WeekOrder } from '../types';
 import { uploadAvatar, saveUserAvatar } from '../services/api';
 import { supabase } from '../lib/supabase';
 
@@ -202,7 +202,7 @@ export function SettingsModal({ onClose, initialAvatarUrl, initialWeekOrder, onS
         <div className={styles.section}>
           <p className={styles.sectionTitle}>프로필 이미지</p>
           <div className={styles.previewRow}>
-              <div className={styles.avatarPreview}>
+            <div className={styles.avatarPreview}>
               {imageSrc ? (
                 <img
                   ref={imgRef}

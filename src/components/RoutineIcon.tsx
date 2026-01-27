@@ -1,4 +1,4 @@
-import { Routine } from '../App';
+import { Routine } from '../types';
 import * as Icons from 'lucide-react';
 import { LucideIcon } from 'lucide-react';
 import styles from './RoutineIcon.module.css';
@@ -17,9 +17,8 @@ export function RoutineIcon({ routine, completed, enabled, onClick }: RoutineIco
     <button
       onClick={onClick}
       disabled={!enabled}
-      className={`${styles.routineIcon} ${
-        completed ? styles.routineIconCompleted : styles.routineIconIncomplete
-      }`}
+      className={`${styles.routineIcon} ${completed ? styles.routineIconCompleted : styles.routineIconIncomplete
+        }`}
       style={{
         backgroundColor: completed ? routine.color : '#e5e7eb',
         color: completed ? 'white' : '#9ca3af',

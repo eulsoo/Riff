@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { X, Plus, Trash2 } from 'lucide-react';
-import { Routine } from '../App';
+import { Routine } from '../types';
 import * as Icons from 'lucide-react';
 import styles from './RoutineModal.module.css';
 
@@ -185,11 +185,10 @@ export function RoutineModal({ routines, onClose, onAdd, onDelete }: RoutineModa
                         key={icon}
                         type="button"
                         onClick={() => setSelectedIcon(icon)}
-                        className={`${styles.iconButton} ${
-                          selectedIcon === icon
+                        className={`${styles.iconButton} ${selectedIcon === icon
                             ? styles.iconButtonSelected
                             : styles.iconButtonUnselected
-                        }`}
+                          }`}
                         title={icon}
                       >
                         <Icon className={styles.iconButtonSvg} strokeWidth={2.5} />
@@ -226,11 +225,10 @@ export function RoutineModal({ routines, onClose, onAdd, onDelete }: RoutineModa
                       key={index}
                       type="button"
                       onClick={() => toggleDay(index)}
-                      className={`${styles.dayButton} ${
-                        selectedDays.includes(index)
+                      className={`${styles.dayButton} ${selectedDays.includes(index)
                           ? styles.dayButtonSelected
                           : styles.dayButtonUnselected
-                      }`}
+                        }`}
                     >
                       {day}
                     </button>

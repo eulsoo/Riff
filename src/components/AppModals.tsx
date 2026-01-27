@@ -1,4 +1,4 @@
-import { Event, Routine, WeekOrder } from '../App';
+import { Event, Routine, WeekOrder } from '../types';
 import { CalendarMetadata } from '../services/api';
 import { CalDAVSyncModal } from './CalDAVSyncModal';
 import { EventModal } from './EventModal';
