@@ -235,7 +235,7 @@ export const MainLayout = ({
           prevScrollHeightRef.current = containerRef.current.scrollHeight;
         }
       }
-    }, { root: containerRef.current, rootMargin: '500px 0px 0px 0px' });
+    }, { root: null, rootMargin: '500px 0px 0px 0px' });
 
     if (topSentinelRef.current) observer.observe(topSentinelRef.current);
     return () => observer.disconnect();
@@ -246,7 +246,7 @@ export const MainLayout = ({
       if (entries[0].isIntersecting) {
         setFutureWeeks(prev => prev + 4);
       }
-    }, { root: containerRef.current, rootMargin: '0px 0px 500px 0px' });
+    }, { root: null, rootMargin: '0px 0px 500px 0px' });
     if (bottomSentinelRef.current) observer.observe(bottomSentinelRef.current);
     return () => observer.disconnect();
   }, [setFutureWeeks]);
