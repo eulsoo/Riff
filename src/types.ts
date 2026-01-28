@@ -11,6 +11,7 @@ export interface Event {
   caldavUid?: string;
   source?: 'manual' | 'caldav';
   isLocal?: boolean;
+  etag?: string;
 }
 
 export interface Routine {

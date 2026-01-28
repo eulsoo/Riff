@@ -41,6 +41,7 @@ interface Event {
   endTime?: string;
   color: string;
   uid?: string;  // CalDAV UID 추가
+  etag?: string; // ETag 추가
 }
 
 Deno.serve(async (req) => {
@@ -977,45 +978,53 @@ function parseEventsFromXML(xmlText: string, defaultColor: string): Omit<Event, 
   
   console.log('parseEventsFromXML 시작, XML 길이:', xmlText.length);
   
-  // calendar-data에서 iCal 데이터 추출 (여러 네임스페이스 형식 지원)
-  // <c:calendar-data>, <calendar-data>, CDATA 포함 등
-  const calendarDataRegex = /<(?:c:)?calendar-data[^>]*>([\s\S]*?)<\/(?:c:)?calendar-data>/gi;
+  // <response> 단위로 순회
+  const responseRegex = /<(?:d:)?response[^>]*>([\s\S]*?)<\/(?:d:)?response>/gi;
   let match;
   let matchCount = 0;
 
-  while ((match = calendarDataRegex.exec(xmlText)) !== null) {
+  while ((match = responseRegex.exec(xmlText)) !== null) {
     matchCount++;
-    let icalData = match[1].trim();
-    
-    // CDATA 제거
-    if (icalData.startsWith('<![CDATA[') && icalData.endsWith(']]>')) {
-      icalData = icalData.slice(9, -3).trim();
-    }
-    
-    // HTML 엔티티 디코딩
-    icalData = icalData
-      .replace(/&lt;/g, '<')
-      .replace(/&gt;/g, '>')
-      .replace(/&amp;/g, '&')
-      .replace(/&quot;/g, '"')
-      .replace(/&#39;/g, "'");
-    
-    if (!icalData) {
-      console.log(`calendar-data ${matchCount}: 비어있음`);
-      continue;
-    }
+    const responseBody = match[1];
 
-    try {
-      const event = parseICalEvent(icalData, defaultColor);
-      if (event) {
-        events.push(event);
+    // ETag 추출
+    const etagMatch = responseBody.match(/<(?:d:)?getetag[^>]*>([\s\S]*?)<\/(?:d:)?getetag>/i);
+    let etag = etagMatch ? etagMatch[1].trim() : undefined;
+    if (etag) etag = etag.replace(/^"|"$/g, '');
+
+    // Calendar Data 추출
+    const calendarDataMatch = responseBody.match(/<(?:c:)?calendar-data[^>]*>([\s\S]*?)<\/(?:c:)?calendar-data>/i);
+    
+    if (calendarDataMatch) {
+      let icalData = calendarDataMatch[1].trim();
+
+      // CDATA 제거
+      if (icalData.startsWith('<![CDATA[') && icalData.endsWith(']]>')) {
+        icalData = icalData.slice(9, -3).trim();
       }
-    } catch (error: any) {
-      console.error(`iCal 파싱 오류 (${matchCount}):`, error.message);
+      
+      // HTML 엔티티 디코딩
+      icalData = icalData
+        .replace(/&lt;/g, '<')
+        .replace(/&gt;/g, '>')
+        .replace(/&amp;/g, '&')
+        .replace(/&quot;/g, '"')
+        .replace(/&#39;/g, "'");
+      
+      try {
+        // parseEventsFromICalText 재사용 (배열 반환)
+        const parsedList = parseEventsFromICalText(icalData, defaultColor);
+        for (const event of parsedList) {
+          event.etag = etag; // ETag 주입
+          events.push(event);
+        }
+      } catch (error: any) {
+        console.error(`iCal 파싱 오류 (${matchCount}):`, error.message);
+      }
     }
   }
 
-  console.log(`총 ${matchCount}개의 calendar-data 발견, ${events.length}개의 이벤트 파싱 성공`);
+  console.log(`총 ${matchCount}개의 response 처리, ${events.length}개의 이벤트 파싱 성공`);
   return events;
 }
 

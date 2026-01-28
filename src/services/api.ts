@@ -177,6 +177,9 @@ export const createEvent = async (event: Omit<Event, 'id'> & { uid?: string; cal
   if (normalizedCalendarUrl) {
     payload.calendar_url = normalizedCalendarUrl;
   }
+  if (event.etag) {
+    payload.etag = event.etag;
+  }
 
   const { data, error } = await supabase
     .from('events')
@@ -242,7 +245,7 @@ export const fetchEventByUID = async (
   const normalizedCalendarUrl = normalizeCalendarUrl(calendarUrl);
   const { data, error } = await supabase
     .from('events')
-    .select('id, title, date, memo, start_time, end_time, color, calendar_url, source')
+    .select('id, title, date, memo, start_time, end_time, color, calendar_url, source, etag')
     .eq('caldav_uid', uid)
     .eq('calendar_url', normalizedCalendarUrl)
     .maybeSingle();
@@ -258,6 +261,7 @@ export const fetchEventByUID = async (
     ...data,
     startTime: data.start_time,
     endTime: data.end_time,
+    etag: data.etag,
   };
 };
 
@@ -270,6 +274,7 @@ export const updateEventByUID = async (
     memo: string | null;
     startTime: string | null;
     endTime: string | null;
+    etag?: string | null;
   }>
 ): Promise<boolean> => {
   const normalizedCalendarUrl = normalizeCalendarUrl(calendarUrl);
@@ -279,6 +284,7 @@ export const updateEventByUID = async (
   if (updates.memo !== undefined) payload.memo = updates.memo;
   if (updates.startTime !== undefined) payload.start_time = updates.startTime;
   if (updates.endTime !== undefined) payload.end_time = updates.endTime;
+  if (updates.etag !== undefined) payload.etag = updates.etag;
 
   const { error } = await supabase
     .from('events')

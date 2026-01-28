@@ -472,6 +472,7 @@ export async function syncSelectedCalendars(
                   startTime?: string | null;
                   endTime?: string | null;
                   color?: string;
+                  etag?: string | null; // ETag 추가
                 } = {};
 
                 if (existing.title !== event.title) updates.title = event.title;
@@ -484,6 +485,7 @@ export async function syncSelectedCalendars(
                   updates.endTime = event.endTime ?? null;
                 }
                 if (existing.color !== event.color) updates.color = event.color;
+                if ((existing.etag ?? null) !== (event.etag ?? null)) updates.etag = event.etag ?? null;
 
                 const hasUpdates = Object.keys(updates).length > 0;
                 if (hasUpdates) {
