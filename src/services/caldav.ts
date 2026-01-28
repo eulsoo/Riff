@@ -12,7 +12,7 @@ export async function createCalDavEvent(
   calendarUrl: string,
   event: Partial<Event>
 ): Promise<{ success: boolean; etag?: string }> {
-  const icsData = serializeEventToICS(event);
+
   // serializeEventToICS generated a UID in event.caldavUid or we should ensure we get it.
   // Actually serializeEventToICS returns string, so we need to know the UID it used.
   // Better approach: generate UID here, assign to event, them serialize.
@@ -29,7 +29,8 @@ export async function createCalDavEvent(
     action: 'createEvent',
     calendarUrl,
     eventUid: uid,
-    eventData: finalIcs
+    eventData: finalIcs,
+    settingId: config.settingId  // Add settingId
   });
 }
 
@@ -51,7 +52,8 @@ export async function updateCalDavEvent(
     calendarUrl,
     eventUid: uid,
     eventData: finalIcs,
-    etag // Send ETag for optimistic concurrency control (if supported)
+    etag, // Send ETag for optimistic concurrency control (if supported)
+    settingId: config.settingId
   });
 }
 
@@ -68,7 +70,8 @@ export async function deleteCalDavEvent(
     action: 'deleteEvent',
     calendarUrl,
     eventUid: uid,
-    etag
+    etag,
+    settingId: config.settingId
   });
 }
 import { createEvent, eventExists, eventExistsByUID, deleteRemovedEvents, updateEventUID, updateEventByUID, fetchEventByUID, findEventByDetails } from './api';
@@ -93,6 +96,7 @@ export interface CalDAVConfig {
   serverUrl: string;
   username: string;
   password: string;
+  settingId?: string; // For secured credential lookup
 }
 
 interface SyncCollectionResult {

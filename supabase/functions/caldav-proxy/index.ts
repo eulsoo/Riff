@@ -2,6 +2,7 @@
 // CORS 문제를 해결하기 위한 백엔드 프록시
 
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
+import { createClient } from 'jsr:@supabase/supabase-js@2';
 declare const Deno: any;
 
 const supabaseUrl = Deno.env.get('SUPABASE_URL');
@@ -100,7 +101,36 @@ Deno.serve(async (req) => {
       action: requestData.action 
     });
 
-    const { serverUrl, username, password, action, calendarUrl, startDate, endDate } = requestData;
+    const { action, calendarUrl, startDate, endDate, settingId } = requestData;
+    let { serverUrl, username, password } = requestData;
+
+    // 만약 settingId가 제공되었다면 DB에서 보안 설정 조회
+    if (settingId) {
+       // 인증된 클라이언트 생성
+       const supabaseClient = createClient(
+          supabaseUrl!,
+          supabaseAnonKey!,
+          { global: { headers: { Authorization: authHeader } } }
+       );
+
+       const { data: settings, error: settingsError } = await supabaseClient
+          .from('caldav_sync_settings')
+          .select('server_url, username, password')
+          .eq('id', settingId)
+          .single();
+
+       if (settingsError || !settings) {
+          console.error('설정 조회 실패:', settingsError);
+          return new Response(
+            JSON.stringify({ error: '설정 정보를 찾을 수 없습니다.' }),
+            { status: 404, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+          );
+       }
+       
+       serverUrl = settings.server_url;
+       username = settings.username;
+       password = settings.password;
+    }
 
     if (!serverUrl || !username || !password || !action) {
       console.error('필수 파라미터 누락:', { serverUrl: !!serverUrl, username: !!username, password: !!password, action: !!action });
@@ -883,8 +913,11 @@ async function deleteEvent(
   username: string,
   password: string,
   calendarUrl: string,
-  eventUid: string,
-  etag?: string
+  syncToken?: string,
+  eventData?: string,
+  eventUid?: string,
+  etag?: string,
+  settingId?: string // Credentials lookup ID
 ): Promise<{ success: boolean }> {
   const base = calendarUrl.endsWith('/') ? calendarUrl : calendarUrl + '/';
   const filename = eventUid.endsWith('.ics') ? eventUid : `${eventUid}.ics`;
