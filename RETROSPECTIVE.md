@@ -39,6 +39,14 @@
 - `MainLayout` 마운트 시 (2초 후) 자동으로 변경사항을 동기화.
 - **5분 간격**으로 주기적 동기화(Polling)를 수행하여, 맥 캘린더의 변경사항을 Vividly에 자동 반영.
 
+### 5. DB 제약조건 강화 (SQL Fix)
+- `upsert`가 정상 동작하려면 DB에 **Unique Constraint**가 필수적임.
+- `caldav_uid` + `calendar_url` 조합에 유니크 제약조건을 추가하여 409/400 에러 영구 해결.
+
+### 6. Create Logic 동기화 (Event Creation)
+- 수정(`update`)뿐 아니라 생성(`create`) 시에도 `settingId` 전달 및 URL 기반 캘린더 감지 로직 적용.
+- 이제 Vividly에서 생성한 일정도 즉시 맥 캘린더에 반영됨.
+
 ## 📝 배운 점
 - **로그의 중요성**: `[DEBUG]` 로그를 적재적소에 심어 로직의 흐름(Flow) 제어가 어디서 끊기는지 파악하는 것이 결정적이었음.
 - **참조의 저주**: React에서 함수 Props 전달 시 `useCallback`을 놓치면 치명적인 무한 루프를 유발할 수 있음을 재확인.

@@ -72,8 +72,9 @@ export const MainLayout = ({
       if (calendarMetadata.length === 0) return;
 
       const caldavCalendars = calendarMetadata.filter(c =>
-        c.type === 'caldav' ||
-        (c.url && (c.url.includes('caldav') || c.url.includes('icloud')))
+        (c.type === 'caldav' ||
+          (c.url && (c.url.includes('caldav') || c.url.includes('icloud')))) &&
+        !c.url?.endsWith('.ics') && !c.url?.endsWith('.ics/')
       );
 
       if (caldavCalendars.length === 0) return;
@@ -436,18 +437,22 @@ export const MainLayout = ({
         // Or if it matches a subscribed CalDAV.
 
         // Assuming 'type' is reliably set to 'caldav' for sync calendars
-        if (calMeta?.type === 'caldav') {
+        const isCalDavCalendar = calMeta?.type === 'caldav'
+          || (event.calendarUrl && (event.calendarUrl.includes('caldav') || event.calendarUrl.includes('icloud')));
+
+        if (isCalDavCalendar) {
           const settings = await getCalDAVSyncSettings();
           if (settings) {
             const config: CalDAVConfig = {
               serverUrl: settings.serverUrl,
               username: settings.username,
-              password: settings.password
+              password: settings.password,
+              settingId: settings.id
             };
 
             // Generate UID if missing to ensure consistency between Local DB and CalDAV Server
             if (!eventToSave.caldavUid) {
-              eventToSave.caldavUid = `vividly-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+              eventToSave.caldavUid = crypto.randomUUID().toUpperCase();
             }
 
             console.log('Syncing to CalDAV (Create)...', eventToSave.title);
@@ -455,7 +460,7 @@ export const MainLayout = ({
 
             if (!success) {
               console.error('CalDAV creation failed');
-              if (!confirm('외부 캘린더 동기화에 실패했습니다. 로컬에만 저장하시겠습니까?')) return;
+              alert('외부 캘린더에 일정을 저장하지 못했습니다.');
             } else {
               eventToSave.source = 'caldav'; // Ensure source is marked
             }
