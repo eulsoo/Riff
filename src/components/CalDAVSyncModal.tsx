@@ -79,49 +79,6 @@ export function CalDAVSyncModal({ onClose, onSyncComplete }: CalDAVSyncModalProp
     loadSettings();
   }, []);
 
-  const handleSaveSettings = async () => {
-    if (!serverUrl || !username || !password) {
-      setError('저장할 정보를 모두 입력해주세요.');
-      return;
-    }
-
-    try {
-      setLoading(true);
-      const { data } = await import('../lib/supabase').then(m => m.supabase.auth.getSession());
-      const token = data.session?.access_token;
-      if (!token) {
-        setError('로그인이 필요합니다.');
-        return;
-      }
-
-      const response = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/caldav-proxy`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
-        },
-        body: JSON.stringify({
-          action: 'saveSettings',
-          serverUrl,
-          username,
-          password
-        })
-      });
-
-      if (!response.ok) throw new Error('저장 실패');
-
-      const result = await response.json();
-      setSettingId(result.settingId);
-      setHasSavedPassword(true);
-      setPassword(''); // 저장 후 비번 클리어 (보안상)
-      if (typeof window !== 'undefined') window.alert('설정이 안전하게 저장되었습니다.');
-    } catch (e) {
-      console.error(e);
-      setError('설정 저장 중 오류가 발생했습니다.');
-    } finally {
-      setLoading(false);
-    }
-  };
 
   // 캘린더 목록 가져오기
   const handleFetchCalendars = async () => {
@@ -150,7 +107,6 @@ export function CalDAVSyncModal({ onClose, onSyncComplete }: CalDAVSyncModalProp
       }
 
       const calendarList = await getCalendars(config);
-      console.log('Fetched Calendars Objects:', calendarList);
       setCalendars(calendarList);
 
       // 성공했고, 저장이 체크되어 있고, 아직 저장된 상태(settingId)가 아니라면 자동 저장
