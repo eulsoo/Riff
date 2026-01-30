@@ -1,8 +1,6 @@
 import { Event } from '../types';
 import { serializeEventToICS } from './icsParser';
 
-// ... (functions)
-
 // ----------------------------------------------------------------------------
 // Write Operations (Create, Update, Delete)
 // ----------------------------------------------------------------------------
@@ -13,10 +11,6 @@ export async function createCalDavEvent(
   event: Partial<Event>
 ): Promise<{ success: boolean; etag?: string }> {
 
-  // serializeEventToICS generated a UID in event.caldavUid or we should ensure we get it.
-  // Actually serializeEventToICS returns string, so we need to know the UID it used.
-  // Better approach: generate UID here, assign to event, them serialize.
-  
   // Re-generate UID if missing to be sure
   const uid = event.caldavUid || `vividly-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
   const eventWithUid = { ...event, caldavUid: uid };
@@ -57,6 +51,7 @@ export async function updateCalDavEvent(
   });
 }
 
+
 export async function deleteCalDavEvent(
   config: CalDAVConfig,
   calendarUrl: string,
@@ -74,7 +69,8 @@ export async function deleteCalDavEvent(
     settingId: config.settingId
   });
 }
-import { createEvent, eventExists, eventExistsByUID, deleteRemovedEvents, updateEventUID, updateEventByUID, fetchEventByUID, findEventByDetails, upsertEvent } from './api';
+
+import { eventExists, eventExistsByUID, deleteRemovedEvents, updateEventUID, updateEventByUID, fetchEventByUID, findEventByDetails, upsertEvent } from './api';
 import { supabase, supabaseAnonKey } from '../lib/supabase';
 
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL as string | undefined;
@@ -90,12 +86,15 @@ export interface Calendar {
   url: string;
   ctag?: string;
   color?: string;
+  isShared?: boolean;
+  isSubscription?: boolean;
+  readOnly?: boolean;
 }
 
 export interface CalDAVConfig {
   serverUrl: string;
   username: string;
-  password: string;
+  password?: string;
   settingId?: string; // For secured credential lookup
 }
 
@@ -170,6 +169,14 @@ const invokeCalDavProxy = async <T>(
   body: Record<string, any>,
   retryOnUnauthorized: boolean = true
 ): Promise<T> => {
+  // Check for offline status first to avoid unnecessary network errors
+  if (typeof navigator !== 'undefined' && !navigator.onLine) {
+    // Return a rejected promise with a specific error/code so caller can ignore it
+    const error = new Error('Network is offline');
+    (error as any).code = 'OFFLINE'; 
+    throw error;
+  }
+
   if (!supabaseUrl) {
     throw new Error('Supabase URL이 설정되지 않아 CalDAV 요청을 실행할 수 없습니다.');
   }
@@ -196,7 +203,16 @@ const invokeCalDavProxy = async <T>(
         status: response.status,
         body: errorText,
       });
-      const error = new Error(`Edge Function returned ${response.status}`);
+      // 에러 메시지에 상세 내용을 포함시킵니다. (JSON 파싱 시도)
+      let detailedMessage = errorText;
+      try {
+        const jsonError = JSON.parse(errorText);
+        if (jsonError.error) detailedMessage = jsonError.error;
+      } catch (e) {
+        // ignore
+      }
+      
+      const error = new Error(`Edge Function returned ${response.status}: ${detailedMessage.substring(0, 300)}`);
       (error as any).status = response.status;
       (error as any).body = errorText;
       throw error;
@@ -241,45 +257,15 @@ export async function getCalendars(config: CalDAVConfig): Promise<Calendar[]> {
       serverUrl: config.serverUrl,
       username: config.username,
       password: config.password,
+      settingId: config.settingId,
       action: 'listCalendars',
     });
-
-    // 오류가 있으면 처리
-    if ((response as any)?.error) {
-      console.error('Edge Function 오류:', (response as any).error);
-      
-      // 오류 응답 본문 파싱 시도
-      let errorMessage = '캘린더 목록을 가져올 수 없습니다.';
-      
-      try {
-        // response.error가 객체인 경우
-        const errorContext = (response as any).error?.context;
-        if (errorContext?.body) {
-          const errorBody = typeof errorContext.body === 'string' 
-            ? JSON.parse(errorContext.body) 
-            : errorContext.body;
-          if (errorBody.error) {
-            errorMessage = errorBody.error;
-            if (errorBody.details) {
-              errorMessage += `\n상세: ${errorBody.details}`;
-            }
-          }
-        } else if ((response as any).error?.message) {
-          errorMessage = (response as any).error.message;
-        }
-      } catch (parseError) {
-        console.error('오류 파싱 실패:', parseError);
-      }
-      
-      throw new Error(errorMessage);
-    }
 
     const data = response;
 
     if (!data || !Array.isArray(data)) {
-      // data가 오류 객체일 수 있음
       if (data && typeof data === 'object' && 'error' in data) {
-        throw new Error(data.error || '캘린더 목록을 가져올 수 없습니다.');
+        throw new Error((data as any).error || '캘린더 목록을 가져올 수 없습니다.');
       }
       throw new Error('캘린더 목록을 가져올 수 없습니다.');
     }
@@ -291,14 +277,7 @@ export async function getCalendars(config: CalDAVConfig): Promise<Calendar[]> {
     return data as Calendar[];
   } catch (error: any) {
     console.error('캘린더 목록 가져오기 실패:', error);
-    console.error('오류 상세:', JSON.stringify(error, null, 2));
-    
-    let errorMessage = '캘린더 목록을 가져올 수 없습니다.';
-    
-    if (error?.message) {
-      errorMessage = error.message;
-    }
-    
+    let errorMessage = error.message || '캘린더 목록을 가져올 수 없습니다.';
     throw new Error(errorMessage);
   }
 }
@@ -317,6 +296,7 @@ export async function fetchCalendarEvents(
       serverUrl: config.serverUrl,
       username: config.username,
       password: config.password,
+      settingId: config.settingId,
       action: 'fetchEvents',
       calendarUrl,
       startDate: startDateStr,
@@ -324,24 +304,13 @@ export async function fetchCalendarEvents(
     });
 
     if (!data || !Array.isArray(data)) {
-      throw new Error('이벤트를 가져올 수 없습니다.');
+       return [];
     }
 
     return data as Omit<Event, 'id'>[];
   } catch (error: any) {
     console.error('이벤트 가져오기 실패:', error);
-    
-    let errorMessage = '이벤트를 가져올 수 없습니다.';
-    
-    if (error?.message) {
-      errorMessage = error.message;
-    }
-    
-    if (error?.error) {
-      errorMessage = error.error;
-    }
-    
-    throw new Error(errorMessage);
+    throw error;
   }
 }
 
@@ -354,6 +323,7 @@ export async function fetchSyncToken(
       serverUrl: config.serverUrl,
       username: config.username,
       password: config.password,
+      settingId: config.settingId,
       action: 'getSyncToken',
       calendarUrl,
     });
@@ -378,6 +348,7 @@ export async function fetchSyncCollection(
     serverUrl: config.serverUrl,
     username: config.username,
     password: config.password,
+    settingId: config.settingId,
     action: 'syncCollection',
     calendarUrl,
     syncToken,
@@ -429,7 +400,9 @@ export async function syncSelectedCalendars(
           try {
             syncResult = await fetchSyncCollection(config, calendarUrl, token);
           } catch (error: any) {
-            console.warn(`sync-collection 실패, 전체 동기화로 전환: ${calendarUrl}`, error);
+            if (error?.code !== 'OFFLINE') {
+               console.warn(`sync-collection 실패, 전체 동기화로 전환: ${calendarUrl}`, error);
+            }
             syncResult = null;
           }
         }
@@ -534,7 +507,7 @@ export async function syncSelectedCalendars(
             // UID가 없는 경우 기존 방식으로 중복 체크
           const exists = await eventExists(event, calendarUrl, 'caldav');
             if (!exists) {
-              const result = await createEvent({
+              const result = await upsertEvent({
                 ...event,
                 calendarUrl,
                 source: 'caldav',
@@ -575,8 +548,12 @@ export async function syncSelectedCalendars(
             syncTokens[calendarUrl] = nextToken;
           }
         }
-      } catch (error) {
-        console.error(`캘린더 ${calendarUrl} 동기화 실패:`, error);
+      } catch (error: any) {
+        if (error?.code === 'OFFLINE' || error?.message === 'Network is offline') {
+             // Suppress log when offline
+        } else {
+             console.error(`캘린더 ${calendarUrl} 동기화 실패:`, error);
+        }
       }
     }
     
@@ -593,4 +570,3 @@ export async function syncSelectedCalendars(
     syncInFlight = false;
   }
 }
-

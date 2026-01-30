@@ -1,5 +1,5 @@
 import { Event } from '../types';
-import { createEvent } from './api';
+import { upsertEvent } from './api';
 import ICAL from 'ical.js';
 
 /**
@@ -91,7 +91,7 @@ export async function importICSFile(file: File): Promise<number> {
         
         let importedCount = 0;
         for (const event of events) {
-          const result = await createEvent(event);
+          const result = await upsertEvent(event);
           if (result) importedCount++;
         }
         

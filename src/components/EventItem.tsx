@@ -74,18 +74,16 @@ export const EventItem = memo(function EventItem({
           )}
           <div className={styles.eventTitle}>{event.title}</div>
         </div>
-        {isSelected && (
-          <button
-            onClick={e => {
-              e.stopPropagation();
-              onDeleteEvent(event.id);
-            }}
-            className={`${styles.eventDeleteButton} ${styles.eventDeleteButtonSelected}`}
-            aria-label="일정 삭제"
-          >
-            <X className={styles.eventDeleteIcon} />
-          </button>
-        )}
+        <button
+          onClick={e => {
+            e.stopPropagation();
+            onDeleteEvent(event.id);
+          }}
+          className={`${styles.eventDeleteButton} ${isSelected ? styles.eventDeleteButtonSelected : ''}`}
+          aria-label="일정 삭제"
+        >
+          <X className={styles.eventDeleteIcon} />
+        </button>
       </div>
     </div>
   );

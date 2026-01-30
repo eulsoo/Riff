@@ -8,16 +8,97 @@ declare const Deno: any;
 const supabaseUrl = Deno.env.get('SUPABASE_URL');
 const supabaseAnonKey = Deno.env.get('SUPABASE_ANON_KEY');
 
-// Base64 인코딩 헬퍼 함수
+// Base64 인코딩/디코딩 헬퍼
 function base64Encode(str: string): string {
   return btoa(unescape(encodeURIComponent(str)));
+}
+
+function base64Decode(str: string): string {
+  return decodeURIComponent(escape(atob(str)));
+}
+
+// 암호화/복호화 (AES-GCM)
+async function getCryptoKey(secret: string): Promise<CryptoKey> {
+  const encoder = new TextEncoder();
+  const keyMaterial = await crypto.subtle.importKey(
+    "raw",
+    encoder.encode(secret),
+    { name: "PBKDF2" },
+    false,
+    ["deriveKey"]
+  );
+  return crypto.subtle.deriveKey(
+    {
+      name: "PBKDF2",
+      salt: encoder.encode("caldav-salt"), // 고정 솔트 (단순화)
+      iterations: 100000,
+      hash: "SHA-256",
+    },
+    keyMaterial,
+    { name: "AES-GCM", length: 256 },
+    false,
+    ["encrypt", "decrypt"]
+  );
+}
+
+async function encryptPassword(password: string, secret: string): Promise<string> {
+  const key = await getCryptoKey(secret);
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+  const encoded = new TextEncoder().encode(password);
+  const encrypted = await crypto.subtle.encrypt(
+    { name: "AES-GCM", iv },
+    key,
+    encoded
+  );
+  
+  // IV와 암호문을 합쳐서 반환 (Format: iv:ciphertext in base64)
+  const ivBase64 = btoa(String.fromCharCode(...iv));
+  const contentBase64 = btoa(String.fromCharCode(...new Uint8Array(encrypted)));
+  return `${ivBase64}:${contentBase64}`;
+}
+
+async function decryptPassword(encryptedStr: string, secret: string): Promise<string> {
+  const [ivBase64, contentBase64] = encryptedStr.split(':');
+  if (!ivBase64 || !contentBase64) throw new Error('Invalid encrypted format');
+  
+  const key = await getCryptoKey(secret);
+  const iv = Uint8Array.from(atob(ivBase64), c => c.charCodeAt(0));
+  const encrypted = Uint8Array.from(atob(contentBase64), c => c.charCodeAt(0));
+  
+  const decrypted = await crypto.subtle.decrypt(
+    { name: "AES-GCM", iv },
+    key,
+    encrypted
+  );
+  
+  return new TextDecoder().decode(decrypted);
+}
+
+// 리다이렉트 처리용 Fetch 래퍼 (Authorization 헤더 유지)
+async function fetchWithRedirect(url: string, options: RequestInit, maxRedirects = 5): Promise<Response> {
+  if (maxRedirects === 0) {
+    throw new Error('Too many redirects');
+  }
+  
+  const newOptions = { ...options, redirect: 'manual' as RequestRedirect };
+  const response = await fetch(url, newOptions);
+  
+  if (response.status >= 300 && response.status < 400 && response.headers.get('location')) {
+    const location = response.headers.get('location')!;
+    const nextUrl = location.startsWith('http') ? location : new URL(location, url).toString();
+    console.log(`리다이렉트 팔로우: ${url} -> ${nextUrl}`);
+    
+    return fetchWithRedirect(nextUrl, newOptions, maxRedirects - 1);
+  }
+  
+  return response;
 }
 
 interface CalDAVRequest {
   serverUrl: string;
   username: string;
   password: string;
-  action: 'listCalendars' | 'fetchEvents' | 'getSyncToken' | 'syncCollection' | 'createEvent' | 'updateEvent' | 'deleteEvent';
+  action: 'listCalendars' | 'fetchEvents' | 'getSyncToken' | 'syncCollection' | 'createEvent' | 'updateEvent' | 'deleteEvent' | 'saveSettings' | 'loadSettings';
   calendarUrl?: string;
   startDate?: string;
   endDate?: string;
@@ -25,12 +106,16 @@ interface CalDAVRequest {
   eventData?: string; // ICS content for PUT
   eventUid?: string;  // Resource filename (e.g. uid.ics) for PUT/DELETE
   etag?: string;      // For If-Match
+  settingId?: string; // DB 저장된 설정 ID
 }
 
 interface Calendar {
   displayName: string;
   url: string;
   ctag?: string;
+  isShared?: boolean;
+  isSubscription?: boolean;
+  readOnly?: boolean;
 }
 
 interface Event {
@@ -107,7 +192,8 @@ Deno.serve(async (req) => {
 
     // 만약 settingId가 제공되었다면 DB에서 보안 설정 조회
     if (settingId) {
-       // 인증된 클라이언트 생성
+       // 인증된 클라이언트 생성 (Service Role Key 필요할 수도 있음 -> RLS 우회 필요하면)
+       // 하지만 사용자 데이터이므로 Auth Header 사용이 맞음.
        const supabaseClient = createClient(
           supabaseUrl!,
           supabaseAnonKey!,
@@ -130,10 +216,103 @@ Deno.serve(async (req) => {
        
        serverUrl = settings.server_url;
        username = settings.username;
-       password = settings.password;
+       
+       // 요청에 비밀번호가 명시적으로 포함되어 있다면 저장된 비밀번호보다 우선 사용
+       if (requestData.password) {
+         console.log('요청에 포함된 새 비밀번호를 사용합니다.');
+       } else {
+         // 저장된 비밀번호 복호화
+         // 만약 암호화되지 않은 구형 데이터라면 그대로 사용 (호환성)
+         if (settings.password && settings.password.includes(':')) {
+            try {
+              const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') || 'fallback-secret-key';
+              password = await decryptPassword(settings.password, serviceRoleKey);
+              console.log(`[DEBUG] 복호화 완료: 길이=${password ? password.length : 0}`);
+            } catch (e) {
+              console.warn('복호화 실패, 평문으로 시도:', e);
+              password = settings.password;
+            }
+         } else {
+            password = settings.password;
+         }
+       }
     }
 
-    if (!serverUrl || !username || !password || !action) {
+    if (action === 'saveSettings') {
+        const { serverUrl, username, password } = requestData;
+        if (!serverUrl || !username || !password) {
+            return new Response(JSON.stringify({ error: 'Missing fields' }), { status: 400, headers: corsHeaders });
+        }
+        
+        const supabaseClient = createClient(
+           supabaseUrl!,
+           supabaseAnonKey!,
+           { global: { headers: { Authorization: authHeader } } }
+        );
+        
+        // 비밀번호 암호화
+        const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') || 'fallback-secret-key';
+        const encryptedPassword = await encryptPassword(password, serviceRoleKey);
+        
+        const { data: authUser } = await supabaseClient.auth.getUser(token);
+        if (!authUser.user) throw new Error('User not found');
+        
+        // 기존 설정 모두 삭제 (중복 데이터 정리)
+        await supabaseClient
+            .from('caldav_sync_settings')
+            .delete()
+            .eq('user_id', authUser.user.id);
+
+        // 신규 생성
+        const { data, error } = await supabaseClient
+            .from('caldav_sync_settings')
+            .insert({ 
+                user_id: authUser.user.id,
+                server_url: serverUrl,
+                username: username,
+                password: encryptedPassword,
+                selected_calendar_urls: [], // 기본값 빈 배열 추가
+                updated_at: new Date().toISOString()
+            })
+            .select()
+            .single();
+           
+        if (error) throw error;
+        
+        return new Response(JSON.stringify({ success: true, settingId: data.id }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+    }
+
+    if (action === 'loadSettings') {
+       const supabaseClient = createClient(
+          supabaseUrl!,
+          supabaseAnonKey!,
+          { global: { headers: { Authorization: authHeader } } }
+       );
+       const { data: authUser } = await supabaseClient.auth.getUser(token);
+        
+       const { data, error } = await supabaseClient
+          .from('caldav_sync_settings')
+          .select('id, server_url, username, password')
+          .eq('user_id', authUser.user!.id)
+          .maybeSingle(); // 없으면 null
+          
+       if (error) throw error;
+       
+       if (!data) {
+           return new Response(JSON.stringify({ exists: false }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+       }
+       
+       return new Response(JSON.stringify({
+           exists: true,
+           settingId: data.id,
+           serverUrl: data.server_url,
+           username: data.username,
+           hasPassword: !!data.password // 비밀번호 존재 여부만 전달
+       }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+    }
+
+    // settingId가 있거나 loadSettings 액션인 경우 필수 파라미터 검사 완화
+    if ((!serverUrl || !username || !password) && action !== 'loadSettings' && !settingId) {
       console.error('필수 파라미터 누락:', { serverUrl: !!serverUrl, username: !!username, password: !!password, action: !!action });
       return new Response(
         JSON.stringify({ error: '필수 파라미터가 누락되었습니다.' }),
@@ -217,7 +396,8 @@ Deno.serve(async (req) => {
           );
         }
         console.log('deleteEvent 시작:', requestData.eventUid);
-        result = await deleteEvent(serverUrl, username, password, calendarUrl, requestData.eventUid, requestData.etag); 
+        // Correctly map arguments to deleteEvent(server, user, pass, calUrl, syncToken, eventData, eventUid, etag, settingId)
+        result = await deleteEvent(serverUrl, username, password, calendarUrl, undefined, undefined, requestData.eventUid, requestData.etag, settingId); 
         console.log('deleteEvent 완료');
       } else {
         return new Response(
@@ -264,68 +444,139 @@ Deno.serve(async (req) => {
 // 캘린더 목록 가져오기 (PROPFIND 요청)
 async function fetchCalendars(serverUrl: string, username: string, password: string): Promise<Calendar[]> {
   console.log('fetchCalendars 시작:', serverUrl);
+
+  // 1. Discovery 시작 (.well-known/caldav)
+  // 불확실한 사용자명 기반 추측 로직(/calendars/user/)은 제거하고 표준 Discovery를 따름.
   
-  // iCloud CalDAV의 경우 특별한 경로 사용
-  // 사용자명에서 도메인 추출 (예: user@icloud.com -> user)
-  const userPart = username.split('@')[0];
-  const caldavPath = `/calendars/${userPart}/`;
-  const fullUrl = serverUrl.endsWith('/') 
-    ? `${serverUrl}${caldavPath.slice(1)}` 
-    : `${serverUrl}${caldavPath}`;
+  // URL 정규화 (끝에 슬래시 제거)
+  const normalizedServerUrl = serverUrl.replace(/\/+$/, '');
+  const wellKnownUrl = `${normalizedServerUrl}/.well-known/caldav`;
 
-  console.log('iCloud CalDAV 경로:', fullUrl);
+  console.log('Discovery 시작 (PROPFIND):', wellKnownUrl);
 
-  // 더 간단한 PROPFIND 요청 (iCloud가 요구하는 형식) - 색상 정보 추가
+  const cleanUsername = username.trim();
+  const cleanPassword = password.trim();
+
+  // Pre-flight GET request to warm up auth
+  try {
+    console.log('Pre-flight auth check...');
+    await fetchWithRedirect(normalizedServerUrl + '/', {
+      method: 'GET',
+      headers: {
+        'Authorization': `Basic ${base64Encode(`${cleanUsername}:${cleanPassword}`)}`,
+        'User-Agent': 'iOS/17.0 (21A329) accountsd/1.0',
+      },
+    });
+  } catch (e) {
+    console.warn('Pre-flight check warning (ignoring):', e);
+  }
+
   const propfindBody = `<?xml version="1.0" encoding="UTF-8"?>
-<propfind xmlns="DAV:" xmlns:cal="urn:ietf:params:xml:ns:caldav" xmlns:apple="http://apple.com/ns/ical/">
+<propfind xmlns="DAV:">
   <prop>
-    <displayname/>
-    <resourcetype/>
-    <apple:calendar-color/>
-    <cal:calendar-color/>
+    <current-user-principal/>
   </prop>
 </propfind>`;
 
   try {
-    console.log('PROPFIND 요청 시작:', fullUrl);
-    const response = await fetch(fullUrl, {
+    const response = await fetchWithRedirect(wellKnownUrl, {
       method: 'PROPFIND',
       headers: {
-        'Content-Type': 'application/xml',
-        'Depth': '1',
-        'Authorization': `Basic ${base64Encode(`${username}:${password}`)}`,
-        'User-Agent': 'Vividly/1.0',
+        'Content-Type': 'application/xml; charset=utf-8',
+        'Depth': '0',
+        'Authorization': `Basic ${base64Encode(`${cleanUsername}:${cleanPassword}`)}`,
+        'User-Agent': 'iOS/17.0 (21A329) accountsd/1.0',
       },
       body: propfindBody,
     });
 
-    console.log('응답 상태:', response.status, response.statusText);
-    console.log('응답 헤더:', Object.fromEntries(response.headers.entries()));
-
     if (!response.ok && response.status !== 207) {
-      // 207 Multi-Status는 정상 응답
+      console.error(`Discovery 실패: ${response.status} ${response.statusText}`);
       const errorText = await response.text();
-      console.error('오류 응답 본문:', errorText.substring(0, 500));
-      throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+      console.error('Error Body:', errorText.substring(0, 500));
+      const authHeader = response.headers.get('www-authenticate') || 'None';
+      throw new Error(`캘린더 서버 연결 실패: ${response.url} (HTTP ${response.status}), Auth-Header: ${authHeader}`);
     }
+
+    // 리다이렉트된 최종 URL의 Origin을 Base URL로 사용
+    // (예: https://caldav.icloud.com -> https://p48-caldav.icloud.com)
+    const finalUrlObj = new URL(response.url);
+    let baseUrl = `${finalUrlObj.protocol}//${finalUrlObj.host}`;
+    console.log('Base URL updated to:', baseUrl);
 
     const xmlText = await response.text();
-    console.log('XML 응답 길이:', xmlText.length);
-    console.log('XML 응답 시작 부분:', xmlText.substring(0, 500));
     
-    const calendars = parseCalendarsFromXML(xmlText, serverUrl);
-    console.log('파싱된 캘린더 수:', calendars.length);
+    // principal URL 추출
+    const principalMatch = xmlText.match(/<current-user-principal[^>]*>[\s\S]*?<href>([^<]+)<\/href>/i) ||
+                            xmlText.match(/href[^>]*>([^<]+principal[^<]+)</i);
     
-    if (calendars.length === 0) {
-      // .well-known 경로로 재시도
-      return await tryWellKnownPath(serverUrl, username, password);
+    if (!principalMatch) {
+      throw new Error('사용자 Principal URL을 찾을 수 없습니다.');
     }
     
-    return calendars;
+    const principalPath = principalMatch[1]; // 예: /12345/principal/
+    const principalUrl = principalPath.startsWith('http') 
+      ? principalPath 
+      : `${baseUrl}${principalPath.startsWith('/') ? principalPath : '/' + principalPath}`;
+    
+    console.log('Principal URL:', principalUrl);
+    
+    // Principal URL에서 캘린더 홈 찾기
+    const calendarHomeBody = `<?xml version="1.0" encoding="UTF-8"?>
+<propfind xmlns="DAV:" xmlns:cal="urn:ietf:params:xml:ns:caldav">
+  <prop>
+    <cal:calendar-home-set/>
+  </prop>
+</propfind>`;
+    
+    const principalResponse = await fetchWithRedirect(principalUrl, {
+      method: 'PROPFIND',
+      headers: {
+        'Content-Type': 'application/xml',
+        'Depth': '0',
+        'Authorization': `Basic ${base64Encode(`${cleanUsername}:${cleanPassword}`)}`,
+        'User-Agent': 'iOS/17.0 (21A329) accountsd/1.0',
+      },
+      body: calendarHomeBody,
+    });
+    
+    if (!principalResponse.ok && principalResponse.status !== 207) {
+      const authHeader = principalResponse.headers.get('www-authenticate') || 'None';
+      throw new Error(`Principal 상세 조회 실패: HTTP ${principalResponse.status}, Auth: ${authHeader}`);
+    }
+
+    // 만약 Principal 요청이 리다이렉트되었다면, Base URL을 업데이트 (Shard 이동)
+    const finalPrincipalUrlObj = new URL(principalResponse.url);
+    const newBaseUrl = `${finalPrincipalUrlObj.protocol}//${finalPrincipalUrlObj.host}`;
+    if (newBaseUrl !== baseUrl) {
+      console.log(`Base URL updated from Principal redirect: ${baseUrl} -> ${newBaseUrl}`);
+      baseUrl = newBaseUrl;
+    }
+    
+    const principalXml = await principalResponse.text();
+    
+    // calendar-home-set URL 추출
+    const calendarHomeMatch = principalXml.match(/<calendar-home-set[^>]*>[\s\S]*?<href>([^<]+)<\/href>/i) ||
+                               principalXml.match(/calendar-home-set[^>]*>[\s\S]*?href[^>]*>([^<]+)</i);
+    
+    if (!calendarHomeMatch) {
+      // calendar-home-set이 없으면 principal URL에서 직접 캘린더 찾기 시도
+      console.log('calendar-home-set 없음, Principal URL에서 캘린더 조회 시도');
+      return await fetchCalendarsFromPath(principalUrl, baseUrl, username, password);
+    }
+    
+    const calendarHomePath = calendarHomeMatch[1];
+    const calendarHomeUrl = calendarHomePath.startsWith('http')
+      ? calendarHomePath
+      : `${baseUrl}${calendarHomePath.startsWith('/') ? calendarHomePath : '/' + calendarHomePath}`;
+    
+    console.log('Calendar Home URL:', calendarHomeUrl);
+    
+    return await fetchCalendarsFromPath(calendarHomeUrl, baseUrl, username, password);
+
   } catch (error: any) {
-    console.error('PROPFIND 요청 실패:', error);
-    // .well-known 경로로 재시도
-    return await tryWellKnownPath(serverUrl, username, password);
+    console.error('fetchCalendars 실패:', error);
+    throw error;
   }
 }
 
@@ -346,13 +597,13 @@ async function tryWellKnownPath(serverUrl: string, username: string, password: s
 </propfind>`;
 
   try {
-    const response = await fetch(wellKnownUrl, {
+    const response = await fetchWithRedirect(wellKnownUrl, {
       method: 'PROPFIND',
       headers: {
         'Content-Type': 'application/xml',
         'Depth': '0',
-        'Authorization': `Basic ${base64Encode(`${username}:${password}`)}`,
-        'User-Agent': 'Vividly/1.0',
+        'Authorization': `Basic ${base64Encode(`${username.trim()}:${password.trim()}`)}`,
+        'User-Agent': 'iOS/17.0 (21A329) accountsd/1.0',
       },
       body: propfindBody,
     });
@@ -362,7 +613,8 @@ async function tryWellKnownPath(serverUrl: string, username: string, password: s
     if (!response.ok && response.status !== 207) {
       const errorText = await response.text();
       console.error('.well-known 오류:', errorText.substring(0, 500));
-      throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+      const authHeader = response.headers.get('www-authenticate') || 'None';
+      throw new Error(`HTTP ${response.status}: ${response.statusText}, Auth: ${authHeader}`);
     }
 
     const xmlText = await response.text();
@@ -392,13 +644,13 @@ async function tryWellKnownPath(serverUrl: string, username: string, password: s
   </prop>
 </propfind>`;
     
-    const principalResponse = await fetch(principalUrl, {
+    const principalResponse = await fetchWithRedirect(principalUrl, {
       method: 'PROPFIND',
       headers: {
         'Content-Type': 'application/xml',
         'Depth': '0',
         'Authorization': `Basic ${base64Encode(`${username}:${password}`)}`,
-        'User-Agent': 'Vividly/1.0',
+        'User-Agent': 'macOS/14.0 (23A344) CalendarAgent/988',
       },
       body: calendarHomeBody,
     });
@@ -451,13 +703,13 @@ async function fetchCalendarsFromPath(pathUrl: string, baseUrl: string, username
 
   console.log('캘린더 경로에서 PROPFIND:', pathUrl);
   
-  const response = await fetch(pathUrl, {
+  const response = await fetchWithRedirect(pathUrl, {
     method: 'PROPFIND',
     headers: {
       'Content-Type': 'application/xml',
       'Depth': '1',
-      'Authorization': `Basic ${base64Encode(`${username}:${password}`)}`,
-      'User-Agent': 'ES-Calendar/1.0',
+      'Authorization': `Basic ${base64Encode(`${username.trim()}:${password.trim()}`)}`,
+      'User-Agent': 'iOS/17.0 (21A329) accountsd/1.0',
     },
     body: propfindBody,
   });
@@ -531,10 +783,19 @@ function parseCalendarsFromXML(xmlText: string, baseUrl: string): Calendar[] {
                        href.includes('calendar');
     
     if (isCalendar || href.match(/calendar/i)) {
-      // URL 정규화
+      // URL 정규화 - 항상 baseUrl의 host를 사용 (shard URL 보장)
       let fullUrl: string;
       if (href.startsWith('http')) {
-        fullUrl = href;
+        // 절대 URL이어도 baseUrl의 host로 교체 (gateway -> shard)
+        try {
+          const hrefUrlObj = new URL(href);
+          const baseUrlObj = new URL(baseUrl);
+          // path만 추출하여 baseUrl의 host와 결합
+          fullUrl = `${baseUrlObj.protocol}//${baseUrlObj.host}${hrefUrlObj.pathname}`;
+          console.log(`URL 변환: ${href} -> ${fullUrl}`);
+        } catch {
+          fullUrl = href; // 파싱 실패시 원본 사용
+        }
       } else if (href.startsWith('/')) {
         fullUrl = `${baseUrl}${href}`;
       } else {
@@ -549,6 +810,9 @@ function parseCalendarsFromXML(xmlText: string, baseUrl: string): Calendar[] {
         displayName: decodeURIComponent(displayName),
         url: fullUrl,
         color: color || undefined,
+        isShared: checkIsShared(responseXml, fullUrl),
+        isSubscription: fullUrl.endsWith('.ics') || /subscribed/i.test(responseXml),
+        readOnly: checkReadOnly(responseXml),
       });
       
       console.log('캘린더 발견:', displayName, fullUrl, color);
@@ -570,6 +834,32 @@ function parseColorFromXml(xmlText: string): string | null {
   return null;
 }
 
+function checkIsShared(xml: string, url: string): boolean {
+  // 1. URL 해시값 확인 (64자 이상 hex string, 하이픈 없음) -> 공유받은 캘린더
+  // 예: .../calendars/7cb9a57f805e8aa1a...
+  const parts = url.replace(/\/$/, '').split('/');
+  const lastPart = parts[parts.length - 1];
+  
+  // UUID (36자, 하이픈 포함) 제외하고 60자 이상이면 공유받은 것으로 본다.
+  if (lastPart.length >= 60 && !lastPart.includes('-') && /^[0-9a-fA-F]+$/.test(lastPart)) {
+    return true;
+  }
+
+  return false;
+}
+
+function checkReadOnly(xml: string): boolean {
+  // 1. resourcetype이 subscribed인 경우 읽기 전용으로 간주
+  if (/<(?:cs:)?subscribed[^>]*\/>/i.test(xml) || /<subscribed[^>]*\/>/i.test(xml)) {
+    return true;
+  }
+  
+  // 2. 권한 확인 (current-user-privilege-set)
+  // write 권한이 없으면 읽기 전용
+  // 하지만 복잡하므로 간단히 smart check
+  return false;
+}
+
 // 캘린더 색상 조회 (PROPFIND)
 async function fetchCalendarColor(
   serverUrl: string,
@@ -586,13 +876,13 @@ async function fetchCalendarColor(
 </propfind>`;
 
   try {
-    const response = await fetch(calendarUrl, {
+    const response = await fetchWithRedirect(calendarUrl, {
       method: 'PROPFIND',
       headers: {
         'Content-Type': 'application/xml',
         'Depth': '0',
-        'Authorization': `Basic ${base64Encode(`${username}:${password}`)}`,
-        'User-Agent': 'Vividly/1.0',
+        'Authorization': `Basic ${base64Encode(`${username.trim()}:${password.trim()}`)}`,
+        'User-Agent': 'iOS/17.0 (21A329) accountsd/1.0',
       },
       body: propfindBody,
     });
@@ -645,13 +935,13 @@ async function fetchCalendarEvents(
 
   try {
     console.log('REPORT 요청 시작:', calendarUrl);
-    const response = await fetch(calendarUrl, {
+    const response = await fetchWithRedirect(calendarUrl, {
       method: 'REPORT',
       headers: {
         'Content-Type': 'application/xml; charset=utf-8',
         'Depth': '1',
-        'Authorization': `Basic ${base64Encode(`${username}:${password}`)}`,
-        'User-Agent': 'Vividly/1.0',
+        'Authorization': `Basic ${base64Encode(`${username.trim()}:${password.trim()}`)}`,
+        'User-Agent': 'iOS/17.0 (21A329) accountsd/1.0',
       },
       body: reportBody,
     });
@@ -691,13 +981,13 @@ async function fetchSyncToken(
   </prop>
 </propfind>`;
 
-    const response = await fetch(calendarUrl, {
+    const response = await fetchWithRedirect(calendarUrl, {
       method: 'PROPFIND',
       headers: {
         'Content-Type': 'application/xml; charset=utf-8',
         'Depth': '0',
-        'Authorization': `Basic ${base64Encode(`${username}:${password}`)}`,
-        'User-Agent': 'Vividly/1.0',
+        'Authorization': `Basic ${base64Encode(`${username.trim()}:${password.trim()}`)}`,
+        'User-Agent': 'iOS/17.0 (21A329) accountsd/1.0',
       },
       body: propfindBody,
     });
@@ -740,13 +1030,13 @@ async function fetchSyncCollection(
 </sync-collection>`;
 
   try {
-    const response = await fetch(calendarUrl, {
+    const response = await fetchWithRedirect(calendarUrl, {
       method: 'REPORT',
       headers: {
         'Content-Type': 'application/xml; charset=utf-8',
         'Depth': '1',
-        'Authorization': `Basic ${base64Encode(`${username}:${password}`)}`,
-        'User-Agent': 'Vividly/1.0',
+        'Authorization': `Basic ${base64Encode(`${username.trim()}:${password.trim()}`)}`,
+        'User-Agent': 'iOS/17.0 (21A329) accountsd/1.0',
       },
       body: reportBody,
     });
@@ -843,11 +1133,11 @@ async function fetchEventsByHrefs(
   for (const href of hrefs) {
     try {
       const absoluteUrl = buildAbsoluteUrl(calendarUrl, href);
-      const response = await fetch(absoluteUrl, {
+      const response = await fetchWithRedirect(absoluteUrl, {
         method: 'GET',
         headers: {
           'Authorization': `Basic ${base64Encode(`${username}:${password}`)}`,
-          'User-Agent': 'Vividly/1.0',
+          'User-Agent': 'macOS/14.0 (23A344) CalendarAgent/988',
         },
       });
       if (!response.ok) continue;
@@ -881,7 +1171,7 @@ async function putEvent(
   const headers: Record<string, string> = {
     'Content-Type': 'text/calendar; charset=utf-8',
     'Authorization': `Basic ${base64Encode(`${username}:${password}`)}`,
-    'User-Agent': 'Vividly/1.0',
+    'User-Agent': 'macOS/14.0 (23A344) CalendarAgent/988',
   };
 
   if (etag) {
@@ -890,7 +1180,7 @@ async function putEvent(
 
   console.log('PUT requesting:', url);
 
-  const response = await fetch(url, {
+  const response = await fetchWithRedirect(url, {
     method: 'PUT',
     headers,
     body: eventData,
@@ -920,33 +1210,47 @@ async function deleteEvent(
   etag?: string,
   settingId?: string // Credentials lookup ID
 ): Promise<{ success: boolean }> {
-  const base = calendarUrl.endsWith('/') ? calendarUrl : calendarUrl + '/';
-  const filename = eventUid.endsWith('.ics') ? eventUid : `${eventUid}.ics`;
-  const url = `${base}${filename}`;
+  try {
+    if (!eventUid) {
+      throw new Error('deleteEvent: Error - eventUid is missing/undefined');
+    }
 
-  const headers: Record<string, string> = {
-    'Authorization': `Basic ${base64Encode(`${username}:${password}`)}`,
-    'User-Agent': 'Vividly/1.0',
-  };
+    const base = calendarUrl.endsWith('/') ? calendarUrl : calendarUrl + '/';
+    // Ensure eventUid is treated as string
+    const safeUid = String(eventUid);
+    const filename = safeUid.endsWith('.ics') ? safeUid : `${safeUid}.ics`;
+    const url = `${base}${filename}`;
 
-  if (etag) {
-    headers['If-Match'] = `"${etag}"`;
+    const headers: Record<string, string> = {
+      'Authorization': `Basic ${base64Encode(`${username}:${password}`)}`,
+      'User-Agent': 'macOS/14.0 (23A344) CalendarAgent/988',
+    };
+
+    if (etag) {
+      headers['If-Match'] = `"${etag}"`;
+    }
+
+    console.log(`[DELETE] Requesting: ${url}, ETag: ${etag || 'none'}`);
+    
+    // Explicitly set body to null to prevent Deno 'undefined body' errors
+    const response = await fetchWithRedirect(url, {
+      method: 'DELETE',
+      headers,
+      body: null,
+    });
+
+    if (!response.ok && response.status !== 404) {
+       let text = '';
+       try { text = await response.text(); } catch (e) { text = 'Could not read response body'; }
+       console.error('[DELETE] Failed:', response.status, text);
+       throw new Error(`DELETE request failed: ${response.status} - ${text.substring(0, 100)}`);
+    }
+
+    return { success: true };
+  } catch (error: any) {
+    console.error('[DELETE] Exception caught:', error);
+    throw new Error(`DELETE_FUNC_ERROR: ${error.message}`);
   }
-
-  console.log('DELETE requesting:', url);
-
-  const response = await fetch(url, {
-    method: 'DELETE',
-    headers,
-  });
-
-  if (!response.ok && response.status !== 404) { // 404 is technically success (already gone)
-     const text = await response.text();
-     console.error('DELETE failed:', response.status, text);
-     throw new Error(`DELETE request failed: ${response.status}`);
-  }
-
-  return { success: true };
 }
 
 

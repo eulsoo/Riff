@@ -318,17 +318,18 @@
 .eventDeleteButton {
   opacity: 0;
   flex-shrink: 0;
-  padding: 0.125rem;
+  /* padding: 0.125rem; */
   border: none;
   background: none;
   border-radius: 0.25rem;
   transition: opacity 0.2s ease-in-out, background-color 0.2s ease-in-out;
   cursor: pointer;
+  color: #ffffff; /* Keep white during fade-out */
 }
 
-.eventItem:hover .eventDeleteButton {
+/* .eventItem:hover .eventDeleteButton {
   opacity: 1;
-}
+} */
 
 .eventDeleteButtonSelected {
   opacity: 1;

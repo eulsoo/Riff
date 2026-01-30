@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { X } from 'lucide-react';
 import { Calendar, CalDAVConfig, getCalendars, syncSelectedCalendars } from '../services/caldav';
 import { saveCalDAVSyncSettings, getCalDAVSyncSettings, deleteAllCalDAVData, saveCalendarMetadata } from '../services/api';
+import { supabase } from '../lib/supabase';
 import styles from './CalDAVSyncModal.module.css';
 
 interface CalDAVSyncModalProps {
@@ -13,6 +14,9 @@ export function CalDAVSyncModal({ onClose, onSyncComplete }: CalDAVSyncModalProp
   const [serverUrl, setServerUrl] = useState('https://caldav.icloud.com');
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
+  const [settingId, setSettingId] = useState<string | null>(null);
+  const [hasSavedPassword, setHasSavedPassword] = useState(false);
+  const [savePasswordChecked, setSavePasswordChecked] = useState(true);
   const [calendars, setCalendars] = useState<Calendar[]>([]);
   const [selectedCalendars, setSelectedCalendars] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(false);
@@ -27,7 +31,39 @@ export function CalDAVSyncModal({ onClose, onSyncComplete }: CalDAVSyncModalProp
 
   // 기존 설정 불러오기
   useEffect(() => {
-    const loadExistingSettings = async () => {
+    const loadSettings = async () => {
+      // 1. DB에서 보안 설정 조회 (우선순위 높음)
+      try {
+        const { data } = await import('../lib/supabase').then(m => m.supabase.auth.getSession());
+        const token = data.session?.access_token;
+
+        if (token) {
+          const response = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/caldav-proxy`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${token}`
+            },
+            body: JSON.stringify({ action: 'loadSettings' })
+          });
+
+          if (response.ok) {
+            const result = await response.json();
+            if (result.exists) {
+              setServerUrl(result.serverUrl);
+              setUsername(result.username);
+              setSettingId(result.settingId);
+              setHasSavedPassword(result.hasPassword);
+              // DB 설정이 있으면 로컬 설정 무시하고 리턴
+              return;
+            }
+          }
+        }
+      } catch (e) {
+        console.error('보안 설정 로드 실패:', e);
+      }
+
+      // 2. 로컬 설정 (구형 데이터)
       const settings = await getCalDAVSyncSettings();
       if (settings) {
         setExistingSettings({
@@ -36,18 +72,61 @@ export function CalDAVSyncModal({ onClose, onSyncComplete }: CalDAVSyncModalProp
           serverUrl: settings.serverUrl,
           username: settings.username,
         });
-        // 기존 설정이 있으면 서버 정보도 채우기
         setServerUrl(settings.serverUrl);
         setUsername(settings.username);
-        // 비밀번호는 보안상 채우지 않음
       }
     };
-    loadExistingSettings();
+    loadSettings();
   }, []);
+
+  const handleSaveSettings = async () => {
+    if (!serverUrl || !username || !password) {
+      setError('저장할 정보를 모두 입력해주세요.');
+      return;
+    }
+
+    try {
+      setLoading(true);
+      const { data } = await import('../lib/supabase').then(m => m.supabase.auth.getSession());
+      const token = data.session?.access_token;
+      if (!token) {
+        setError('로그인이 필요합니다.');
+        return;
+      }
+
+      const response = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/caldav-proxy`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          action: 'saveSettings',
+          serverUrl,
+          username,
+          password
+        })
+      });
+
+      if (!response.ok) throw new Error('저장 실패');
+
+      const result = await response.json();
+      setSettingId(result.settingId);
+      setHasSavedPassword(true);
+      setPassword(''); // 저장 후 비번 클리어 (보안상)
+      if (typeof window !== 'undefined') window.alert('설정이 안전하게 저장되었습니다.');
+    } catch (e) {
+      console.error(e);
+      setError('설정 저장 중 오류가 발생했습니다.');
+    } finally {
+      setLoading(false);
+    }
+  };
 
   // 캘린더 목록 가져오기
   const handleFetchCalendars = async () => {
-    if (!serverUrl || !username || !password) {
+    // 저장된 설정(settingId)이 없고 비밀번호도 입력 안 했으면 에러
+    if (!serverUrl || !username || (!password && !settingId)) {
       setError('서버 정보를 모두 입력해주세요.');
       return;
     }
@@ -55,10 +134,72 @@ export function CalDAVSyncModal({ onClose, onSyncComplete }: CalDAVSyncModalProp
     setLoading(true);
     setError(null);
     try {
-      const config: CalDAVConfig = { serverUrl, username, password };
+      // useSavedSettings 체크가 되어 있으면 settingId 사용, 아니면 password 필수
+      const config: CalDAVConfig = {
+        serverUrl: serverUrl.trim(),
+        username: username.trim(),
+        password: password ? password.trim() : undefined,
+        settingId: settingId || undefined
+      };
+
+      // 비밀번호 검증
+      if (!config.password && !config.settingId) {
+        setError('앱 별 암호를 입력해주세요.');
+        setLoading(false);
+        return;
+      }
+
       const calendarList = await getCalendars(config);
+      console.log('Fetched Calendars Objects:', calendarList);
       setCalendars(calendarList);
-      setSelectedCalendars(new Set()); // 초기화
+
+      // 성공했고, 저장이 체크되어 있고, 아직 저장된 상태(settingId)가 아니라면 자동 저장
+      // 성공했고, 저장이 체크되어 있고, (아직 저장 안됨 OR 비밀번호가 새로 입력됨)
+      if (savePasswordChecked && (password || !settingId)) {
+        try {
+          // 조용히 백그라운드 저장 -> 사용자 피드백 추가
+          const { data } = await supabase.auth.getSession();
+          const token = data.session?.access_token;
+
+          if (token) {
+            // settingId가 있어도 업데이트를 위해 보냄 (Upsert 로직 필요하거나 action='saveSettings'가 덮어쓰기 지원해야 함)
+            // 현재 Edge Function의 'saveSettings'는 upsert를 사용하므로 덮어쓰기 됨
+            const saveRes = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/caldav-proxy`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+              body: JSON.stringify({ action: 'saveSettings', serverUrl, username, password })
+            });
+            if (saveRes.ok) {
+              const result = await saveRes.json();
+              setSettingId(result.settingId);
+              setHasSavedPassword(true);
+              if (typeof window !== 'undefined') {
+                window.alert('연결 정보가 안전하게 저장되었습니다.\n다음부터는 암호 입력 없이 사용하실 수 있습니다.');
+              }
+            } else {
+              console.warn('설정 저장 실패', await saveRes.text());
+              // 실패해도 목록은 가져왔으니 에러를 띄우진 않음 (콘솔만)
+            }
+          }
+        } catch (e) {
+          console.warn('자동 저장 실패', e);
+        }
+      }
+
+
+
+      // 기존 설정이 있다면 이전에 선택했던 캘린더들을 자동으로 체크
+      const preSelected = new Set<string>();
+      if (existingSettings?.selectedCalendarUrls) {
+        // 새로 가져온 목록에 존재하는 캘린더만 체크 (삭제된 캘린더 제외)
+        const currentUrls = new Set(calendarList.map(c => c.url));
+        existingSettings.selectedCalendarUrls.forEach(url => {
+          if (currentUrls.has(url)) {
+            preSelected.add(url);
+          }
+        });
+      }
+      setSelectedCalendars(preSelected);
     } catch (err: any) {
       console.error('CalDAV 모달 오류:', err);
       const errorMsg = err?.message || '캘린더 목록을 가져올 수 없습니다.';
@@ -98,7 +239,7 @@ export function CalDAVSyncModal({ onClose, onSyncComplete }: CalDAVSyncModalProp
     setSyncing(true);
     setError(null);
     try {
-      const config: CalDAVConfig = { serverUrl, username, password };
+      const config: CalDAVConfig = { serverUrl, username, password: password || undefined, settingId: settingId || undefined };
 
       // 선택된 캘린더들의 메타데이터 저장
       const metadataToSave = calendars
@@ -106,7 +247,10 @@ export function CalDAVSyncModal({ onClose, onSyncComplete }: CalDAVSyncModalProp
         .map(cal => ({
           url: cal.url,
           displayName: cal.displayName,
-          color: cal.color || '#3b82f6'
+          color: cal.color || '#3b82f6',
+          isShared: cal.isShared,
+          isSubscription: cal.isSubscription,
+          readOnly: cal.readOnly
         }));
       saveCalendarMetadata(metadataToSave);
 
@@ -220,15 +364,49 @@ export function CalDAVSyncModal({ onClose, onSyncComplete }: CalDAVSyncModalProp
               />
             </div>
             <div className={styles.formGroup}>
-              <label className={styles.formLabel}>비밀번호</label>
-              <input
-                type="password"
-                placeholder="앱 전용 비밀번호"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                className={styles.formInput}
-                disabled={loading || syncing}
-              />
+              <label className={styles.formLabel}>암호</label>
+              {hasSavedPassword ? (
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <div style={{ flex: 1, padding: '8px', background: '#f5f5f5', borderRadius: '4px', color: '#666', fontSize: '14px', border: '1px solid #ddd' }}>
+                    🔒 안전하게 저장된 암호 사용 중
+                  </div>
+                  <button
+                    onClick={() => {
+                      if (window.confirm('저장된 암호를 삭제하고 새로 입력하시겠습니까?')) {
+                        setHasSavedPassword(false);
+                        setSettingId(null);
+                        setPassword('');
+                      }
+                    }}
+                    style={{ padding: '8px 12px', fontSize: '13px', border: '1px solid #ddd', borderRadius: '4px', background: 'white', cursor: 'pointer' }}
+                  >
+                    재설정
+                  </button>
+                </div>
+              ) : (
+                <>
+                  <input
+                    type="password"
+                    placeholder="앱 전용 비밀번호"
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    className={styles.formInput}
+                    disabled={loading || syncing}
+                  />
+                  <div style={{ marginTop: '8px', display: 'flex', alignItems: 'center' }}>
+                    <input
+                      type="checkbox"
+                      id="savePassword"
+                      checked={savePasswordChecked}
+                      onChange={(e) => setSavePasswordChecked(e.target.checked)}
+                      style={{ marginRight: '6px' }}
+                    />
+                    <label htmlFor="savePassword" style={{ fontSize: '13px', color: '#444', cursor: 'pointer' }}>
+                      🔒 이 암호를 안전하게 저장하기 (다음부터 입력 생략)
+                    </label>
+                  </div>
+                </>
+              )}
               <p className={styles.helpText}>
                 iCloud 사용 시: 설정 → Apple ID → 앱 비밀번호에서 생성
               </p>

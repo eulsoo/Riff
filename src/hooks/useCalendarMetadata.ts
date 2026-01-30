@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { CalendarMetadata, getCalendarMetadata, saveLocalCalendarMetadata, normalizeCalendarUrl, saveCalendarMetadata, createEvent } from '../services/api';
+import { CalendarMetadata, getCalendarMetadata, saveLocalCalendarMetadata, normalizeCalendarUrl, saveCalendarMetadata, upsertEvent } from '../services/api';
 import { fetchAndParseICS } from '../services/icsParser';
 
 export const useCalendarMetadata = () => {
@@ -53,7 +53,7 @@ export const useCalendarMetadata = () => {
             console.log(`Fetched ${events.length} holiday events`);
             if (events.length > 0) {
                 events.forEach(ev => {
-                    createEvent({
+                    upsertEvent({
                         ...ev,
                         calendarUrl: normalizedHolidayUrl,
                         source: 'caldav' 
@@ -67,6 +67,16 @@ export const useCalendarMetadata = () => {
     // Update state
     setCalendarMetadata(metaList);
     setVisibleCalendarUrlSet(visible);
+  }, []);
+
+  const refreshMetadata = useCallback(() => {
+    const metaMap = getCalendarMetadata();
+    const metaList = Object.values(metaMap);
+    setCalendarMetadata(metaList);
+
+    // Re-calculate visible set if needed, or just keep existing set but filter by new list?
+    // Usually visibility is separate, but we should ensure deleted calendars are removed from visibility set.
+    // For now, simpler is just refreshing the list.
   }, []);
 
   const toggleCalendarVisibility = useCallback((url: string) => {
@@ -126,5 +136,6 @@ export const useCalendarMetadata = () => {
     addLocalCalendar,
     updateLocalCalendar,
     deleteCalendar,
+    refreshMetadata,
   };
 };

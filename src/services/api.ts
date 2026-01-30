@@ -18,6 +18,9 @@ export interface CalendarMetadata {
   isVisible?: boolean;
   type?: 'local' | 'subscription' | 'caldav';
   subscriptionUrl?: string;
+  isShared?: boolean;
+  isSubscription?: boolean;
+  readOnly?: boolean;
 }
 
 // CalDAV 메타데이터 저장 (로컬 캘린더 제외)
@@ -181,6 +184,10 @@ export const createEvent = async (event: Omit<Event, 'id'> & { uid?: string; cal
   if (event.etag) {
     payload.etag = event.etag;
   }
+  // Allow restoring specific ID (e.g. for Undo Delete)
+  if ((event as any).id) {
+    payload.id = (event as any).id;
+  }
 
   const { data, error } = await supabase
     .from('events')
@@ -197,6 +204,7 @@ export const createEvent = async (event: Omit<Event, 'id'> & { uid?: string; cal
     startTime: data.start_time,
     endTime: data.end_time,
     calendarUrl: data.calendar_url,
+    caldavUid: data.caldav_uid,
   };
 };
 
@@ -237,6 +245,7 @@ export const upsertEvent = async (event: Omit<Event, 'id'> & { uid?: string; cal
     startTime: data.start_time,
     endTime: data.end_time,
     calendarUrl: data.calendar_url,
+    caldavUid: data.caldav_uid,
   };
 };
 

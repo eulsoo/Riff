@@ -107,64 +107,91 @@ export function CalendarListPopup({
     }
   };
 
-  const localCalendars = calendars.filter(c => c.isLocal || c.type === 'local');
-  const subCalendars = calendars.filter(c => !c.isLocal && c.type !== 'local');
+  // Group calendars
+  const groups = {
+    main: [] as CalendarMetadata[], // 로컬 + 공유됨 (타이틀 없음)
+    subscription: [] as CalendarMetadata[], // 구독 (타이틀: 구독)
+  };
 
-  const getCalendarItem = (cal: CalendarMetadata) => {
-    const isVisible = visibleUrlSet.has(cal.url);
-    const isEditing = editingId === cal.url;
-    const isSelected = selectedId === cal.url;
+  calendars.forEach(cal => {
+    // 0. System calendars filtering (inbox, outbox, notification)
+    if (cal.url.includes('/inbox/') || cal.url.includes('/outbox/') || cal.url.includes('/notification/')) {
+      return;
+    }
 
+    // 1. Subscription check
+    if (cal.isSubscription || cal.type === 'subscription' || cal.url.endsWith('.ics') || cal.url.includes('holidays')) {
+      groups.subscription.push(cal);
+      return;
+    }
+
+    // 2. All other calendars go to main group
+    groups.main.push(cal);
+  });
+
+  const Section = ({ title, items, isLocalSection = false }: { title?: string, items: CalendarMetadata[], isLocalSection?: boolean }) => {
+    if (items.length === 0) return null;
     return (
-      <div
-        key={cal.url}
-        className={styles.calendarItem}
-        style={{ backgroundColor: isSelected ? 'rgba(0, 0, 0, 0.05)' : undefined }}
-        onContextMenu={(e) => handleContextMenu(e, cal)}
-        onClick={() => {
-          if (isSelected && cal.isLocal && !isEditing) {
-            setEditingId(cal.url);
-            setEditingName(cal.displayName);
-            return;
-          }
-          setSelectedId(cal.url);
-        }}
-      >
-        <input
-          type="checkbox"
-          className={styles.checkbox}
-          style={{ '--cal-color': cal.color } as React.CSSProperties}
-          checked={isVisible}
-          onChange={() => onToggle(cal.url)}
-          onClick={(e) => e.stopPropagation()}
-        />
+      <div className={styles.section}>
+        {title && <div className={styles.sectionTitle}>{title}</div>}
+        {items.map(cal => {
+          const isVisible = visibleUrlSet.has(cal.url);
+          const isEditing = editingId === cal.url;
+          const isSelected = selectedId === cal.url;
 
-        <div style={{ flex: 1, display: 'flex', alignItems: 'center', cursor: 'pointer' }}>
-          {isEditing ? (
-            <input
-              ref={inputRef}
-              className={styles.calendarNameInput}
-              value={editingName}
-              onChange={(e) => setEditingName(e.target.value)}
-              onBlur={handleNameSave}
-              onKeyDown={handleKeyDown}
-              onClick={(e) => e.stopPropagation()}
-            />
-          ) : (
-            <span className={styles.calendarName}
-              style={{ userSelect: 'none' }}
-              onDoubleClick={(e) => {
-                e.stopPropagation();
-                if (cal.isLocal) {
+          return (
+            <div
+              key={cal.url}
+              className={styles.calendarItem}
+              style={{ backgroundColor: isSelected ? 'rgba(0, 0, 0, 0.05)' : undefined }}
+              onContextMenu={(e) => handleContextMenu(e, cal)}
+              onClick={() => {
+                if (isSelected && isLocalSection && cal.isLocal && !isEditing) {
                   setEditingId(cal.url);
                   setEditingName(cal.displayName);
+                  return;
                 }
+                setSelectedId(cal.url);
               }}
             >
-              {cal.displayName}
-            </span>
-          )}
-        </div>
+              <input
+                type="checkbox"
+                className={styles.checkbox}
+                style={{ '--cal-color': cal.color } as React.CSSProperties}
+                checked={isVisible}
+                onChange={() => onToggle(cal.url)}
+                onClick={(e) => e.stopPropagation()}
+              />
+
+              <div style={{ flex: 1, display: 'flex', alignItems: 'center', cursor: 'pointer' }}>
+                {isEditing ? (
+                  <input
+                    ref={inputRef}
+                    className={styles.calendarNameInput}
+                    value={editingName}
+                    onChange={(e) => setEditingName(e.target.value)}
+                    onBlur={handleNameSave}
+                    onKeyDown={handleKeyDown}
+                    onClick={(e) => e.stopPropagation()}
+                  />
+                ) : (
+                  <span className={styles.calendarName}
+                    style={{ userSelect: 'none' }}
+                    onDoubleClick={(e) => {
+                      e.stopPropagation();
+                      if (isLocalSection && cal.isLocal) {
+                        setEditingId(cal.url);
+                        setEditingName(cal.displayName);
+                      }
+                    }}
+                  >
+                    {cal.displayName}
+                  </span>
+                )}
+              </div>
+            </div>
+          );
+        })}
       </div>
     );
   };
@@ -173,7 +200,7 @@ export function CalendarListPopup({
     <>
       <div className={styles.popupContainer}>
         <div className={styles.header}>
-          <h3 className={styles.title}>내 캘린더</h3>
+          <h3 className={styles.title}>캘린더 목록</h3>
           <button onClick={onClose} className={styles.closeButton}>
             <X size={18} />
           </button>
@@ -185,29 +212,11 @@ export function CalendarListPopup({
           </div>
         ) : (
           <div className={styles.calendarList}>
-            {/* Local Calendars */}
-            {localCalendars.length > 0 && localCalendars.map(getCalendarItem)}
+            {/* 메인 그룹 (로컬 + 공유됨) - 타이틀 없음 */}
+            <Section items={groups.main} isLocalSection={true} />
 
-            {/* Divider if both exist */}
-            {localCalendars.length > 0 && subCalendars.length > 0 && (
-              <div style={{ margin: '0.5rem 0 0.25rem', borderTop: '1px solid #f3f4f6' }} />
-            )}
-
-            {/* Subscribed Calendars Header */}
-            {subCalendars.length > 0 && (
-              <div style={{
-                padding: '0.5rem 0.5rem 0.25rem',
-                fontSize: '0.75rem',
-                fontWeight: 600,
-                color: '#9ca3af',
-                textTransform: 'uppercase'
-              }}>
-                구독 캘린더
-              </div>
-            )}
-
-            {/* Subscribed Calendars */}
-            {subCalendars.map(getCalendarItem)}
+            {/* 구독 그룹 - 타이틀 있음 */}
+            <Section title="구독" items={groups.subscription} />
           </div>
         )}
 

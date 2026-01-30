@@ -17,6 +17,7 @@ interface CalendarListProps {
   showTodos: boolean;
   onDateClick: (date: string, anchorEl?: HTMLElement) => void;
   onEventDoubleClick: (event: Event, anchorEl?: HTMLElement) => void;
+  onDeleteEvent: (eventId: string) => void; // Added Prop
   onOpenDiary: (date: string) => void;
   topSentinelRef: React.RefObject<HTMLDivElement>;
   bottomSentinelRef: React.RefObject<HTMLDivElement>;
@@ -37,12 +38,13 @@ export const CalendarList = memo(({
   showTodos,
   onDateClick,
   onEventDoubleClick,
+  onDeleteEvent, // Received from MainLayout
   onOpenDiary,
   topSentinelRef,
   bottomSentinelRef
 }: CalendarListProps) => {
   const {
-    deleteEvent,
+    // deleteEvent, // Don't use local deleteEvent
     toggleRoutine,
     addTodo,
     toggleTodo,
@@ -69,7 +71,7 @@ export const CalendarList = memo(({
             onDateClick={onDateClick}
             onEventDoubleClick={onEventDoubleClick}
 
-            onDeleteEvent={deleteEvent}
+            onDeleteEvent={onDeleteEvent} // Pass the wrapper
             onToggleRoutine={toggleRoutine}
             onAddTodo={addTodo}
             onToggleTodo={toggleTodo}

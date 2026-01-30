@@ -3,6 +3,7 @@ import { CalendarMetadata } from '../services/api';
 import { CalDAVSyncModal } from './CalDAVSyncModal';
 import { EventModal } from './EventModal';
 import { RoutineModal } from './RoutineModal';
+import { ModalPosition } from './EventModal';
 import { SettingsModal } from './SettingsModal';
 
 interface AppModalsProps {
@@ -13,10 +14,7 @@ interface AppModalsProps {
   modalSessionId: number;
   routines: Routine[];
   calendars: CalendarMetadata[];
-  popupPosition?: {
-    anchorId: string;
-    align: 'left' | 'right';
-  } | null;
+  popupPosition?: ModalPosition | null;
   isRoutineModalOpen: boolean;
   isCalDAVModalOpen: boolean;
   isSettingsModalOpen: boolean;

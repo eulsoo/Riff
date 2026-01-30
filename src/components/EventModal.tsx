@@ -4,15 +4,20 @@ import { Event } from '../types';
 import { CalendarMetadata, normalizeCalendarUrl } from '../services/api';
 import styles from './EventModal.module.css';
 
+
+export interface ModalPosition {
+  top: number;
+  left?: number;
+  right?: number;
+  align: 'left' | 'right';
+}
+
 interface EventModalProps {
   date: string;
   initialTitle?: string;
   event?: Event;
   calendars: CalendarMetadata[];
-  position?: {
-    anchorId: string;
-    align: 'left' | 'right';
-  } | null;
+  position?: ModalPosition | null;
   onClose: () => void;
   onSave: (event: Omit<Event, 'id'>, keepOpen?: boolean) => void;
   onUpdate?: (eventId: string, updates: Partial<Event>) => void;
@@ -235,33 +240,13 @@ export function EventModal({ date, initialTitle, event, calendars, position, onC
   const [styleState, setStyleState] = useState<{ top: number, left?: number, right?: number }>();
 
   useLayoutEffect(() => {
-    if (!position?.anchorId) return;
-
-    const update = () => {
-      const anchor = document.getElementById(position.anchorId);
-      if (!anchor) return;
-
-      const rect = anchor.getBoundingClientRect();
-      const scrollY = window.scrollY;
-      const gap = 12;
-
-      const top = rect.top + scrollY;
-      let left: number | undefined;
-      let right: number | undefined;
-
-      if (position.align === 'left') {
-        left = rect.right + gap;
-      } else {
-        right = (document.documentElement.clientWidth - rect.left) + gap;
-      }
-
-      setStyleState({ top, left, right });
-    };
-
-    update();
-    window.addEventListener('resize', update);
-    return () => window.removeEventListener('resize', update);
-  }, [position?.anchorId, position?.align]);
+    if (!position) return;
+    setStyleState({
+      top: position.top,
+      left: position.left,
+      right: position.right
+    });
+  }, [position]);
 
   const absoluteStyle: React.CSSProperties | undefined = styleState ? {
     position: 'absolute',
@@ -391,24 +376,10 @@ export function EventModal({ date, initialTitle, event, calendars, position, onC
                 />
               </div>
 
-              <div className={styles.modalActions}>
-                {event && onDelete && !isCreateSession.current && (
-                  <button
-                    type="button"
-                    onClick={handleDelete}
-                    className={styles.addButton}
-                    style={{ backgroundColor: 'transparent', color: '#ef4444', marginRight: 'auto', paddingLeft: 0, paddingRight: 0, minWidth: 'auto', boxShadow: 'none' }}
-                    title="삭제"
-                  >
-                    <Trash2 size={18} />
-                  </button>
-                )}
-              </div>
+
             </div>
 
-            <button onClick={onClose} className={styles.closeButton}>
-              <X size={14} />
-            </button>
+
           </>
         )}
       </div>
