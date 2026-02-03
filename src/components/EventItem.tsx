@@ -1,5 +1,5 @@
 import { memo } from 'react';
-import { X } from 'lucide-react';
+
 import { Event } from '../types';
 import styles from './WeekCard.module.css';
 
@@ -15,9 +15,9 @@ const formatEventTime = (startTime?: string, endTime?: string) => {
   const formatTime = (time: string) => {
     const [hours, minutes] = time.split(':');
     const hour = parseInt(hours);
-    const ampm = hour >= 12 ? 'PM' : 'AM';
+    const ampm = hour >= 12 ? '오후' : '오전';
     const displayHour = hour % 12 || 12;
-    return `${displayHour}:${minutes} ${ampm}`;
+    return `${ampm} ${displayHour}:${minutes}`;
   };
 
   if (startTime && endTime) {
@@ -82,7 +82,7 @@ export const EventItem = memo(function EventItem({
           className={`${styles.eventDeleteButton} ${isSelected ? styles.eventDeleteButtonSelected : ''}`}
           aria-label="일정 삭제"
         >
-          <X className={styles.eventDeleteIcon} />
+          <span className={`material-symbols-rounded ${styles.eventDeleteIcon}`}>close</span>
         </button>
       </div>
     </div>

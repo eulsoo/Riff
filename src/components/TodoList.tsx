@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Todo } from '../types';
-import { Plus, Trash2, Check, X } from 'lucide-react';
 import styles from './TodoList.module.css';
+import { TodoCheckIcon } from './TodoCheckIcon';
 
 interface TodoListProps {
   todos: Todo[];
@@ -82,12 +82,13 @@ export function TodoList({
                   }}
                   className={styles.todoInput}
                   autoFocus
+                  onBlur={handleCancelEdit}
                 />
                 <button
                   onClick={handleSaveEdit}
                   className={styles.todoInputButton}
                 >
-                  <Check className={`${styles.todoInputIcon} ${styles.todoInputIconCheck}`} />
+                  <span className={`material-symbols-rounded ${styles.todoInputIcon} ${styles.todoInputIconCheck}`}>check</span>
                 </button>
               </div>
             ) : (
@@ -102,7 +103,7 @@ export function TodoList({
                   aria-label={todo.completed ? '완료 해제' : '완료'}
                 >
                   {todo.completed ? (
-                    <Check className={styles.todoCheckboxIcon} strokeWidth={3} />
+                    <TodoCheckIcon className={styles.todoCheckboxIcon} />
                   ) : (
                     <span className={styles.todoCheckboxEmpty} />
                   )}
@@ -122,7 +123,7 @@ export function TodoList({
                     className={`${styles.todoActionButton} ${styles.todoActionButtonDelete}`}
                     title="삭제"
                   >
-                    <Trash2 className={`${styles.todoActionIcon} ${styles.todoActionIconDelete}`} />
+                    <span className={`material-symbols-rounded ${styles.todoActionIcon} ${styles.todoActionIconDelete}`}>delete</span>
                   </button>
                 </div>
               </div>
@@ -149,13 +150,13 @@ export function TodoList({
               onClick={handleAdd}
               className={styles.todoInputButton}
             >
-              <Check className={`${styles.todoInputIcon} ${styles.todoInputIconCheck}`} />
+              <span className={`material-symbols-rounded ${styles.todoInputIcon} ${styles.todoInputIconCheck}`}>check</span>
             </button>
             <button
               onClick={() => setIsAdding(false)}
               className={styles.todoInputButton}
             >
-              <X className={`${styles.todoInputIcon} ${styles.todoInputIconCancel}`} />
+              <span className={`material-symbols-rounded ${styles.todoInputIcon} ${styles.todoInputIconCancel}`}>close</span>
             </button>
           </div>
         ) : (
@@ -164,7 +165,7 @@ export function TodoList({
             className={styles.todoAddButton}
             title="할 일 추가"
           >
-            <Plus className={styles.todoAddIcon} />
+            <span className={`material-symbols-rounded ${styles.todoAddIcon}`}>add</span>
           </button>
         )}
       </div>

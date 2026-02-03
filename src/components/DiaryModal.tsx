@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import type { KeyboardEvent as ReactKeyboardEvent } from 'react';
-import { X, Trash2 } from 'lucide-react';
+
 import { DiaryEntry, Event, WeekOrder } from '../types';
 import styles from './DiaryModal.module.css';
 
@@ -342,7 +342,7 @@ export function DiaryModal({
       <div className={styles.main}>
         <div className={styles.container}>
           <button className={styles.closeButton} onClick={onClose} aria-label="닫기">
-            <X className={styles.closeIcon} />
+            <span className={`material-symbols-rounded ${styles.closeIcon}`}>close</span>
           </button>
           <div className={styles.header}>
             <div className={styles.saveStatus}>
@@ -372,7 +372,7 @@ export function DiaryModal({
           onClick={() => onDelete(date)}
           aria-label="일기 삭제"
         >
-          <Trash2 className={styles.deleteIcon} />
+          <span className={`material-symbols-rounded ${styles.deleteIcon}`}>delete</span>
         </button>
       </div>
     </div>

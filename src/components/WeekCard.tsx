@@ -3,8 +3,7 @@ import { EventItem } from './EventItem';
 import { Event, Routine, RoutineCompletion, Todo, WeekOrder } from '../types';
 import { RoutineIcon } from './RoutineIcon';
 import { TodoList } from './TodoList';
-import { Trash2 } from 'lucide-react';
-import { useSelection } from '../contexts/SelectionContext';
+import { useSelection, useHover } from '../contexts/SelectionContext';
 import styles from './WeekCard.module.css';
 
 interface WeekCardProps {
@@ -36,7 +35,7 @@ interface WeekCardProps {
 const DIARY_ROUTINE: Routine = {
   id: 'diary',
   name: '일기쓰기',
-  icon: 'NotebookPen',
+  icon: 'edit_note',
   color: '#8b5cf6',
   days: [],
 };
@@ -66,7 +65,8 @@ export const WeekCard = memo(function WeekCard({
   showRoutines,
   showTodos,
 }: WeekCardProps) {
-  const { clearSelection, setHoveredDate } = useSelection();
+  const { clearSelection } = useSelection();
+  const { setHoveredDate } = useHover();
   // Performance Monitoring
 
   const [draftDefinitions, setDraftDefinitions] = useState<Record<string, string>>({});
@@ -287,7 +287,7 @@ export const WeekCard = memo(function WeekCard({
                           aria-label="하루 정의 삭제"
                           title="삭제"
                         >
-                          <Trash2 className={styles.dayDefinitionDeleteIcon} />
+                          <span className={`material-symbols-rounded ${styles.dayDefinitionDeleteIcon}`}>delete</span>
                         </button>
                       )}
                     </>

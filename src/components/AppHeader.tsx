@@ -1,4 +1,3 @@
-import { ChevronRight, X } from 'lucide-react';
 import { RefObject } from 'react';
 import styles from '../App.module.css';
 
@@ -82,7 +81,7 @@ export function AppHeader({
                 <div className={styles.profileHeader}>
                   <span className={styles.profileTitle}>계정</span>
                   <button onClick={onToggleProfileMenu} className={styles.profileCloseButton}>
-                    <X size={18} />
+                    <span className="material-symbols-rounded" style={{ fontSize: '18px' }}>close</span>
                   </button>
                 </div>
 
@@ -103,7 +102,7 @@ export function AppHeader({
                     onClick={onOpenRoutine}
                   >
                     <span>루틴 관리</span>
-                    <ChevronRight size={16} />
+                    <span className="material-symbols-rounded" style={{ fontSize: '16px' }}>chevron_right</span>
                   </button>
                 </div>
 

@@ -4,7 +4,7 @@ import { supabase } from './lib/supabase';
 import { Login } from './components/Login';
 import { MainLayout } from './components/MainLayout';
 import { DataProvider } from './contexts/DataContext';
-import { SelectionProvider } from './contexts/SelectionContext';
+import { SelectionProvider, HoverProvider } from './contexts/SelectionContext';
 import { WeekOrder } from './types';
 import { getWeekStartForDate, getTodoWeekStart, formatLocalDate } from './utils/dateUtils';
 import styles from './App.module.css';
@@ -49,29 +49,31 @@ export default function App() {
         <Login />
       ) : (
         <SelectionProvider>
-          <DataProvider
-            session={session}
-            weekOrder={weekOrder}
-            pastWeeks={pastWeeks}
-            futureWeeks={futureWeeks}
-            getWeekStartForDate={handleGetWeekStartForDate}
-            getCurrentTodoWeekStart={handleGetCurrentTodoWeekStart}
-            formatLocalDate={formatLocalDate}
-          >
-            <MainLayout
+          <HoverProvider>
+            <DataProvider
               session={session}
               weekOrder={weekOrder}
-              setWeekOrder={setWeekOrder}
               pastWeeks={pastWeeks}
-              setPastWeeks={setPastWeeks}
               futureWeeks={futureWeeks}
-              setFutureWeeks={setFutureWeeks}
-              currentYear={currentYear}
-              setCurrentYear={setCurrentYear}
-              currentMonth={currentMonth}
-              setCurrentMonth={setCurrentMonth}
-            />
-          </DataProvider>
+              getWeekStartForDate={handleGetWeekStartForDate}
+              getCurrentTodoWeekStart={handleGetCurrentTodoWeekStart}
+              formatLocalDate={formatLocalDate}
+            >
+              <MainLayout
+                session={session}
+                weekOrder={weekOrder}
+                setWeekOrder={setWeekOrder}
+                pastWeeks={pastWeeks}
+                setPastWeeks={setPastWeeks}
+                futureWeeks={futureWeeks}
+                setFutureWeeks={setFutureWeeks}
+                currentYear={currentYear}
+                setCurrentYear={setCurrentYear}
+                currentMonth={currentMonth}
+                setCurrentMonth={setCurrentMonth}
+              />
+            </DataProvider>
+          </HoverProvider>
         </SelectionProvider>
       )}
     </div>

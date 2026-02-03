@@ -1,5 +1,4 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
-import { X, Trash2, ChevronDown } from 'lucide-react';
 import { Event } from '../types';
 import styles from './EventDetailModal.module.css';
 
@@ -134,7 +133,7 @@ export function EventDetailModal({ event, onClose, onUpdate, onDelete }: EventDe
                   className={styles.colorChip}
                   style={{ backgroundColor: color }}
                 />
-                <ChevronDown className={styles.colorPickerIcon} />
+                <span className={`material-symbols-rounded ${styles.colorPickerIcon}`}>expand_more</span>
               </button>
 
               {/* 색상 드롭다운 */}
@@ -167,7 +166,7 @@ export function EventDetailModal({ event, onClose, onUpdate, onDelete }: EventDe
             onClick={onClose}
             className={styles.modalCloseButton}
           >
-            <X className={styles.modalCloseIcon} />
+            <span className={`material-symbols-rounded ${styles.modalCloseIcon}`}>close</span>
           </button>
         </div>
 
@@ -214,7 +213,7 @@ export function EventDetailModal({ event, onClose, onUpdate, onDelete }: EventDe
             onClick={handleDelete}
             className={styles.modalDeleteButton}
           >
-            <Trash2 className={styles.modalDeleteIcon} />
+            <span className={`material-symbols-rounded ${styles.modalDeleteIcon}`}>delete</span>
             일정 삭제
           </button>
         </div>

@@ -1,16 +1,18 @@
 import { useState, useEffect } from 'react';
-import { X } from 'lucide-react';
 import { Calendar, CalDAVConfig, getCalendars, syncSelectedCalendars } from '../services/caldav';
-import { saveCalDAVSyncSettings, getCalDAVSyncSettings, deleteAllCalDAVData, saveCalendarMetadata } from '../services/api';
+import { saveCalDAVSyncSettings, getCalDAVSyncSettings, deleteAllCalDAVData, saveCalendarMetadata, deleteCalDAVSyncSettings, normalizeCalendarUrl, CalendarMetadata } from '../services/api';
 import { supabase } from '../lib/supabase';
 import styles from './CalDAVSyncModal.module.css';
 
 interface CalDAVSyncModalProps {
   onClose: () => void;
   onSyncComplete: (count: number) => void;
+  mode?: 'sync' | 'auth-only';
+  existingCalendars: CalendarMetadata[];
 }
 
-export function CalDAVSyncModal({ onClose, onSyncComplete }: CalDAVSyncModalProps) {
+export function CalDAVSyncModal({ onClose, onSyncComplete, mode = 'sync', existingCalendars }: CalDAVSyncModalProps) {
+  const [step, setStep] = useState<'credentials' | 'selection'>('credentials');
   const [serverUrl, setServerUrl] = useState('https://caldav.icloud.com');
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
@@ -54,7 +56,6 @@ export function CalDAVSyncModal({ onClose, onSyncComplete }: CalDAVSyncModalProp
               setUsername(result.username);
               setSettingId(result.settingId);
               setHasSavedPassword(result.hasPassword);
-              // DB 설정이 있으면 로컬 설정 무시하고 리턴
               return;
             }
           }
@@ -80,9 +81,8 @@ export function CalDAVSyncModal({ onClose, onSyncComplete }: CalDAVSyncModalProp
   }, []);
 
 
-  // 캘린더 목록 가져오기
+  // Step 1: 인증 및 캘린더 목록 가져오기
   const handleFetchCalendars = async () => {
-    // 저장된 설정(settingId)이 없고 비밀번호도 입력 안 했으면 에러
     if (!serverUrl || !username || (!password && !settingId)) {
       setError('서버 정보를 모두 입력해주세요.');
       return;
@@ -91,7 +91,6 @@ export function CalDAVSyncModal({ onClose, onSyncComplete }: CalDAVSyncModalProp
     setLoading(true);
     setError(null);
     try {
-      // useSavedSettings 체크가 되어 있으면 settingId 사용, 아니면 password 필수
       const config: CalDAVConfig = {
         serverUrl: serverUrl.trim(),
         username: username.trim(),
@@ -99,7 +98,6 @@ export function CalDAVSyncModal({ onClose, onSyncComplete }: CalDAVSyncModalProp
         settingId: settingId || undefined
       };
 
-      // 비밀번호 검증
       if (!config.password && !config.settingId) {
         setError('앱 별 암호를 입력해주세요.');
         setLoading(false);
@@ -109,17 +107,13 @@ export function CalDAVSyncModal({ onClose, onSyncComplete }: CalDAVSyncModalProp
       const calendarList = await getCalendars(config);
       setCalendars(calendarList);
 
-      // 성공했고, 저장이 체크되어 있고, 아직 저장된 상태(settingId)가 아니라면 자동 저장
-      // 성공했고, 저장이 체크되어 있고, (아직 저장 안됨 OR 비밀번호가 새로 입력됨)
+      // 자동 저장 (성공 시)
       if (savePasswordChecked && (password || !settingId)) {
         try {
-          // 조용히 백그라운드 저장 -> 사용자 피드백 추가
           const { data } = await supabase.auth.getSession();
           const token = data.session?.access_token;
 
           if (token) {
-            // settingId가 있어도 업데이트를 위해 보냄 (Upsert 로직 필요하거나 action='saveSettings'가 덮어쓰기 지원해야 함)
-            // 현재 Edge Function의 'saveSettings'는 upsert를 사용하므로 덮어쓰기 됨
             const saveRes = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/caldav-proxy`, {
               method: 'POST',
               headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
@@ -129,12 +123,7 @@ export function CalDAVSyncModal({ onClose, onSyncComplete }: CalDAVSyncModalProp
               const result = await saveRes.json();
               setSettingId(result.settingId);
               setHasSavedPassword(true);
-              if (typeof window !== 'undefined') {
-                window.alert('연결 정보가 안전하게 저장되었습니다.\n다음부터는 암호 입력 없이 사용하실 수 있습니다.');
-              }
-            } else {
-              console.warn('설정 저장 실패', await saveRes.text());
-              // 실패해도 목록은 가져왔으니 에러를 띄우진 않음 (콘솔만)
+              // 설정 저장 완료
             }
           }
         } catch (e) {
@@ -142,20 +131,42 @@ export function CalDAVSyncModal({ onClose, onSyncComplete }: CalDAVSyncModalProp
         }
       }
 
+      // 모드에 따른 분기
+      if (mode === 'auth-only') {
+        // 인증(및 저장) 확인 완료 -> 닫기
+        if (typeof window !== 'undefined') {
+          // 사용자 피드백 없이 닫으면 사용자가 혼란스러울 수 있으나, MainLayout의 흐름에 맡김
+          // 혹은 Toast를 여기서 띄우는 방법도 있음.
+          window.alert('설정이 저장되었습니다.');
+        }
+        onClose();
+        return;
+      }
 
+      // sync 모드이면 다음 단계로(선택 화면)
+      setStep('selection');
 
       // 기존 설정이 있다면 이전에 선택했던 캘린더들을 자동으로 체크
       const preSelected = new Set<string>();
-      if (existingSettings?.selectedCalendarUrls) {
-        // 새로 가져온 목록에 존재하는 캘린더만 체크 (삭제된 캘린더 제외)
-        const currentUrls = new Set(calendarList.map(c => c.url));
-        existingSettings.selectedCalendarUrls.forEach(url => {
-          if (currentUrls.has(url)) {
-            preSelected.add(url);
-          }
-        });
-      }
+
+      // 1. 현재 앱에 이미 등록된 캘린더 (동기화 중)
+      const activeNormalizedUrls = new Set(existingCalendars.map(c => normalizeCalendarUrl(c.url)));
+
+      // 2. 저장된 설정의 선택된 URL
+      const settingSelectedUrls = new Set(
+        (existingSettings?.selectedCalendarUrls || []).map(u => normalizeCalendarUrl(u))
+      );
+
+      calendarList.forEach(cal => {
+        const normUrl = normalizeCalendarUrl(cal.url);
+        // 이미 앱에 있거나, 설정에 저장되어 있다면 체크
+        if (normUrl && (activeNormalizedUrls.has(normUrl) || settingSelectedUrls.has(normUrl))) {
+          preSelected.add(cal.url);
+        }
+      });
+
       setSelectedCalendars(preSelected);
+
     } catch (err: any) {
       console.error('CalDAV 모달 오류:', err);
       const errorMsg = err?.message || '캘린더 목록을 가져올 수 없습니다.';
@@ -197,7 +208,6 @@ export function CalDAVSyncModal({ onClose, onSyncComplete }: CalDAVSyncModalProp
     try {
       const config: CalDAVConfig = { serverUrl, username, password: password || undefined, settingId: settingId || undefined };
 
-      // 선택된 캘린더들의 메타데이터 저장
       const metadataToSave = calendars
         .filter(cal => selectedCalendars.has(cal.url))
         .map(cal => ({
@@ -210,8 +220,6 @@ export function CalDAVSyncModal({ onClose, onSyncComplete }: CalDAVSyncModalProp
         }));
       saveCalendarMetadata(metadataToSave);
 
-      // 기존 설정이 있고, 서버 정보가 같으면 마지막 동기화 시점부터 가져오기
-      // 서버 정보가 다르거나 첫 동기화면 null 전달
       const lastSyncAt = existingSettings &&
         existingSettings.lastSyncAt &&
         serverUrl === existingSettings.serverUrl &&
@@ -219,31 +227,19 @@ export function CalDAVSyncModal({ onClose, onSyncComplete }: CalDAVSyncModalProp
         ? existingSettings.lastSyncAt
         : null;
 
-      if (lastSyncAt) {
-        console.log(`마지막 동기화 시점(${lastSyncAt})부터 동기화합니다.`);
-      } else {
-        console.log('첫 동기화 또는 새로운 서버 정보: 최근 1년간의 일정을 가져옵니다.');
-      }
-
-      // 동기화 실행
       const count = await syncSelectedCalendars(
         config,
         Array.from(selectedCalendars),
         lastSyncAt
       );
 
-      // 동기화 설정 저장 (자동 동기화 활성화)
-      const saved = await saveCalDAVSyncSettings({
+      await saveCalDAVSyncSettings({
         serverUrl,
         username,
         password,
         selectedCalendarUrls: Array.from(selectedCalendars),
-        syncIntervalMinutes: 60, // 기본 1시간마다
+        syncIntervalMinutes: 60,
       });
-
-      if (!saved) {
-        console.warn('동기화 설정 저장 실패');
-      }
 
       onSyncComplete(count);
       onClose();
@@ -263,7 +259,6 @@ export function CalDAVSyncModal({ onClose, onSyncComplete }: CalDAVSyncModalProp
     try {
       const success = await deleteAllCalDAVData();
       if (success) {
-        // 동기화 토큰 로컬 스토리지 삭제
         if (typeof window !== 'undefined') {
           Object.keys(window.localStorage)
             .filter(key => key.startsWith('caldavSyncTokens'))
@@ -271,7 +266,7 @@ export function CalDAVSyncModal({ onClose, onSyncComplete }: CalDAVSyncModalProp
         }
 
         alert('연동이 해제되고 데이터가 삭제되었습니다.');
-        window.location.reload(); // 깔끔한 상태 반영을 위해 새로고침
+        window.location.reload();
       } else {
         throw new Error('데이터 삭제 중 오류가 발생했습니다.');
       }
@@ -282,103 +277,150 @@ export function CalDAVSyncModal({ onClose, onSyncComplete }: CalDAVSyncModalProp
     }
   };
 
+  // Unmount 시 포커스 해제 (Autofill 팝업 잔상 제거)
+  useEffect(() => {
+    return () => {
+      if (document.activeElement instanceof HTMLElement) {
+        document.activeElement.blur();
+      }
+    };
+  }, []);
+
   return (
     <div className={styles.modalOverlay}>
       <div className={styles.modalBackdrop} onClick={onClose} />
       <div className={styles.modal}>
         <div className={styles.modalHeader}>
-          <h2 className={styles.modalTitle}>캘린더 동기화</h2>
+          {step === 'selection' && (
+            <button onClick={() => setStep('credentials')} className={styles.backButton} aria-label="뒤로">
+              <span className={`material-symbols-rounded ${styles.backIcon}`}>chevron_left</span>
+            </button>
+          )}
+          <div style={{ flex: 1 }} />
           <button onClick={onClose} className={styles.modalCloseButton}>
-            <X className={styles.modalCloseIcon} />
+            <span className={`material-symbols-rounded ${styles.modalCloseIcon}`}>close</span>
           </button>
         </div>
 
         <div className={styles.modalContent}>
-          {/* 서버 정보 입력 */}
-          <div className={styles.section}>
-            <h3 className={styles.sectionTitle}>서버 정보</h3>
-            <div className={styles.formGroup}>
-              <label className={styles.formLabel}>서버 URL</label>
-              <input
-                type="text"
-                placeholder="https://caldav.icloud.com"
-                value={serverUrl}
-                onChange={(e) => setServerUrl(e.target.value)}
-                className={styles.formInput}
-                disabled={loading || syncing}
-              />
-            </div>
-            <div className={styles.formGroup}>
-              <label className={styles.formLabel}>사용자명</label>
-              <input
-                type="text"
-                placeholder="iCloud 이메일 주소"
-                value={username}
-                onChange={(e) => setUsername(e.target.value)}
-                className={styles.formInput}
-                disabled={loading || syncing}
-              />
-            </div>
-            <div className={styles.formGroup}>
-              <label className={styles.formLabel}>암호</label>
-              {hasSavedPassword ? (
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                  <div style={{ flex: 1, padding: '8px', background: '#f5f5f5', borderRadius: '4px', color: '#666', fontSize: '14px', border: '1px solid #ddd' }}>
-                    🔒 안전하게 저장된 암호 사용 중
-                  </div>
-                  <button
-                    onClick={() => {
-                      if (window.confirm('저장된 암호를 삭제하고 새로 입력하시겠습니까?')) {
+          {step === 'credentials' ? (
+            /* Step 1: Credentials Form */
+            <form
+              className={styles.section}
+              style={{ paddingTop: '0.5rem' }}
+              onSubmit={(e) => {
+                e.preventDefault();
+                handleFetchCalendars();
+              }}
+              autoComplete="off"
+            >
+              <div className={styles.formGroup}>
+                <label className={styles.formLabel}>서버 URL</label>
+                <input
+                  type="text"
+                  placeholder="https://caldav.icloud.com"
+                  value={serverUrl}
+                  onChange={(e) => setServerUrl(e.target.value)}
+                  className={styles.formInput}
+                  disabled={loading || syncing}
+                  autoComplete="url"
+                  name="caldav-url"
+                />
+              </div>
+              <div className={styles.formGroup}>
+                <label className={styles.formLabel}>사용자명</label>
+                <input
+                  type="text"
+                  placeholder="iCloud 이메일 주소"
+                  value={username}
+                  onChange={(e) => setUsername(e.target.value)}
+                  className={styles.formInput}
+                  disabled={loading || syncing}
+                  autoComplete="username"
+                  name="caldav-username"
+                />
+              </div>
+              <div className={styles.formGroup}>
+                <label className={styles.formLabel}>암호</label>
+                {hasSavedPassword ? (
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <div style={{ flex: 1, padding: '8px', background: '#f5f5f5', borderRadius: '4px', color: '#666', fontSize: '14px', border: '1px solid #ddd' }}>
+                      🔒 안전하게 저장된 암호 사용 중
+                    </div>
+                    <button
+                      onClick={async () => {
+                        // DB 설정 즉시 삭제
+                        try {
+                          await deleteCalDAVSyncSettings();
+                        } catch (e) {
+                          console.error('설정 삭제 중 오류 (무시됨):', e);
+                        }
+                        // 상태 초기화
                         setHasSavedPassword(false);
                         setSettingId(null);
                         setPassword('');
-                      }
-                    }}
-                    style={{ padding: '8px 12px', fontSize: '13px', border: '1px solid #ddd', borderRadius: '4px', background: 'white', cursor: 'pointer' }}
-                  >
-                    재설정
-                  </button>
-                </div>
-              ) : (
-                <>
-                  <input
-                    type="password"
-                    placeholder="앱 전용 비밀번호"
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                    className={styles.formInput}
-                    disabled={loading || syncing}
-                  />
-                  <div style={{ marginTop: '8px', display: 'flex', alignItems: 'center' }}>
-                    <input
-                      type="checkbox"
-                      id="savePassword"
-                      checked={savePasswordChecked}
-                      onChange={(e) => setSavePasswordChecked(e.target.checked)}
-                      style={{ marginRight: '6px' }}
-                    />
-                    <label htmlFor="savePassword" style={{ fontSize: '13px', color: '#444', cursor: 'pointer' }}>
-                      🔒 이 암호를 안전하게 저장하기 (다음부터 입력 생략)
-                    </label>
+                      }}
+                      style={{ padding: '8px 12px', fontSize: '13px', border: '1px solid #ddd', borderRadius: '4px', background: 'white', cursor: 'pointer' }}
+                    >
+                      재설정
+                    </button>
                   </div>
-                </>
-              )}
-              <p className={styles.helpText}>
-                iCloud 사용 시: 설정 → Apple ID → 앱 비밀번호에서 생성
-              </p>
-            </div>
-            <button
-              onClick={handleFetchCalendars}
-              disabled={loading || syncing}
-              className={styles.fetchButton}
-            >
-              {loading ? '가져오는 중...' : '캘린더 목록 가져오기'}
-            </button>
-          </div>
+                ) : (
+                  <>
+                    <input
+                      type="password"
+                      placeholder="앱 전용 비밀번호"
+                      value={password}
+                      onChange={(e) => setPassword(e.target.value)}
+                      className={styles.formInput}
+                      disabled={loading || syncing}
+                      autoComplete="new-password"
+                      name="caldav-password"
+                    />
+                    <div style={{ marginTop: '8px', display: 'flex', alignItems: 'center' }}>
+                      <input
+                        type="checkbox"
+                        id="savePassword"
+                        checked={savePasswordChecked}
+                        onChange={(e) => setSavePasswordChecked(e.target.checked)}
+                        style={{ marginRight: '6px' }}
+                      />
+                      <label htmlFor="savePassword" style={{ fontSize: '13px', color: '#444', cursor: 'pointer' }}>
+                        🔒 이 암호를 안전하게 저장하기 (다음부터 입력 생략)
+                      </label>
+                    </div>
+                  </>
+                )}
+                <p className={styles.helpText}>
+                  iCloud 사용 시: 설정 → Apple ID → 앱 비밀번호에서 생성
+                </p>
+              </div>
+              <button
+                onClick={handleFetchCalendars}
+                disabled={loading || syncing}
+                className={styles.fetchButton}
+                style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}
+              >
+                {loading && (
+                  <div style={{ width: 16, height: 16, border: '2px solid white', borderTopColor: 'transparent', borderRadius: '50%', animation: 'spin 1s linear infinite' }}></div>
+                )}
+                {loading ? '확인 중...' : '확인'}
+              </button>
+              <style>{`@keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }`}</style>
 
-          {/* 캘린더 선택 */}
-          {calendars.length > 0 && (
-            <div className={styles.section}>
+              {existingSettings && (
+                <button
+                  onClick={handleDisconnect}
+                  disabled={loading || syncing}
+                  className={styles.disconnectButton}
+                >
+                  연동 해제 및 데이터 삭제
+                </button>
+              )}
+            </form>
+          ) : (
+            /* Step 2: Selection Form */
+            <div className={styles.section} style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
               <div className={styles.sectionHeader}>
                 <h3 className={styles.sectionTitle}>동기화할 캘린더 선택</h3>
                 <button
@@ -389,7 +431,7 @@ export function CalDAVSyncModal({ onClose, onSyncComplete }: CalDAVSyncModalProp
                   {selectedCalendars.size === calendars.length ? '전체 해제' : '전체 선택'}
                 </button>
               </div>
-              <div className={styles.calendarList}>
+              <div className={styles.calendarList} style={{ maxHeight: 'none', flex: 1, minHeight: '200px' }}>
                 {calendars.map((calendar) => (
                   <label key={calendar.url} className={styles.calendarItem}>
                     <input
@@ -407,6 +449,7 @@ export function CalDAVSyncModal({ onClose, onSyncComplete }: CalDAVSyncModalProp
                 onClick={handleSync}
                 disabled={syncing || selectedCalendars.size === 0}
                 className={styles.syncButton}
+                style={{ marginTop: '1rem' }}
               >
                 {syncing
                   ? '동기화 중...'
@@ -425,16 +468,6 @@ export function CalDAVSyncModal({ onClose, onSyncComplete }: CalDAVSyncModalProp
                 </div>
               )}
             </div>
-          )}
-
-          {existingSettings && (
-            <button
-              onClick={handleDisconnect}
-              disabled={loading || syncing}
-              className={styles.disconnectButton}
-            >
-              연동 해제 및 데이터 삭제
-            </button>
           )}
         </div>
       </div>

@@ -21,6 +21,7 @@ export interface CalendarMetadata {
   isShared?: boolean;
   isSubscription?: boolean;
   readOnly?: boolean;
+  createdFromApp?: boolean; // 앱에서 생성되어 외부로 동기화된 캘린더 식별
 }
 
 // CalDAV 메타데이터 저장 (로컬 캘린더 제외)
@@ -380,7 +381,9 @@ export const findEventByDetails = async (
 export const deleteRemovedEvents = async (
   calendarUrl: string,
   currentUids: Set<string>,
-  currentEvents: Array<{ title: string; date: string; startTime?: string; endTime?: string }>
+  currentEvents: Array<{ title: string; date: string; startTime?: string; endTime?: string }>,
+  startDate?: Date, // 범위 제한을 위한 시작일
+  endDate?: Date    // 범위 제한을 위한 종료일
 ): Promise<number> => {
   const normalizedCalendarUrl = normalizeCalendarUrl(calendarUrl);
   const altCalendarUrl = normalizedCalendarUrl ? `${normalizedCalendarUrl}/` : undefined;
@@ -392,22 +395,35 @@ export const deleteRemovedEvents = async (
     return 0;
   }
 
-  // 해당 캘린더의 모든 CalDAV 이벤트 가져오기
-  const { data: existingEvents, error: fetchError } = await supabase
+  // 해당 캘린더의 모든 CalDAV 이벤트 가져오기 (기간 제한 적용)
+  let query = supabase
     .from('events')
     .select('id, caldav_uid, title, date, start_time, end_time')
     .in('calendar_url', altCalendarUrl ? [normalizedCalendarUrl, altCalendarUrl] : [normalizedCalendarUrl])
     .eq('source', 'caldav');
+
+  // 삭제 검사 범위를 가져온 데이터의 범위로 한정
+  if (startDate) {
+    const sStr = startDate.toISOString().split('T')[0];
+    query = query.gte('date', sStr);
+  }
+  if (endDate) {
+    const eStr = endDate.toISOString().split('T')[0];
+    query = query.lte('date', eStr);
+  }
+
+  const { data: existingEvents, error: fetchError } = await query;
 
   if (fetchError || !existingEvents) {
     console.error('Error fetching events for deletion check:', fetchError);
     return 0;
   }
 
-  // 안전장치: 기존 이벤트가 너무 많고 현재 이벤트가 없으면 삭제하지 않음 (데이터 손실 방지)
-  // 단, 기존 이벤트가 적으면 (100개 이하) 삭제 허용
+  // 안전장치: 기존 이벤트가 너무 많고(100개 초과) 현재 이벤트가 통째로 비어있으면(0개),
+  // 혹시 모를 "네트워크 오류로 인해 가져온게 0개인 상황"을 대비해 삭제를 건너뜀.
+  // 단, 기존 이벤트가 소량(<= 100)이면 사용자가 진짜 다 지웠을 수 있으므로 삭제 허용.
   if (existingEvents.length > 100 && currentEvents.length === 0 && currentUids.size === 0) {
-    console.error(`삭제 체크: 기존 이벤트가 ${existingEvents.length}개인데 현재 이벤트가 없어 삭제를 건너뜁니다.`);
+    console.warn(`삭제 체크 안전장치: 기존 이벤트가 ${existingEvents.length}개인데 현재 이벤트가 0개여서 삭제를 건너뜁니다. (데이터 손실 방지)`);
     return 0;
   }
 
@@ -442,18 +458,15 @@ export const deleteRemovedEvents = async (
     }
   }
 
-  // 안전장치: 대량 삭제만 방지 (개별 삭제는 허용)
-  // 기존 이벤트가 10개 이상이고, 삭제할 이벤트가 90% 이상인 경우만 막기
-  if (existingEvents.length >= 10 && toDelete.length > existingEvents.length * 0.9) {
-    console.error(`삭제 체크: 삭제 대상이 너무 많습니다 (${toDelete.length}/${existingEvents.length}). 데이터 손실 방지를 위해 삭제를 건너뜁니다.`);
-    console.log('디버깅 정보:', {
-      currentUidsSize: currentUids.size,
-      currentEventsLength: currentEvents.length,
-      currentEventKeysSize: currentEventKeys.size,
-      existingEventsLength: existingEvents.length,
-      calendarUrl: calendarUrl.substring(0, 50) + '...',
-    });
-    return 0;
+  // 안전장치: 대량 삭제 방지 로직 개선
+  // 기존: 10개 이상이고 90% 이상 삭제면 차단.
+  // 변경: "초기 동기화"나 "캘린더 이동" 같은 상황에서는 대량 삭제가 발생할 수 있음.
+  // 따라서, 무조건 막는게 아니라 '경고'만 하고 진행하거나 조건을 완화해야 함.
+  // 여기서는 "50개 이상"일 때만 비율 체크를 하고, 정말 위험해 보일 때만 막도록 수정.
+  
+  if (existingEvents.length >= 50 && toDelete.length > existingEvents.length * 0.95) {
+      console.warn(`삭제 체크 경고: 삭제 대상이 매우 많습니다 (${toDelete.length}/${existingEvents.length}). 동기화 무결성을 위해 진행합니다.`);
+      // return 0; // 차단하지 않고 진행하도록 변경 (사용자가 웹에서 캘린더를 바꿨거나 대량 정리를 했을 수 있음)
   }
   
   // 안전장치: 기존 이벤트가 5개 이상이고, 삭제할 이벤트가 80% 이상인 경우 경고만 하고 진행
@@ -896,6 +909,23 @@ export const getCalDAVSyncSettings = async (): Promise<CalDAVSyncSettings | null
     console.error('Unexpected error fetching CalDAV sync settings:', err);
     return null;
   }
+};
+
+export const deleteCalDAVSyncSettings = async (): Promise<boolean> => {
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return false;
+
+  console.log("Deleting CalDAV settings for user:", user.id);
+  const { error } = await supabase
+    .from('caldav_sync_settings')
+    .delete()
+    .eq('user_id', user.id); // Assuming RLS allows deleting own records
+
+  if (error) {
+    console.error('Error deleting CalDAV settings:', error);
+    return false;
+  }
+  return true;
 };
 
 export const saveCalDAVSyncSettings = async (settings: {

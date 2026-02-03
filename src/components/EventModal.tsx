@@ -1,5 +1,4 @@
 import { useState, useRef, useEffect, useLayoutEffect } from 'react';
-import { X, ChevronDown, Trash2 } from 'lucide-react';
 import { Event } from '../types';
 import { CalendarMetadata, normalizeCalendarUrl } from '../services/api';
 import styles from './EventModal.module.css';
@@ -322,12 +321,12 @@ export function EventModal({ date, initialTitle, event, calendars, position, onC
                       className={styles.calendarDot}
                       style={{ backgroundColor: currentColor }}
                     />
-                    <ChevronDown size={14} className={styles.calendarArrow} />
+                    <span className={`material-symbols-rounded ${styles.calendarArrow}`} style={{ fontSize: '14px' }}>expand_more</span>
                   </button>
 
                   {isCalendarDropdownOpen && (
                     <div className={styles.calendarDropdown}>
-                      {calendars.map(cal => (
+                      {calendars.filter(c => !c.readOnly).map(cal => (
                         <button
                           key={cal.url}
                           type="button"

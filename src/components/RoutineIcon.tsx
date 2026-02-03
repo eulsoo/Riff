@@ -1,6 +1,4 @@
 import { Routine } from '../types';
-import * as Icons from 'lucide-react';
-import { LucideIcon } from 'lucide-react';
 import styles from './RoutineIcon.module.css';
 
 interface RoutineIconProps {
@@ -10,8 +8,39 @@ interface RoutineIconProps {
   onClick: () => void;
 }
 
+// 호환성을 위한 Lucide -> Material Icon 매핑
+const LEGACY_ICON_MAP: Record<string, string> = {
+  'NotebookPen': 'edit_note',
+  'Dumbbell': 'fitness_center',
+  'Coffee': 'coffee',
+  'Book': 'menu_book',
+  'Music': 'music_note',
+  'Heart': 'favorite',
+  'Pill': 'medication',
+  'Utensils': 'restaurant',
+  'Moon': 'dark_mode',
+  'Sun': 'light_mode',
+  'Droplet': 'water_drop',
+  'Apple': 'nutrition',
+  'GraduationCap': 'school',
+  'Briefcase': 'work',
+  'Home': 'home',
+  'Users': 'group',
+  'Phone': 'call',
+  'Mail': 'mail',
+  'Camera': 'photo_camera',
+  'Palette': 'palette',
+  'Bike': 'directions_bike',
+  'Plane': 'flight',
+  'TreePine': 'forest',
+  'Sparkles': 'auto_awesome',
+  'Zap': 'bolt',
+  'Circle': 'circle'
+};
+
 export function RoutineIcon({ routine, completed, enabled, onClick }: RoutineIconProps) {
-  const IconComponent = (Icons[routine.icon as keyof typeof Icons] as LucideIcon) || Icons.Circle;
+  // 아이콘 이름 해석: 매핑에 있으면 변환, 없으면 그대로 사용 (새로운 Material Symbols)
+  const iconName = LEGACY_ICON_MAP[routine.icon] || routine.icon;
 
   return (
     <button
@@ -25,7 +54,9 @@ export function RoutineIcon({ routine, completed, enabled, onClick }: RoutineIco
       }}
       title={routine.name}
     >
-      <IconComponent className={styles.routineIconIcon} strokeWidth={2.5} />
+      <span className={`material-symbols-rounded ${styles.routineIconIcon}`} style={{ fontSize: '16px', fontWeight: 500 }}>
+        {iconName}
+      </span>
     </button>
   );
 }

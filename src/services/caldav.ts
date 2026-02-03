@@ -70,6 +70,38 @@ export async function deleteCalDavEvent(
   });
 }
 
+// 원격 CalDAV 서버에 새 캘린더 생성
+export async function createRemoteCalendar(
+  config: CalDAVConfig,
+  calendarName: string,
+  calendarColor: string
+): Promise<{ success: boolean; calendarUrl: string; displayName: string; color: string }> {
+  return await invokeCalDavProxy<{ success: boolean; calendarUrl: string; displayName: string; color: string }>({
+    serverUrl: config.serverUrl,
+    username: config.username,
+    password: config.password,
+    action: 'createCalendar',
+    calendarName,
+    calendarColor,
+    settingId: config.settingId
+  });
+}
+
+// 원격 CalDAV 캘린더 삭제
+export async function deleteRemoteCalendar(
+  config: CalDAVConfig,
+  calendarUrl: string
+): Promise<{ success: boolean }> {
+  return await invokeCalDavProxy<{ success: boolean }>({
+    serverUrl: config.serverUrl,
+    username: config.username,
+    password: config.password,
+    action: 'deleteCalendar',
+    calendarUrl,
+    settingId: config.settingId
+  });
+}
+
 import { eventExists, eventExistsByUID, deleteRemovedEvents, updateEventUID, updateEventByUID, fetchEventByUID, findEventByDetails, upsertEvent } from './api';
 import { supabase, supabaseAnonKey } from '../lib/supabase';
 
@@ -187,6 +219,14 @@ const invokeCalDavProxy = async <T>(
   }
 
   const doFetch = async () => {
+    // settingId가 있으면 password 필드를 제거하여, Edge Function이 DB 저장된 비밀번호를 복호화해서 사용하도록 유도
+    // 단, saveSettings 액션은 평문 비밀번호를 저장해야 하므로 제외
+    const payload = { ...body };
+    if (payload.settingId && payload.password && payload.action !== 'saveSettings') {
+       // console.log("Invoke Proxy: settingId detected, removing password sent from client to use stored credentials.");
+       delete payload.password;
+    }
+
     const response = await fetch(`${supabaseUrl}/functions/v1/caldav-proxy`, {
       method: 'POST',
       headers: {
@@ -194,7 +234,7 @@ const invokeCalDavProxy = async <T>(
         Authorization: headers!.Authorization,
         apikey: headers!.apikey,
       },
-      body: JSON.stringify(body),
+      body: JSON.stringify(payload),
     });
 
     if (!response.ok) {
@@ -365,7 +405,8 @@ export async function fetchSyncCollection(
 export async function syncSelectedCalendars(
   config: CalDAVConfig,
   selectedCalendarUrls: string[],
-  lastSyncAt?: string | null  // 마지막 동기화 시간 추가
+  lastSyncAt?: string | null, // 마지막 동기화 시간 추가
+  forceFullSync: boolean = false // 강제 전체 동기화 플래그
 ): Promise<number> {
   // 동기화 중복 실행 방지
   if (syncInFlight) {
@@ -378,6 +419,10 @@ export async function syncSelectedCalendars(
     let skippedCount = 0;
     let deletedCount = 0;
     const syncTokens = readSyncTokens(config);
+
+    if (forceFullSync) {
+       console.log('MANUAL SYNC: Forcing full sync (ignoring sync tokens).');
+    }
 
     if (lastSyncAt) {
       console.log(`마지막 동기화 시점(${lastSyncAt})부터 동기화합니다.`);
@@ -393,7 +438,7 @@ export async function syncSelectedCalendars(
         let calendarSkippedCount = 0;
         let usedFullFetch = false;
 
-        const token = syncTokens[calendarUrl];
+        const token = forceFullSync ? null : syncTokens[calendarUrl];
         let syncResult: SyncCollectionResult | null = null;
 
         if (token) {
@@ -417,9 +462,12 @@ export async function syncSelectedCalendars(
         } else {
           usedFullFetch = true;
           const fullStartDate = new Date();
-          fullStartDate.setFullYear(fullStartDate.getFullYear() - 1); // 1년 전부터
+          fullStartDate.setMonth(fullStartDate.getMonth() - 1); // 속도 최적화: 과거 1개월
           const fullEndDate = new Date();
-          fullEndDate.setFullYear(fullEndDate.getFullYear() + 1); // 1년 후까지
+          fullEndDate.setMonth(fullEndDate.getMonth() + 3);     // 속도 최적화: 미래 3개월
+          
+          // Manual sync usually implies checking recent changes. 
+          // 4 months range is much faster than 2 years.
           eventsToProcess = await fetchCalendarEvents(config, calendarUrl, fullStartDate, fullEndDate);
         }
 
@@ -531,10 +579,16 @@ export async function syncSelectedCalendars(
         // 해당 캘린더에서 삭제된 이벤트 찾기 및 삭제
         // allEvents가 빈 배열이어도 삭제 체크 수행 (캘린더에서 모든 이벤트를 삭제한 경우 처리)
         if (usedFullFetch) {
-          const deleted = await deleteRemovedEvents(calendarUrl, currentEventUids, eventsToProcess);
+           // fetchCalendarEvents에서 사용한 날짜 범위를 그대로 전달 (재계산)
+          const rangeStart = new Date();
+          rangeStart.setMonth(rangeStart.getMonth() - 1);
+          const rangeEnd = new Date();
+          rangeEnd.setMonth(rangeEnd.getMonth() + 3);
+
+          const deleted = await deleteRemovedEvents(calendarUrl, currentEventUids, eventsToProcess, rangeStart, rangeEnd);
           deletedCount += deleted;
           if (deleted > 0) {
-            console.log(`캘린더 ${calendarUrl}: ${deleted}개 삭제`);
+            console.log(`캘린더 ${calendarUrl}: ${deleted}개 삭제 (범위: ${rangeStart.toISOString().slice(0,10)} ~ ${rangeEnd.toISOString().slice(0,10)})`);
           } else if (eventsToProcess.length === 0) {
             console.log(`캘린더 ${calendarUrl}: 이벤트 없음 (삭제 체크 완료)`);
           }
@@ -548,6 +602,10 @@ export async function syncSelectedCalendars(
             syncTokens[calendarUrl] = nextToken;
           }
         }
+        
+        // Save tokens immediately after each calendar to prevent progress loss on refresh
+        writeSyncTokens(config, syncTokens);
+
       } catch (error: any) {
         if (error?.code === 'OFFLINE' || error?.message === 'Network is offline') {
              // Suppress log when offline
@@ -557,7 +615,7 @@ export async function syncSelectedCalendars(
       }
     }
     
-    writeSyncTokens(config, syncTokens);
+    // writeSyncTokens(config, syncTokens); // Already saved in loop
     console.log(`동기화 완료: ${syncedCount}개 추가, ${deletedCount}개 삭제, ${skippedCount}개 스킵`);
     
     // 삭제된 이벤트가 있으면 -1을 반환하여 UI 갱신을 트리거

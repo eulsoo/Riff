@@ -98,7 +98,7 @@ interface CalDAVRequest {
   serverUrl: string;
   username: string;
   password: string;
-  action: 'listCalendars' | 'fetchEvents' | 'getSyncToken' | 'syncCollection' | 'createEvent' | 'updateEvent' | 'deleteEvent' | 'saveSettings' | 'loadSettings';
+  action: 'listCalendars' | 'fetchEvents' | 'getSyncToken' | 'syncCollection' | 'createEvent' | 'updateEvent' | 'deleteEvent' | 'saveSettings' | 'loadSettings' | 'createCalendar' | 'deleteCalendar';
   calendarUrl?: string;
   startDate?: string;
   endDate?: string;
@@ -107,6 +107,8 @@ interface CalDAVRequest {
   eventUid?: string;  // Resource filename (e.g. uid.ics) for PUT/DELETE
   etag?: string;      // For If-Match
   settingId?: string; // DB 저장된 설정 ID
+  calendarName?: string;     // For createCalendar
+  calendarColor?: string;    // For createCalendar
 }
 
 interface Calendar {
@@ -395,10 +397,46 @@ Deno.serve(async (req) => {
             { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
           );
         }
-        console.log('deleteEvent 시작:', requestData.eventUid);
+         console.log('deleteEvent 시작:', requestData.eventUid);
         // Correctly map arguments to deleteEvent(server, user, pass, calUrl, syncToken, eventData, eventUid, etag, settingId)
         result = await deleteEvent(serverUrl, username, password, calendarUrl, undefined, undefined, requestData.eventUid, requestData.etag, settingId); 
         console.log('deleteEvent 완료');
+      } else if (action === 'createCalendar') {
+        if (!requestData.calendarName) {
+          return new Response(
+            JSON.stringify({ error: 'calendarName이 필요합니다.' }),
+            { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+          );
+        }
+        console.log('createCalendar 시작:', requestData.calendarName);
+        result = await createCalendarOnServer(serverUrl, username, password, requestData.calendarName, requestData.calendarColor);
+        console.log('createCalendar 완료:', result);
+      } else if (action === 'deleteCalendar') {
+        if (!calendarUrl) {
+          return new Response(
+            JSON.stringify({ error: 'calendarUrl이 필요합니다.' }),
+            { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+          );
+        }
+        console.log('deleteCalendar 시작:', calendarUrl);
+        // 캘린더 삭제는 캘린더 URL에 DELETE 요청
+        const cleanUsername = username.trim();
+        const cleanPassword = password.trim();
+        
+        const response = await fetchWithRedirect(calendarUrl, {
+          method: 'DELETE',
+          headers: {
+            'Authorization': `Basic ${base64Encode(`${cleanUsername}:${cleanPassword}`)}`,
+            'User-Agent': 'iOS/17.0 (21A329) accountsd/1.0',
+          },
+        });
+        
+        if (!response.ok) {
+           throw new Error(`캘린더 삭제 실패: ${response.status} ${response.statusText}`);
+        }
+        
+        result = { success: true };
+        console.log('deleteCalendar 완료');
       } else {
         return new Response(
           JSON.stringify({ error: '지원하지 않는 액션입니다.' }),
@@ -1306,4 +1344,105 @@ function parseICalEvent(icalData: string, defaultColor: string): Omit<Event, 'id
     console.error('iCal 파싱 오류:', error);
     return null;
   }
+}
+
+// 새 캘린더 생성 (MKCALENDAR)
+async function createCalendarOnServer(
+  serverUrl: string,
+  username: string,
+  password: string,
+  calendarName: string,
+  calendarColor?: string
+): Promise<{ success: boolean; calendarUrl: string; displayName: string; color: string }> {
+  console.log('createCalendarOnServer 시작:', { serverUrl, calendarName, calendarColor });
+  
+  // 1. Calendar Home URL 가져오기 (기존 fetchCalendars 로직 재사용)
+  const calendars = await fetchCalendars(serverUrl, username, password);
+  if (calendars.length === 0) {
+    throw new Error('캘린더 홈 URL을 찾을 수 없습니다.');
+  }
+  
+  // Calendar Home URL 추출 (첫 번째 캘린더 URL에서 추출)
+  const firstCalUrl = calendars[0].url;
+  const urlObj = new URL(firstCalUrl);
+  const pathParts = urlObj.pathname.split('/').filter(p => p);
+  // 일반적으로 /123456789/calendars/calendar-id 형태
+  // Calendar Home은 /123456789/calendars/
+  const calendarsIndex = pathParts.findIndex(p => p === 'calendars');
+  if (calendarsIndex === -1) {
+    throw new Error('캘린더 경로 형식을 파악할 수 없습니다.');
+  }
+  const calendarHomePath = '/' + pathParts.slice(0, calendarsIndex + 1).join('/') + '/';
+  const calendarHomeUrl = `${urlObj.protocol}//${urlObj.host}${calendarHomePath}`;
+  
+  console.log('Calendar Home URL:', calendarHomeUrl);
+  
+  // 2. 새 캘린더 ID 생성 (UUID)
+  const newCalendarId = crypto.randomUUID().toUpperCase();
+  const newCalendarUrl = `${calendarHomeUrl}${newCalendarId}/`;
+  
+  console.log('새 캘린더 URL:', newCalendarUrl);
+  
+  // 3. MKCALENDAR 요청 본문 생성
+  const color = calendarColor || '#3b82f6';
+  const mkcalendarBody = `<?xml version="1.0" encoding="UTF-8"?>
+<C:mkcalendar xmlns:D="DAV:" xmlns:C="urn:ietf:params:xml:ns:caldav" xmlns:A="http://apple.com/ns/ical/">
+  <D:set>
+    <D:prop>
+      <D:displayname>${escapeXml(calendarName)}</D:displayname>
+      <A:calendar-color>${color}</A:calendar-color>
+      <C:supported-calendar-component-set>
+        <C:comp name="VEVENT"/>
+      </C:supported-calendar-component-set>
+    </D:prop>
+  </D:set>
+</C:mkcalendar>`;
+
+  // 4. MKCALENDAR 요청 전송
+  const response = await fetchWithRedirect(newCalendarUrl, {
+    method: 'MKCALENDAR',
+    headers: {
+      'Content-Type': 'application/xml; charset=utf-8',
+      'Authorization': `Basic ${base64Encode(`${username.trim()}:${password.trim()}`)}`,
+      'User-Agent': 'iOS/17.0 (21A329) accountsd/1.0',
+    },
+    body: mkcalendarBody,
+  });
+
+  console.log('MKCALENDAR 응답 상태:', response.status);
+  
+  if (response.status === 201) {
+    // 성공
+    return {
+      success: true,
+      calendarUrl: newCalendarUrl,
+      displayName: calendarName,
+      color: color,
+    };
+  } else if (response.status === 207) {
+    // Multi-Status 응답 (성공일 수 있음)
+    const responseText = await response.text();
+    console.log('MKCALENDAR 207 응답:', responseText.substring(0, 500));
+    // 성공으로 간주
+    return {
+      success: true,
+      calendarUrl: newCalendarUrl,
+      displayName: calendarName,
+      color: color,
+    };
+  } else {
+    const errorText = await response.text();
+    console.error('MKCALENDAR 실패:', response.status, errorText.substring(0, 500));
+    throw new Error(`캘린더 생성 실패: HTTP ${response.status}`);
+  }
+}
+
+// XML 특수문자 이스케이프
+function escapeXml(str: string): string {
+  return str
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&apos;');
 }

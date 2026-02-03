@@ -113,6 +113,21 @@ export const useCalendarMetadata = () => {
     });
   }, []);
 
+  // 로컬 캘린더를 CalDAV 캘린더로 변환
+  const convertLocalToCalDAV = useCallback((oldUrl: string, newCalendar: CalendarMetadata) => {
+    setCalendarMetadata(prev => {
+      // 이전 로컬 캘린더 제거하고 새 CalDAV 캘린더 추가
+      const filtered = prev.filter(c => c.url !== oldUrl);
+      const next = [...filtered, { ...newCalendar, isLocal: false }];
+      
+      // 두 스토리지 모두 업데이트
+      saveLocalCalendarMetadata(next);  // 로컬 캘린더에서 제거됨 (isLocal: false이므로)
+      saveCalendarMetadata(next);       // CalDAV 캘린더에 추가됨
+      
+      return next;
+    });
+  }, []);
+
   const deleteCalendar = useCallback((url: string) => {
     setCalendarMetadata(prev => {
       const next = prev.filter(c => c.url !== url);
@@ -135,6 +150,7 @@ export const useCalendarMetadata = () => {
     toggleCalendarVisibility,
     addLocalCalendar,
     updateLocalCalendar,
+    convertLocalToCalDAV,
     deleteCalendar,
     refreshMetadata,
   };

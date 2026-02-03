@@ -1,5 +1,4 @@
 import { useState, useRef } from 'react';
-import { X, Upload } from 'lucide-react';
 import { importICSFile } from '../services/icsParser';
 import styles from './ICSImportModal.module.css';
 
@@ -35,7 +34,7 @@ export function ICSImportModal({ onClose, onImportComplete }: ICSImportModalProp
 
     setImporting(true);
     setError(null);
-    
+
     try {
       const count = await importICSFile(file);
       onImportComplete(count);
@@ -55,7 +54,7 @@ export function ICSImportModal({ onClose, onImportComplete }: ICSImportModalProp
   const handleDrop = (e: React.DragEvent) => {
     e.preventDefault();
     e.stopPropagation();
-    
+
     const droppedFile = e.dataTransfer.files[0];
     if (droppedFile) {
       if (droppedFile.name.endsWith('.ics') || droppedFile.name.endsWith('.ical')) {
@@ -74,7 +73,7 @@ export function ICSImportModal({ onClose, onImportComplete }: ICSImportModalProp
         <div className={styles.modalHeader}>
           <h2 className={styles.modalTitle}>ICS 파일 가져오기</h2>
           <button onClick={onClose} className={styles.modalCloseButton}>
-            <X className={styles.modalCloseIcon} />
+            <span className={`material-symbols-rounded ${styles.modalCloseIcon}`}>close</span>
           </button>
         </div>
 
@@ -84,7 +83,7 @@ export function ICSImportModal({ onClose, onImportComplete }: ICSImportModalProp
             <p className={styles.helpText}>
               macOS Calendar.app에서 내보낸 ICS 파일을 선택하세요.
             </p>
-            
+
             <div
               className={styles.dropZone}
               onDragOver={handleDragOver}
@@ -98,10 +97,10 @@ export function ICSImportModal({ onClose, onImportComplete }: ICSImportModalProp
                 onChange={handleFileSelect}
                 className={styles.fileInput}
               />
-              
+
               {file ? (
                 <div className={styles.fileInfo}>
-                  <Upload className={styles.uploadIcon} />
+                  <span className={`material-symbols-rounded ${styles.uploadIcon}`}>upload</span>
                   <div>
                     <div className={styles.fileName}>{file.name}</div>
                     <div className={styles.fileSize}>
@@ -111,7 +110,7 @@ export function ICSImportModal({ onClose, onImportComplete }: ICSImportModalProp
                 </div>
               ) : (
                 <div className={styles.dropZoneContent}>
-                  <Upload className={styles.uploadIconLarge} />
+                  <span className={`material-symbols-rounded ${styles.uploadIconLarge}`}>upload</span>
                   <p>파일을 드래그하거나 클릭하여 선택</p>
                   <p className={styles.dropZoneHint}>.ics 또는 .ical 파일</p>
                 </div>

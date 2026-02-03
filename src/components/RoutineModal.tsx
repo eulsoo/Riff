@@ -1,7 +1,5 @@
 import { useState } from 'react';
-import { X, Plus, Trash2 } from 'lucide-react';
 import { Routine } from '../types';
-import * as Icons from 'lucide-react';
 import styles from './RoutineModal.module.css';
 
 interface RoutineModalProps {
@@ -12,31 +10,31 @@ interface RoutineModalProps {
 }
 
 const AVAILABLE_ICONS = [
-  'Dumbbell',
-  'Coffee',
-  'Book',
-  'Music',
-  'Heart',
-  'Pill',
-  'Utensils',
-  'Moon',
-  'Sun',
-  'Droplet',
-  'Apple',
-  'GraduationCap',
-  'NotebookPen',
-  'Briefcase',
-  'Home',
-  'Users',
-  'Phone',
-  'Mail',
-  'Camera',
-  'Palette',
-  'Bike',
-  'Plane',
-  'TreePine',
-  'Sparkles',
-  'Zap',
+  'fitness_center', // Dumbbell
+  'coffee', // Coffee
+  'menu_book', // Book
+  'music_note', // Music
+  'favorite', // Heart
+  'medication', // Pill
+  'restaurant', // Utensils
+  'dark_mode', // Moon
+  'light_mode', // Sun
+  'water_drop', // Droplet
+  'nutrition', // Apple
+  'school', // GraduationCap
+  'edit_note', // NotebookPen
+  'work', // Briefcase
+  'home', // Home
+  'group', // Users
+  'call', // Phone
+  'mail', // Mail
+  'photo_camera', // Camera
+  'palette', // Palette
+  'directions_bike', // Bike
+  'flight', // Plane
+  'forest', // TreePine
+  'auto_awesome', // Sparkles
+  'bolt', // Zap
 ];
 
 const COLORS = [
@@ -84,8 +82,6 @@ export function RoutineModal({ routines, onClose, onAdd, onDelete }: RoutineModa
     icon.toLowerCase().includes(iconSearch.toLowerCase())
   );
 
-  const IconComponent = (Icons[selectedIcon as keyof typeof Icons] as any) || Icons.Circle;
-
   return (
     <div className={styles.modalOverlay}>
       <div className={styles.modalBackdrop} onClick={onClose} />
@@ -98,7 +94,7 @@ export function RoutineModal({ routines, onClose, onAdd, onDelete }: RoutineModa
             onClick={onClose}
             className={styles.modalCloseButton}
           >
-            <X className={styles.modalCloseIcon} />
+            <span className={`material-symbols-rounded ${styles.modalCloseIcon}`}>close</span>
           </button>
         </div>
 
@@ -113,7 +109,36 @@ export function RoutineModal({ routines, onClose, onAdd, onDelete }: RoutineModa
                 </p>
               ) : (
                 routines.map(routine => {
-                  const Icon = (Icons[routine.icon as keyof typeof Icons] as any) || Icons.Circle;
+                  // Legacy mapping needed here since RoutineIcon isn't used for this list
+                  const LEGACY_ICON_MAP_LOCAL: Record<string, string> = {
+                    'NotebookPen': 'edit_note',
+                    'Dumbbell': 'fitness_center',
+                    'Coffee': 'coffee',
+                    'Book': 'menu_book',
+                    'Music': 'music_note',
+                    'Heart': 'favorite',
+                    'Pill': 'medication',
+                    'Utensils': 'restaurant',
+                    'Moon': 'dark_mode',
+                    'Sun': 'light_mode',
+                    'Droplet': 'water_drop',
+                    'Apple': 'nutrition',
+                    'GraduationCap': 'school',
+                    'Briefcase': 'work',
+                    'Home': 'home',
+                    'Users': 'group',
+                    'Phone': 'call',
+                    'Mail': 'mail',
+                    'Camera': 'photo_camera',
+                    'Palette': 'palette',
+                    'Bike': 'directions_bike',
+                    'Plane': 'flight',
+                    'TreePine': 'forest',
+                    'Sparkles': 'auto_awesome',
+                    'Zap': 'bolt',
+                    'Circle': 'circle'
+                  };
+                  const iconName = LEGACY_ICON_MAP_LOCAL[routine.icon] || routine.icon;
                   return (
                     <div
                       key={routine.id}
@@ -124,7 +149,7 @@ export function RoutineModal({ routines, onClose, onAdd, onDelete }: RoutineModa
                           className={styles.routineIcon}
                           style={{ backgroundColor: routine.color }}
                         >
-                          <Icon className={styles.routineIconSvg} strokeWidth={2.5} />
+                          <span className={`material-symbols-rounded ${styles.routineIconSvg}`}>{iconName}</span>
                         </div>
                         <div className={styles.routineInfo}>
                           <div className={styles.routineName}>{routine.name}</div>
@@ -137,7 +162,7 @@ export function RoutineModal({ routines, onClose, onAdd, onDelete }: RoutineModa
                         onClick={() => onDelete(routine.id)}
                         className={styles.routineDeleteButton}
                       >
-                        <Trash2 className={styles.routineDeleteIcon} />
+                        <span className={`material-symbols-rounded ${styles.routineDeleteIcon}`}>delete</span>
                       </button>
                     </div>
                   );
@@ -179,19 +204,18 @@ export function RoutineModal({ routines, onClose, onAdd, onDelete }: RoutineModa
                 />
                 <div className={styles.iconGrid}>
                   {filteredIcons.map(icon => {
-                    const Icon = (Icons[icon as keyof typeof Icons] as any) || Icons.Circle;
                     return (
                       <button
                         key={icon}
                         type="button"
                         onClick={() => setSelectedIcon(icon)}
                         className={`${styles.iconButton} ${selectedIcon === icon
-                            ? styles.iconButtonSelected
-                            : styles.iconButtonUnselected
+                          ? styles.iconButtonSelected
+                          : styles.iconButtonUnselected
                           }`}
                         title={icon}
                       >
-                        <Icon className={styles.iconButtonSvg} strokeWidth={2.5} />
+                        <span className={`material-symbols-rounded ${styles.iconButtonSvg}`}>{icon}</span>
                       </button>
                     );
                   })}
@@ -226,8 +250,8 @@ export function RoutineModal({ routines, onClose, onAdd, onDelete }: RoutineModa
                       type="button"
                       onClick={() => toggleDay(index)}
                       className={`${styles.dayButton} ${selectedDays.includes(index)
-                          ? styles.dayButtonSelected
-                          : styles.dayButtonUnselected
+                        ? styles.dayButtonSelected
+                        : styles.dayButtonUnselected
                         }`}
                     >
                       {day}
@@ -242,7 +266,7 @@ export function RoutineModal({ routines, onClose, onAdd, onDelete }: RoutineModa
                   className={styles.previewIcon}
                   style={{ backgroundColor: selectedColor }}
                 >
-                  <IconComponent className={styles.previewIconSvg} strokeWidth={2.5} />
+                  <span className={`material-symbols-rounded ${styles.previewIconSvg}`}>{selectedIcon}</span>
                 </div>
                 <div className={styles.previewInfo}>
                   <div className={styles.previewLabel}>미리보기</div>
@@ -258,7 +282,7 @@ export function RoutineModal({ routines, onClose, onAdd, onDelete }: RoutineModa
                 disabled={!name.trim() || selectedDays.length === 0}
                 className={styles.addButton}
               >
-                <Plus className={styles.addButtonIcon} />
+                <span className={`material-symbols-rounded ${styles.addButtonIcon}`}>add</span>
                 루틴 추가
               </button>
             </div>

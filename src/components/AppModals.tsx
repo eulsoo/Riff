@@ -60,7 +60,8 @@ export function AppModals({
   onCloseSettings,
   onSettingsSaved,
   onDraftUpdate,
-}: AppModalsProps) {
+  calDAVMode = 'sync',
+}: AppModalsProps & { calDAVMode?: 'sync' | 'auth-only' }) {
   return (
     <>
       {isEventModalOpen && selectedDate && (
@@ -92,6 +93,8 @@ export function AppModals({
         <CalDAVSyncModal
           onClose={onCloseCalDAVModal}
           onSyncComplete={onSyncComplete}
+          mode={calDAVMode}
+          existingCalendars={calendars}
         />
       )}
 
