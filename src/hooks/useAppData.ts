@@ -33,6 +33,7 @@ export const useAppData = (
   const loadDataInFlightRef = useRef(false);
   const lastLoadSessionRef = useRef<string | null>(null);
   const lastLoadAtRef = useRef<number>(0);
+  const lastLoadRangeRef = useRef<{ startDate: string; endDate: string } | null>(null);
 
   const getEventRange = useCallback(() => {
     const currentWeekStart = getWeekStartForDate(new Date());
@@ -74,9 +75,18 @@ export const useAppData = (
     if (loadDataInFlightRef.current) return;
     const sessionId = session.user?.id || null;
     const now = Date.now();
-    if (!force && sessionId && lastLoadSessionRef.current === sessionId && (now - lastLoadAtRef.current) < 1500) {
+    
+    // Check if range changed
+    const currentRange = getEventRange();
+    const rangeChanged = !lastLoadRangeRef.current || 
+      lastLoadRangeRef.current.startDate !== currentRange.startDate || 
+      lastLoadRangeRef.current.endDate !== currentRange.endDate;
+
+    // Bypass throttle if force=true OR range changed
+    if (!force && !rangeChanged && sessionId && lastLoadSessionRef.current === sessionId && (now - lastLoadAtRef.current) < 1500) {
       return;
     }
+    
     loadDataInFlightRef.current = true;
     try {
       const startAt = typeof performance !== 'undefined' ? performance.now() : Date.now();
@@ -92,6 +102,9 @@ export const useAppData = (
           dayDefinitions: Record<string, string>;
         }>(cacheKey, cacheTtlMs);
 
+        // Only use cache if range matches or we aren't forcing a range update? 
+        // Actually, mixing cache with new fetch logic is tricky. 
+        // For simplicity, we hydrate from cache but still fall through to network if range changed.
         if (cached) {
           // 캐시 복원 시에도 로컬 이벤트 유지
           setEvents(prev => {
@@ -109,7 +122,9 @@ export const useAppData = (
       }
 
       const networkStart = typeof performance !== 'undefined' ? performance.now() : Date.now();
-      const { startDate, endDate } = getEventRange();
+      // Use the range we calculated earlier
+      const { startDate, endDate } = currentRange;
+      
       const [eventsData, routinesData, completionsData, todosData, dayDefinitionsData] = await Promise.all([
         fetchEvents(startDate, endDate),
         fetchRoutines(),
@@ -151,6 +166,7 @@ export const useAppData = (
       }
       lastLoadSessionRef.current = sessionId;
       lastLoadAtRef.current = Date.now();
+      lastLoadRangeRef.current = currentRange; // Update last loaded range
     } finally {
       loadDataInFlightRef.current = false;
     }

@@ -1,24 +1,30 @@
 import { memo } from 'react';
-
 import { Event } from '../types';
 import styles from './WeekCard.module.css';
-
 import { useSelection } from '../contexts/SelectionContext';
 
 interface EventItemProps {
   event: Event;
   onEventDoubleClick: (event: Event, anchorEl: HTMLElement) => void;
   onDeleteEvent: (eventId: string) => void;
+  timeDisplay?: 'default' | 'start-only' | 'end-only';
+  hideDeleteButton?: boolean;
 }
 
-const formatEventTime = (startTime?: string, endTime?: string) => {
+const formatEventTime = (startTime?: string, endTime?: string, displayMode: 'default' | 'start-only' | 'end-only' = 'default') => {
   const formatTime = (time: string) => {
     const [hours, minutes] = time.split(':');
     const hour = parseInt(hours);
-    const ampm = hour >= 12 ? '오후' : '오전';
     const displayHour = hour % 12 || 12;
-    return `${ampm} ${displayHour}:${minutes}`;
+    return `${displayHour}:${minutes}`;
   };
+
+  if (displayMode === 'start-only' && startTime) {
+    return `${formatTime(startTime)} ~`;
+  }
+  if (displayMode === 'end-only' && endTime) {
+    return `~ ${formatTime(endTime)}`;
+  }
 
   if (startTime && endTime) {
     return `${formatTime(startTime)} - ${formatTime(endTime)}`;
@@ -33,23 +39,24 @@ const formatEventTime = (startTime?: string, endTime?: string) => {
 export const EventItem = memo(function EventItem({
   event,
   onEventDoubleClick,
-  onDeleteEvent
+  onDeleteEvent: _onDeleteEvent, // Unused but kept for interface compatibility
+  timeDisplay = 'default',
+  hideDeleteButton: _hideDeleteButton = false // Unused
 }: EventItemProps) {
   const { selectedIdsSet, toggleSelection } = useSelection();
   const isSelected = selectedIdsSet.has(event.id);
+
+  // 8자리 HEX(#RRGGBBAA)인 경우 끝에 2자리(AA) 제거하여 6자리(#RRGGBB)로 만듦
+  const baseColor = event.color.length > 7 ? event.color.substring(0, 7) : event.color;
+  const backgroundColor = isSelected ? baseColor : baseColor + '20';
+  const textColor = isSelected ? '#fff' : baseColor;
 
   return (
     <div
       id={`event-item-${event.id}`}
       className={`${styles.eventItem} ${isSelected ? styles.eventItemSelected : ''}`}
       data-event-item="true"
-      style={(() => {
-        // 8자리 HEX(#RRGGBBAA)인 경우 끝에 2자리(AA) 제거하여 6자리(#RRGGBB)로 만듦
-        const baseColor = event.color.length > 7 ? event.color.substring(0, 7) : event.color;
-        return isSelected
-          ? { backgroundColor: baseColor, color: '#fff' }
-          : { backgroundColor: baseColor + '20', color: baseColor };
-      })()}
+      style={{ backgroundColor, color: textColor }}
       onMouseDown={(e) => {
         // Shift 선택 시 텍스트 드래그 기본 동작 방지
         if (e.shiftKey) {
@@ -65,25 +72,17 @@ export const EventItem = memo(function EventItem({
         onEventDoubleClick(event, e.currentTarget);
       }}
     >
+
+
       <div className={styles.eventContent}>
         <div className={styles.eventContentLeft}>
           {(event.startTime || event.endTime) && (
             <div className={styles.eventTime}>
-              {formatEventTime(event.startTime, event.endTime)}
+              {formatEventTime(event.startTime, event.endTime, timeDisplay)}
             </div>
           )}
           <div className={styles.eventTitle}>{event.title}</div>
         </div>
-        <button
-          onClick={e => {
-            e.stopPropagation();
-            onDeleteEvent(event.id);
-          }}
-          className={`${styles.eventDeleteButton} ${isSelected ? styles.eventDeleteButtonSelected : ''}`}
-          aria-label="일정 삭제"
-        >
-          <span className={`material-symbols-rounded ${styles.eventDeleteIcon}`}>close</span>
-        </button>
       </div>
     </div>
   );

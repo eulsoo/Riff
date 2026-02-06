@@ -15,7 +15,7 @@ interface CalendarListProps {
   diaryCompletionMap: Record<string, boolean>;
   showRoutines: boolean;
   showTodos: boolean;
-  onDateClick: (date: string, anchorEl?: HTMLElement) => void;
+  onDateClick: (date: string, anchorEl?: HTMLElement, timeSlot?: 'am' | 'pm') => void;
   onEventDoubleClick: (event: Event, anchorEl?: HTMLElement) => void;
   onDeleteEvent: (eventId: string) => void; // Added Prop
   onOpenDiary: (date: string) => void;

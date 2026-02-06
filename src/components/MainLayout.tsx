@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useLayoutEffect, useMemo, useCallback, laz
 import { createPortal } from 'react-dom';
 import { Session } from '@supabase/supabase-js';
 import { supabase } from '../lib/supabase';
+import { useWindowedSync, SyncRange } from '../hooks/useWindowedSync';
 import { AppHeader } from './AppHeader';
 import { CalendarList } from './CalendarList';
 import { CalendarListPopup, CalendarToggleButton } from './CalendarListPopup';
@@ -69,56 +70,48 @@ export const MainLayout = ({
 
   const { recordAction, registerHandlers } = useUndoRedo();
 
-  const syncCalendars = useCallback(async (manual = false) => {
+  // --- CalDAV Sync Logic (Refactored using useWindowedSync) ---
+  const onSync = useCallback(async (range: SyncRange, isManual: boolean) => {
+    // 1. Check Settings & Metadata
     const settings = await getCalDAVSyncSettings();
     if (!settings) {
-      if (manual) console.log('Sync skipped: No settings found');
+      if (isManual) console.log('Sync skipped: No settings found');
       return;
     }
 
     if (calendarMetadata.length === 0) {
-      if (manual) console.log('Sync skipped: No calendar metadata');
+      if (isManual) console.log('Sync skipped: No calendar metadata');
       return;
     }
 
-    const caldavCalendars = calendarMetadata.filter(c => {
-      // 1. 진짜 로컬 캘린더 제외 (url이 'local-'로 시작)
-      if (c.url.startsWith('local-')) return false;
+    // 2. Filter Calendars
+    const caldavCalendars = calendarMetadata.filter(c =>
+      !c.url.startsWith('local-') && !c.isSubscription && c.type !== 'subscription' && !c.url?.endsWith('.ics')
+    );
+    if (caldavCalendars.length === 0) return;
 
-      // 2. 구독/ICS 파일 제외
-      if (c.isSubscription || c.type === 'subscription' || c.url?.endsWith('.ics')) return false;
-
-      // 3. 그 외의 모든 캘린더(https://... 등)는 동기화 대상
-      return true;
-    });
-
-    if (caldavCalendars.length === 0) {
-      if (manual) console.log('동기화할 캘린더가 없습니다.');
-      return;
+    if (isManual) {
+      console.log('Starting windowed sync for:', caldavCalendars.map(c => c.displayName).join(', '));
     }
 
-    if (manual) {
-      const names = caldavCalendars.map(c => c.displayName).join(', ');
-      console.log('Starting manual sync for:', names);
-    }
-
+    // 3. Prepare Config
     const config: CalDAVConfig = {
       serverUrl: settings.serverUrl,
       username: settings.username,
       password: settings.password,
       settingId: settings.id
     };
-
     const caldavUrls = caldavCalendars.map(c => c.url);
-    try {
-      // Revert to Smart Sync (Incremental) to capture ALL changes (even 2026),
-      // by using the sync token instead of a limited date-range fetch.
-      const forceFullSync = false;
-      const count = await syncSelectedCalendars(config, caldavUrls, null, forceFullSync);
 
-      if (count !== 0 || manual) {
+    try {
+      // 4. Execute Sync (Range provided by hook!)
+      const forceFullSync = false;
+      // Use the calculated range from the hook
+      const count = await syncSelectedCalendars(config, caldavUrls, null, forceFullSync, range);
+
+      if (count !== 0 || isManual) {
         console.log(`Sync complete. Reloading data...`);
-        loadData(true); // Force reload
+        loadData(true);
       }
     } catch (error: any) {
       if (error?.message === 'Network is offline' || error?.code === 'OFFLINE') {
@@ -129,26 +122,21 @@ export const MainLayout = ({
     }
   }, [calendarMetadata, loadData]);
 
-  // --- Auto CalDAV Sync ---
-  useEffect(() => {
-    let mounted = true;
+  // Use the reusable hook for Infinite Scroll & Windowed Fetching
+  const { trigger: triggerSync } = useWindowedSync({
+    pastUnits: pastWeeks,
+    futureUnits: futureWeeks,
+    unitDays: 7,
+    baseDate: getWeekStartForDate(new Date(), weekOrder),
+    onSync
+  });
 
-    // Initial sync after 2s
-    const timer = setTimeout(() => {
-      if (mounted) syncCalendars(true);
-    }, 2000);
+  // Adapter for button clicks (Legacy support)
+  const syncCalendars = useCallback((manual = true) => {
+    if (manual) triggerSync();
+  }, [triggerSync]);
 
-    // Periodic sync every 1 min
-    const interval = setInterval(() => {
-      if (mounted) syncCalendars();
-    }, 60 * 1000);
 
-    return () => {
-      mounted = false;
-      clearTimeout(timer);
-      clearInterval(interval);
-    };
-  }, [syncCalendars]);
 
   // --- UI States ---
   const [isCalendarPopupOpen, setIsCalendarPopupOpen] = useState(false);
@@ -364,12 +352,12 @@ export const MainLayout = ({
   useEffect(() => {
     const observer = new IntersectionObserver(entries => {
       if (entries[0].isIntersecting) {
-        setPastWeeks(prev => prev + 4);
+        setPastWeeks(prev => prev + 12);
         if (containerRef.current) {
           prevScrollHeightRef.current = containerRef.current.scrollHeight;
         }
       }
-    }, { root: null, rootMargin: '500px 0px 0px 0px' });
+    }, { root: null, rootMargin: '2000px 0px 0px 0px' });
 
     if (topSentinelRef.current) observer.observe(topSentinelRef.current);
     return () => observer.disconnect();
@@ -378,9 +366,9 @@ export const MainLayout = ({
   useEffect(() => {
     const observer = new IntersectionObserver(entries => {
       if (entries[0].isIntersecting) {
-        setFutureWeeks(prev => prev + 4);
+        setFutureWeeks(prev => prev + 12);
       }
-    }, { root: null, rootMargin: '0px 0px 500px 0px' });
+    }, { root: null, rootMargin: '0px 0px 2000px 0px' });
     if (bottomSentinelRef.current) observer.observe(bottomSentinelRef.current);
     return () => observer.disconnect();
   }, [setFutureWeeks]);
@@ -399,12 +387,15 @@ export const MainLayout = ({
 
 
   // --- Handlers ---
-  const handleDateClick = useCallback((date: string, anchorEl?: HTMLElement) => {
-    setDraftEvent({ date, title: '', startTime: '09:00', endTime: '10:00', color: '#B3E5FC' });
+  // --- Handlers ---
+  const handleDateClick = useCallback((date: string, anchorEl?: HTMLElement, timeSlot?: 'am' | 'pm') => {
+    // Default times based on slot
+    const defaultStart = timeSlot === 'pm' ? '13:00' : '09:00';
+    const defaultEnd = timeSlot === 'pm' ? '14:00' : '10:00';
+
+    setDraftEvent({ date, title: '', startTime: defaultStart, endTime: defaultEnd, color: '#B3E5FC' });
     setSelectedEvent(null);
     setSelectedDate(date);
-    setIsEventModalOpen(true);
-    setModalSessionId(prev => prev + 1);
     setIsEventModalOpen(true);
     setModalSessionId(prev => prev + 1);
 

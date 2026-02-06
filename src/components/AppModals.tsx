@@ -69,6 +69,8 @@ export function AppModals({
           key={`session-${modalSessionId}`}
           date={selectedDate}
           initialTitle={draftEvent?.title}
+          initialStartTime={draftEvent?.startTime}
+          initialEndTime={draftEvent?.endTime}
           event={selectedEvent || undefined}
           calendars={calendars}
           position={popupPosition}

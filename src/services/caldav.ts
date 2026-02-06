@@ -406,7 +406,8 @@ export async function syncSelectedCalendars(
   config: CalDAVConfig,
   selectedCalendarUrls: string[],
   lastSyncAt?: string | null, // 마지막 동기화 시간 추가
-  forceFullSync: boolean = false // 강제 전체 동기화 플래그
+  forceFullSync: boolean = false, // 강제 전체 동기화 플래그
+  manualRange?: { startDate: Date; endDate: Date } // 수동 범위 (스크롤 등)
 ): Promise<number> {
   // 동기화 중복 실행 방지
   if (syncInFlight) {
@@ -427,7 +428,11 @@ export async function syncSelectedCalendars(
     if (lastSyncAt) {
       console.log(`마지막 동기화 시점(${lastSyncAt})부터 동기화합니다.`);
     } else {
-      console.log('첫 동기화: 최근 1년간의 일정을 가져옵니다.');
+      if (manualRange) {
+        console.log(`구간 동기화: ${manualRange.startDate.toISOString().split('T')[0]} ~ ${manualRange.endDate.toISOString().split('T')[0]}`);
+      } else {
+        console.log('첫 동기화: 최근 1년간의 일정을 가져옵니다.');
+      }
     }
     
     for (const rawCalendarUrl of selectedCalendarUrls) {
@@ -441,7 +446,7 @@ export async function syncSelectedCalendars(
         const token = forceFullSync ? null : syncTokens[calendarUrl];
         let syncResult: SyncCollectionResult | null = null;
 
-        if (token) {
+        if (token && !manualRange) { // 수동 범위가 있으면 토큰 무시하고 전체 조회
           try {
             syncResult = await fetchSyncCollection(config, calendarUrl, token);
           } catch (error: any) {
@@ -461,13 +466,19 @@ export async function syncSelectedCalendars(
           eventsToProcess = syncResult.events;
         } else {
           usedFullFetch = true;
-          const fullStartDate = new Date();
-          fullStartDate.setMonth(fullStartDate.getMonth() - 1); // 속도 최적화: 과거 1개월
-          const fullEndDate = new Date();
-          fullEndDate.setMonth(fullEndDate.getMonth() + 3);     // 속도 최적화: 미래 3개월
+          let fullStartDate: Date;
+          let fullEndDate: Date;
+
+          if (manualRange) {
+            fullStartDate = manualRange.startDate;
+            fullEndDate = manualRange.endDate;
+          } else {
+            fullStartDate = new Date();
+            fullStartDate.setMonth(fullStartDate.getMonth() - 1); // 기본값: 과거 1개월
+            fullEndDate = new Date();
+            fullEndDate.setMonth(fullEndDate.getMonth() + 3);     // 기본값: 미래 3개월
+          }
           
-          // Manual sync usually implies checking recent changes. 
-          // 4 months range is much faster than 2 years.
           eventsToProcess = await fetchCalendarEvents(config, calendarUrl, fullStartDate, fullEndDate);
         }
 

@@ -14,6 +14,8 @@ export interface ModalPosition {
 interface EventModalProps {
   date: string;
   initialTitle?: string;
+  initialStartTime?: string;
+  initialEndTime?: string;
   event?: Event;
   calendars: CalendarMetadata[];
   position?: ModalPosition | null;
@@ -144,14 +146,14 @@ function TimeInput({ value, onChange, highlightColor }: TimeInputProps) {
   );
 }
 
-export function EventModal({ date, initialTitle, event, calendars, position, onClose, onSave, onUpdate, onDelete, onDraftUpdate }: EventModalProps) {
+export function EventModal({ date, initialTitle, initialStartTime, initialEndTime, event, calendars, position, onClose, onSave, onUpdate, onDelete, onDraftUpdate }: EventModalProps) {
   // 이 모달 세션이 "새 일정 생성"으로 시작했는지 기억 (저장 후에도 삭제 버튼 숨김)
   const isCreateSession = useRef(!event);
 
   const [title, setTitle] = useState(event?.title || initialTitle || '');
   const [memo, setMemo] = useState(event?.memo || '');
-  const [startTime, setStartTime] = useState(event?.startTime || '09:00');
-  const [endTime, setEndTime] = useState(event?.endTime || '10:00');
+  const [startTime, setStartTime] = useState(event?.startTime || initialStartTime || '09:00');
+  const [endTime, setEndTime] = useState(event?.endTime || initialEndTime || '10:00');
 
   // 기본 캘린더 선택
   const [selectedCalendar, setSelectedCalendar] = useState<CalendarMetadata | null>(() => {

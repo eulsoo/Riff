@@ -3,7 +3,7 @@ import { EventItem } from './EventItem';
 import { Event, Routine, RoutineCompletion, Todo, WeekOrder } from '../types';
 import { RoutineIcon } from './RoutineIcon';
 import { TodoList } from './TodoList';
-import { useSelection, useHover } from '../contexts/SelectionContext';
+import { useHover } from '../contexts/SelectionContext';
 import styles from './WeekCard.module.css';
 
 interface WeekCardProps {
@@ -15,7 +15,7 @@ interface WeekCardProps {
   todos: Todo[];
   dayDefinitions: Record<string, string>;
   weekOrder: WeekOrder;
-  onDateClick: (date: string, anchorEl?: HTMLElement) => void;
+  onDateClick: (date: string, anchorEl?: HTMLElement, timeSlot?: 'am' | 'pm') => void;
   onEventDoubleClick: (event: Event, anchorEl?: HTMLElement) => void;
   onDeleteEvent: (eventId: string) => void;
   onToggleRoutine: (routineId: string, date: string) => void;
@@ -65,7 +65,6 @@ export const WeekCard = memo(function WeekCard({
   showRoutines,
   showTodos,
 }: WeekCardProps) {
-  const { clearSelection } = useSelection();
   const { setHoveredDate } = useHover();
   // Performance Monitoring
 
@@ -222,10 +221,9 @@ export const WeekCard = memo(function WeekCard({
     <div className={getWeekCardClassName()} data-week-id={weekId}>
       {/* 7일 그리드 */}
       <div className={styles.weekGrid}>
+
+        {/* 1. Header Row (Row 1) */}
         {days.map((date, index) => {
-          const dayEvents = getEventsForDate(date);
-          const routineDayIndex = weekOrder === 'sun' ? (index === 0 ? 6 : index - 1) : index;
-          const dayRoutines = getRoutinesForDay(routineDayIndex);
           const year = date.getFullYear();
           const month = String(date.getMonth() + 1).padStart(2, '0');
           const day = String(date.getDate()).padStart(2, '0');
@@ -234,147 +232,281 @@ export const WeekCard = memo(function WeekCard({
           const dayNames = weekOrder === 'sun'
             ? ['일', '월', '화', '수', '목', '금', '토']
             : ['월', '화', '수', '목', '금', '토', '일'];
-          const isWeekend = routineDayIndex === 5 || routineDayIndex === 6;
-          const visibleRoutines = dayRoutines.filter(r => shouldShowRoutine(r, date));
-          const shouldShowDiaryRoutine = true;
+          const isWeekend = weekOrder === 'sun' ? (index === 0 || index === 6) : (index === 5 || index === 6);
+
           const dayDefinition = (draftDefinitions[dateStr] ?? dayDefinitions[dateStr] ?? '').trim();
           const isDefinitionHidden = !dayDefinition && activeDefinitionDate !== dateStr;
 
           return (
             <div
-              key={dateStr}
-              id={`day-cell-${dateStr}`}
-              className={`${styles.dayCell} ${isWeekend ? styles.dayCellWeekend : ''}`}
+              key={`header-${dateStr}`}
+              className={`${styles.dayHeader} ${index === 6 ? styles.lastColumn : ''}`}
               onMouseEnter={() => setHoveredDate(dateStr)}
               onMouseLeave={() => setHoveredDate(null)}
             >
-              {/* 날짜 헤더 */}
-              <div className={styles.dayHeader}>
-                <div
-                  className={`${styles.dayDefinition} ${activeDefinitionDate === dateStr ? styles.dayDefinitionActive : ''
-                    } ${isDefinitionHidden ? styles.dayDefinitionHidden : ''} ${dayDefinition ? styles.dayDefinitionFilled : ''
-                    }`}
-                  onClick={() => handleDefinitionClick(dateStr)}
-                  title={dayDefinition || undefined}
-                >
-                  {activeDefinitionDate === dateStr ? (
-                    <input
-                      ref={(el) => {
-                        dayDefinitionInputRefs.current[dateStr] = el;
-                      }}
-                      className={styles.dayDefinitionInput}
-                      value={draftDefinitions[dateStr] ?? ''}
-                      onChange={(e) => setDraftDefinitions(prev => ({ ...prev, [dateStr]: e.target.value }))}
-                      placeholder="하루 정의 입력"
-                      onBlur={() => handleDefinitionSave(dateStr)}
-                      onKeyDown={(event) => handleDefinitionKeyDown(event, dateStr)}
-                    />
-                  ) : (
-                    <>
-                      <span
-                        className={`${styles.dayDefinitionText} ${dayDefinition ? '' : styles.dayDefinitionPlaceholder
-                          }`}
+              <div
+                className={`${styles.dayDefinition} ${activeDefinitionDate === dateStr ? styles.dayDefinitionActive : ''
+                  } ${isDefinitionHidden ? styles.dayDefinitionHidden : ''} ${dayDefinition ? styles.dayDefinitionFilled : ''
+                  }`}
+                onClick={() => handleDefinitionClick(dateStr)}
+                title={dayDefinition || undefined}
+              >
+                {activeDefinitionDate === dateStr ? (
+                  <input
+                    ref={(el) => {
+                      dayDefinitionInputRefs.current[dateStr] = el;
+                    }}
+                    className={styles.dayDefinitionInput}
+                    value={draftDefinitions[dateStr] ?? ''}
+                    onChange={(e) => setDraftDefinitions(prev => ({ ...prev, [dateStr]: e.target.value }))}
+                    placeholder="하루 정의 입력"
+                    onBlur={() => handleDefinitionSave(dateStr)}
+                    onKeyDown={(event) => handleDefinitionKeyDown(event, dateStr)}
+                  />
+                ) : (
+                  <>
+                    <span
+                      className={`${styles.dayDefinitionText} ${dayDefinition ? '' : styles.dayDefinitionPlaceholder
+                        }`}
+                    >
+                      {dayDefinition || '하루 정의 추가'}
+                    </span>
+                    {dayDefinition && (
+                      <button
+                        className={styles.dayDefinitionDelete}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleDefinitionDelete(dateStr);
+                        }}
+                        aria-label="하루 정의 삭제"
+                        title="삭제"
                       >
-                        {dayDefinition || '하루 정의 추가'}
-                      </span>
-                      {dayDefinition && (
-                        <button
-                          className={styles.dayDefinitionDelete}
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handleDefinitionDelete(dateStr);
-                          }}
-                          aria-label="하루 정의 삭제"
-                          title="삭제"
-                        >
-                          <span className={`material-symbols-rounded ${styles.dayDefinitionDeleteIcon}`}>delete</span>
-                        </button>
-                      )}
-                    </>
-                  )}
-                </div>
-
-                <div className={styles.dayMeta}>
-                  <span
-                    className={`${styles.dayName} ${isWeekend ? styles.dayNameWeekend : styles.dayNameWeekday
-                      }`}
-                  >
-                    {dayNames[index]}
-                  </span>
-                  <div
-                    className={`${styles.dayNumber} ${today
-                      ? styles.dayNumberToday
-                      : isWeekend
-                        ? styles.dayNumberWeekend
-                        : styles.dayNumberWeekday
-                      }`}
-                  >
-                    {date.getDate()}
-                  </div>
-                </div>
+                        <span className={`material-symbols-rounded ${styles.dayDefinitionDeleteIcon}`}>delete</span>
+                      </button>
+                    )}
+                  </>
+                )}
               </div>
 
-              {/* 이벤트 영역 */}
-              <div
-                id={`day-events-${dateStr}`}
-                className={styles.dayEvents}
-                onClick={(e) => {
-                  // 이벤트 버블링 방지: 자식 요소(일정) 클릭 시에는 무시
-                  if (e.target !== e.currentTarget && (e.target as HTMLElement).closest('[data-event-item]')) {
-                    return;
+              <div className={styles.dayMeta}>
+                <span
+                  className={`${styles.dayName} ${isWeekend ? styles.dayNameWeekend : styles.dayNameWeekday
+                    }`}
+                >
+                  {dayNames[index]}
+                </span>
+                <div
+                  className={`${styles.dayNumber} ${today
+                    ? styles.dayNumberToday
+                    : isWeekend
+                      ? styles.dayNumberWeekend
+                      : styles.dayNumberWeekday
+                    }`}
+                >
+                  {date.getDate()}
+                </div>
+              </div>
+            </div>
+          );
+        })}
+
+        {/* 2. AM Events Row (Row 2) */}
+        {days.map((date, index) => {
+          const year = date.getFullYear();
+          const month = String(date.getMonth() + 1).padStart(2, '0');
+          const day = String(date.getDate()).padStart(2, '0');
+          const dateStr = `${year}-${month}-${day}`;
+
+          const dayEvents = getEventsForDate(date);
+
+          // AM Logic: Include all events starting before 12:00
+          const amEvents = dayEvents.filter(e => {
+            if (!e.startTime) return true; // No start time treated as AM
+            const startHour = parseInt(e.startTime.split(':')[0]);
+            return startHour < 12;
+          });
+
+          // Sort by Start Time ASC (Natural Chronological Order)
+          amEvents.sort((a, b) => (a.startTime || '').localeCompare(b.startTime || ''));
+
+          // Dynamic Alignment:
+          // If there are Spanning Events (crossing 12:00), align to BOTTOM (flex-end) to stick to the divider.
+          // Otherwise, align to TOP (flex-start).
+          const hasSpanningAndAmEvents = amEvents.some(event => {
+            if (event.startTime && event.endTime) {
+              const strt = parseInt(event.startTime.split(':')[0]);
+              const end = parseInt(event.endTime.split(':')[0]);
+              return strt < 12 && end >= 12;
+            }
+            return false;
+          });
+          const amJustifyContent = hasSpanningAndAmEvents ? 'flex-end' : 'flex-start';
+
+          return (
+            <div
+              key={`am-${dateStr}`}
+              className={`${styles.amEvents} ${index === 6 ? styles.lastColumn : ''}`}
+              onDoubleClick={(e) => {
+                if ((e.target as HTMLElement).closest('[data-event-item]')) return;
+                onDateClick(dateStr, e.currentTarget, 'am');
+              }}
+              onMouseEnter={() => setHoveredDate(dateStr)}
+              onMouseLeave={() => setHoveredDate(null)}
+            >
+              <div className={styles.eventsList} style={{ justifyContent: amJustifyContent }}>
+                {amEvents.map(event => {
+                  let timeDisplay: 'default' | 'start-only' | 'end-only' = 'default';
+                  if (event.startTime && event.endTime) {
+                    const startHour = parseInt(event.startTime.split(':')[0]);
+                    const endHour = parseInt(event.endTime.split(':')[0]);
+                    if (startHour < 12 && endHour >= 12) {
+                      timeDisplay = 'start-only';
+                    }
                   }
-                  clearSelection();
-                  // 빈 공간 클릭 동작 (필요 시 선택 해제 로직 등 추가 가능)
-                }}
-                onDoubleClick={(e) => {
-                  // 빈 공간 더블 클릭 시 새로운 일정 생성
-                  if (e.target !== e.currentTarget && (e.target as HTMLElement).closest('[data-event-item]')) {
-                    return;
-                  }
-                  onDateClick(dateStr, e.currentTarget as HTMLElement);
-                }}
-              >
-                <div className={styles.eventsList}>
-                  {dayEvents.map(event => (
+
+                  return (
                     <EventItem
                       key={event.id}
                       event={event}
                       onEventDoubleClick={onEventDoubleClick}
                       onDeleteEvent={onDeleteEvent}
+                      timeDisplay={timeDisplay}
                     />
-                  ))}
-                </div>
+                  );
+                })}
               </div>
+            </div>
+          );
+        })}
 
-              {/* 루틴 영역 */}
-              {showRoutines && (
-                <div className={styles.dayRoutine}>
-                  {visibleRoutines.map(routine => {
-                    const completed = isRoutineCompleted(routine.id, dateStr);
-                    return (
-                      <div key={routine.id} className={styles.dayRoutineItem}>
-                        <RoutineIcon
-                          routine={routine}
-                          completed={completed}
-                          enabled={true}
-                          onClick={() => onToggleRoutine(routine.id, dateStr)}
-                        />
-                      </div>
-                    );
-                  })}
-                  {shouldShowDiaryRoutine && (
-                    <div
-                      className={`${styles.dayRoutineItem} ${styles.dayRoutineDiary} ${diaryCompletions[dateStr] ? styles.dayRoutineDiaryCompleted : styles.dayRoutineDiaryHidden
-                        }`}
-                    >
-                      <RoutineIcon
-                        routine={DIARY_ROUTINE}
-                        completed={Boolean(diaryCompletions[dateStr])}
-                        enabled={true}
-                        onClick={() => onOpenDiary(dateStr)}
-                      />
-                    </div>
-                  )}
+        {/* 3. Divider Line (Row 3) - Only if there are ANY events in this week */}
+        {events.length > 0 && (
+          <div className={styles.dividerLine}>
+            <span className={styles.dividerLabel}>오후 12:00</span>
+          </div>
+        )}
+
+        {/* 4. PM Events Row (Row 4) */}
+        {days.map((date, index) => {
+          const year = date.getFullYear();
+          const month = String(date.getMonth() + 1).padStart(2, '0');
+          const day = String(date.getDate()).padStart(2, '0');
+          const dateStr = `${year}-${month}-${day}`;
+
+          const dayEvents = getEventsForDate(date);
+
+          // PM Logic:
+          // 1. Spanning PM (Starts < 12 AND Ends >= 12) -> Top (near divider)
+          // 2. Normal PM (Starts >= 12) -> Bottom
+          const normalPmEvents: Event[] = [];
+          const spanningPmEvents: Event[] = [];
+
+          dayEvents.forEach(event => {
+            if (!event.startTime) return;
+            const startHour = parseInt(event.startTime.split(':')[0]);
+
+            if (startHour >= 12) {
+              // Started in PM -> Normal PM
+              normalPmEvents.push(event);
+            } else {
+              // Started in AM
+              if (event.endTime) {
+                const endHour = parseInt(event.endTime.split(':')[0]);
+                if (endHour >= 12) {
+                  // Spanning Event (PM View)
+                  spanningPmEvents.push(event);
+                }
+              }
+            }
+          });
+
+          // Sort by End Time ASC (as requested)
+          const sortByEndTime = (a: Event, b: Event) => {
+            const endA = a.endTime || a.startTime || '';
+            const endB = b.endTime || b.startTime || '';
+            return endA.localeCompare(endB);
+          };
+
+          normalPmEvents.sort(sortByEndTime);
+          spanningPmEvents.sort(sortByEndTime);
+
+          return (
+            <div
+              key={`pm-${dateStr}`}
+              className={`${styles.pmEvents} ${index === 6 ? styles.lastColumn : ''}`}
+              onDoubleClick={(e) => {
+                if ((e.target as HTMLElement).closest('[data-event-item]')) return;
+                onDateClick(dateStr, e.currentTarget, 'pm');
+              }}
+              onMouseEnter={() => setHoveredDate(dateStr)}
+              onMouseLeave={() => setHoveredDate(null)}
+            >
+              <div className={styles.eventsList}>
+                {/* 1. Spanning PM Events (Top - Near Divider) */}
+                {spanningPmEvents.map(event => (
+                  <EventItem
+                    key={`${event.id}-pm`}
+                    event={event}
+                    onEventDoubleClick={onEventDoubleClick}
+                    onDeleteEvent={onDeleteEvent}
+                    timeDisplay="end-only"
+                    hideDeleteButton={true}
+                  />
+                ))}
+
+                {/* 2. Normal PM Events (Bottom) */}
+                {normalPmEvents.map(event => (
+                  <EventItem
+                    key={event.id}
+                    event={event}
+                    onEventDoubleClick={onEventDoubleClick}
+                    onDeleteEvent={onDeleteEvent}
+                  />
+                ))}
+              </div>
+            </div>
+          );
+        })}
+
+        {/* 5. Routine Row (Row 5 - Optional) */}
+        {showRoutines && days.map((date, index) => {
+          const routineDayIndex = weekOrder === 'sun' ? (index === 0 ? 6 : index - 1) : index;
+          const dayRoutines = getRoutinesForDay(routineDayIndex);
+          const visibleRoutines = dayRoutines.filter(r => shouldShowRoutine(r, date));
+
+          const year = date.getFullYear();
+          const month = String(date.getMonth() + 1).padStart(2, '0');
+          const day = String(date.getDate()).padStart(2, '0');
+          const dateStr = `${year}-${month}-${day}`;
+
+          const shouldShowDiaryRoutine = true;
+
+          return (
+            <div key={`routine-${dateStr}`} className={`${styles.dayRoutineCell} ${index === 6 ? styles.lastColumn : ''}`}>
+              {visibleRoutines.map(routine => {
+                const completed = isRoutineCompleted(routine.id, dateStr);
+                return (
+                  <div key={routine.id} className={styles.dayRoutineItem}>
+                    <RoutineIcon
+                      routine={routine}
+                      completed={completed}
+                      enabled={true}
+                      onClick={() => onToggleRoutine(routine.id, dateStr)}
+                    />
+                  </div>
+                );
+              })}
+              {shouldShowDiaryRoutine && (
+                <div
+                  className={`${styles.dayRoutineItem} ${styles.dayRoutineDiary} ${diaryCompletions[dateStr] ? styles.dayRoutineDiaryCompleted : styles.dayRoutineDiaryHidden
+                    }`}
+                >
+                  <RoutineIcon
+                    routine={DIARY_ROUTINE}
+                    completed={Boolean(diaryCompletions[dateStr])}
+                    enabled={true}
+                    onClick={() => onOpenDiary(dateStr)}
+                  />
                 </div>
               )}
             </div>

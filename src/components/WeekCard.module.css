@@ -22,39 +22,107 @@
 .weekGrid {
   display: grid;
   grid-template-columns: repeat(7, minmax(0, 1fr));
+  /* Rows: [Header] [AM Events] [Divider] [PM Events] [Routine] */
+  grid-auto-rows: min-content; 
 }
 
-.weekGrid > * {
-  border-right: 1px solid #e5e7eb;
-}
-
-.weekGrid > *:last-child {
-  border-right: none;
-}
-
-.dayCell {
-  min-height: 200px;
-  display: flex;
-  flex-direction: column;
-  position: relative;
-  min-width: 0;
-}
-
-.dayCellWeekend {
-  /* background-color: rgba(249, 250, 251, 0.5); */
-}
-
+/* Header Cell (Row 1) */
 .dayHeader {
+  grid-row: 1;
   display: flex;
   justify-content: space-between;
   align-items: center;
   gap: 0.5rem;
-  padding-top: 0.75rem;
-  padding-bottom: 0.5rem;
-  padding-left: 0.75rem;
-  padding-right: 0.75rem;
+  padding: 0.75rem;
   border-bottom: 1px solid #f3f4f6;
+  border-right: 1px solid #e5e7eb;
   min-width: 0;
+  /* background-color: white; Removed as per user request */
+}
+
+/* Vertical borders for all cells */
+.amEvents, .pmEvents, .dayRoutineCell {
+  border-right: 1px solid #e5e7eb;
+  padding: 0.2rem 0.5rem; /* Add padding for event lists */
+  display: flex; /* Flex needed for stretching height if empty? No, grid handles it. */
+  flex-direction: column;
+}
+.amEvents {padding-top:0.5rem}
+/* .pmEvents {padding-bottom:1.5rem} */
+/* Remove right border for the last column explicitly */
+.lastColumn {
+  border-right: none !important;
+}
+
+/* AM Events Cell (Row 2) */
+.amEvents {
+  grid-row: 2;
+  min-height: 80px; /* Minimum height for empty cells */
+  display: flex !important;
+  flex-direction: column;
+}
+
+.eventsList {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  flex: 1; /* Make eventsList take full height of the cell */
+}
+
+/* Group for events spanning to PM, pushed to bottom */
+.spanningEventGroup {
+  margin-top: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  padding-top: 0.5rem; /* LittdayHeaderle spacing from regular events */
+}
+
+/* Divider Line (Row 3) - Spanning all 7 columns */
+.dividerLine {
+  grid-row: 3;
+  grid-column: 1 / -1;
+  height: 0;
+  border-top: 1px dashed #d1d5db; /* Gray dashed line */
+  margin: 0.4rem 0;
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 10;
+}
+
+.dividerLabel {
+  background-color: white;
+  padding: 0 0.5rem;
+  font-size: 0.7rem;
+  line-height: 1;
+  color: #9ca3af;
+  font-weight: 500;
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+}
+
+/* PM Events Cell (Row 4) */
+.pmEvents {
+  grid-row: 4;
+  min-height: 80px; 
+  display: flex !important;
+  flex-direction: column;
+}
+
+/* Routine Cell (Row 5 or last) */
+.dayRoutineCell {
+  grid-row: 5;
+  border-top: 1px dashed #f3f4f6;
+  padding: 0.5rem 0.75rem;
+  display: flex;
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.375rem;
+  min-height: 2.5rem;
 }
 
 .dayMeta {
@@ -264,11 +332,7 @@
 }
 
 
-.eventsList {
-  display: flex;
-  flex-direction: column;
-  gap: 0.5rem;
-}
+
 
 .eventItem {
   position: relative;
@@ -298,13 +362,17 @@
   flex: 1;
   min-width: 0;
   user-select: none;
+  display: flex; /* Use flexbox for horizontal layout */
+  align-items: center; /* Vertically align time and title */
+  gap: 0.5rem; /* Space between time and title */
 }
 
 .eventTime {
   font-size: 0.625rem;
   opacity: 0.75;
-  margin-bottom: 0.125rem;
   user-select: none;
+  white-space: nowrap; /* Prevent time from wrapping */
+  flex-shrink: 0; /* Prevent time from shrinking */
 }
 
 .eventTitle {
@@ -313,31 +381,8 @@
   white-space: nowrap;
   line-height: 1.25;
   user-select: none;
-}
-
-.eventDeleteButton {
-  opacity: 0;
-  flex-shrink: 0;
-  /* padding: 0.125rem; */
-  border: none;
-  background: none;
-  border-radius: 0.25rem;
-  transition: opacity 0.2s ease-in-out, background-color 0.2s ease-in-out;
-  cursor: pointer;
-  color: #ffffff; /* Keep white during fade-out */
-}
-
-/* .eventItem:hover .eventDeleteButton {
-  opacity: 1;
-} */
-
-.eventDeleteButtonSelected {
-  opacity: 1;
-  color: #ffffff;
+  flex: 1; /* Take up remaining space */
+  min-width: 0; /* Allow shrinking below content width for ellipsis to work */
 }
 
 
-.eventDeleteIcon {
-  width: 0.75rem;
-  height: 0.75rem;
-}
