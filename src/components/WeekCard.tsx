@@ -4,6 +4,7 @@ import { Event, Routine, RoutineCompletion, Todo, WeekOrder } from '../types';
 import { RoutineIcon } from './RoutineIcon';
 import { TodoList } from './TodoList';
 import { useHover } from '../contexts/SelectionContext';
+import { useAllDayEventLayout } from '../hooks/useAllDayEventLayout';
 import styles from './WeekCard.module.css';
 
 interface WeekCardProps {
@@ -91,6 +92,10 @@ export const WeekCard = memo(function WeekCard({
     return date;
   });
 
+  // --- All-Day Events Logic (extracted to hook) ---
+  const { visibleAllDayEvents, multiDayEventKeys } = useAllDayEventLayout(events, weekStart);
+
+
   const getWeekLabelInfo = () => {
     const getWeekOfMonth = (targetDate: Date) => {
       const year = targetDate.getFullYear();
@@ -138,7 +143,12 @@ export const WeekCard = memo(function WeekCard({
     const month = String(date.getMonth() + 1).padStart(2, '0');
     const day = String(date.getDate()).padStart(2, '0');
     const dateStr = `${year}-${month}-${day}`;
-    return events.filter(event => event.date === dateStr);
+    return events.filter(event => {
+      if (event.date !== dateStr) return false;
+      // Exclude ONLY Multi-Day events (handled in All-Day Row)
+      if (multiDayEventKeys.has(event.id)) return false;
+      return true;
+    });
   };
 
   const getRoutinesForDay = (dayIndex: number) => {
@@ -310,7 +320,38 @@ export const WeekCard = memo(function WeekCard({
           );
         })}
 
-        {/* 2. AM Events Row (Row 2) */}
+
+
+        {/* 1.5 All-Day Events Row (Row 2) */}
+        {visibleAllDayEvents.length > 0 && (
+          <div className={styles.allDayRow} style={{ gridRow: 2 }}>
+            <div className={styles.allDayRowBackground}>
+              {Array.from({ length: 7 }).map((_, i) => (
+                <div key={i} className={styles.allDayRowCol} />
+              ))}
+            </div>
+            {visibleAllDayEvents.map(ve => (
+              <div
+                key={`${ve.id}-allDay-${ve.startIdx}`}
+                className={styles.allDayItemContainer}
+                style={{
+                  gridColumnStart: ve.startIdx + 1,
+                  gridColumnEnd: ve.startIdx + 1 + ve.span,
+                  gridRow: ve.track + 1,
+                }}
+              >
+                <EventItem
+                  event={ve.event}
+                  variant="compact"
+                  onEventDoubleClick={onEventDoubleClick}
+                  onDeleteEvent={onDeleteEvent}
+                />
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* 2. AM Events Row (Row 3) */}
         {days.map((date, index) => {
           const year = date.getFullYear();
           const month = String(date.getMonth() + 1).padStart(2, '0');
@@ -319,28 +360,26 @@ export const WeekCard = memo(function WeekCard({
 
           const dayEvents = getEventsForDate(date);
 
-          // AM Logic: Include all events starting before 12:00
-          const amEvents = dayEvents.filter(e => {
-            if (!e.startTime) return true; // No start time treated as AM
+          // Split into two groups:
+          // 1. All-Day events (no startTime) - always at TOP
+          // 2. Timed AM events (startTime < 12:00) - at BOTTOM (near divider if spanning)
+          const allDayEvents = dayEvents.filter(e => !e.startTime);
+          const timedAmEvents = dayEvents.filter(e => {
+            if (!e.startTime) return false;
             const startHour = parseInt(e.startTime.split(':')[0]);
             return startHour < 12;
           });
 
-          // Sort by Start Time ASC (Natural Chronological Order)
-          amEvents.sort((a, b) => (a.startTime || '').localeCompare(b.startTime || ''));
+          // Sort timed events by start time
+          timedAmEvents.sort((a, b) => (a.startTime || '').localeCompare(b.startTime || ''));
 
-          // Dynamic Alignment:
-          // If there are Spanning Events (crossing 12:00), align to BOTTOM (flex-end) to stick to the divider.
-          // Otherwise, align to TOP (flex-start).
-          const hasSpanningAndAmEvents = amEvents.some(event => {
+          // Check if any timed event spans across 12:00
+          const hasSpanningEvents = timedAmEvents.some(event => {
             if (event.startTime && event.endTime) {
-              const strt = parseInt(event.startTime.split(':')[0]);
-              const end = parseInt(event.endTime.split(':')[0]);
-              return strt < 12 && end >= 12;
+              return event.startTime < '12:00' && event.endTime > '12:00';
             }
             return false;
           });
-          const amJustifyContent = hasSpanningAndAmEvents ? 'flex-end' : 'flex-start';
 
           return (
             <div
@@ -353,28 +392,51 @@ export const WeekCard = memo(function WeekCard({
               onMouseEnter={() => setHoveredDate(dateStr)}
               onMouseLeave={() => setHoveredDate(null)}
             >
-              <div className={styles.eventsList} style={{ justifyContent: amJustifyContent }}>
-                {amEvents.map(event => {
-                  let timeDisplay: 'default' | 'start-only' | 'end-only' = 'default';
-                  if (event.startTime && event.endTime) {
-                    const startHour = parseInt(event.startTime.split(':')[0]);
-                    const endHour = parseInt(event.endTime.split(':')[0]);
-                    if (startHour < 12 && endHour >= 12) {
-                      timeDisplay = 'start-only';
-                    }
-                  }
-
-                  return (
+              {/* Group 1: All-Day Events - Always at TOP */}
+              {allDayEvents.length > 0 && (
+                <div className={styles.eventsList} style={{ justifyContent: 'flex-start' }}>
+                  {allDayEvents.map(event => (
                     <EventItem
                       key={event.id}
                       event={event}
                       onEventDoubleClick={onEventDoubleClick}
                       onDeleteEvent={onDeleteEvent}
-                      timeDisplay={timeDisplay}
+                      variant="compact"
+                      className={styles.allday}
                     />
-                  );
-                })}
-              </div>
+                  ))}
+                </div>
+              )}
+
+              {/* Group 2: Timed AM Events - At BOTTOM if spanning, otherwise after all-day */}
+              {timedAmEvents.length > 0 && (
+                <div
+                  className={styles.eventsList}
+                  style={{
+                    justifyContent: hasSpanningEvents ? 'flex-end' : 'flex-start',
+                    flex: hasSpanningEvents ? 1 : 'none'
+                  }}
+                >
+                  {timedAmEvents.map(event => {
+                    let timeDisplay: 'default' | 'start-only' | 'end-only' = 'default';
+                    if (event.startTime && event.endTime) {
+                      if (event.startTime < '12:00' && event.endTime > '12:00') {
+                        timeDisplay = 'start-only';
+                      }
+                    }
+
+                    return (
+                      <EventItem
+                        key={event.id}
+                        event={event}
+                        onEventDoubleClick={onEventDoubleClick}
+                        onDeleteEvent={onDeleteEvent}
+                        timeDisplay={timeDisplay}
+                      />
+                    );
+                  })}
+                </div>
+              )}
             </div>
           );
         })}
@@ -403,19 +465,15 @@ export const WeekCard = memo(function WeekCard({
 
           dayEvents.forEach(event => {
             if (!event.startTime) return;
-            const startHour = parseInt(event.startTime.split(':')[0]);
 
-            if (startHour >= 12) {
+            if (event.startTime >= '12:00') {
               // Started in PM -> Normal PM
               normalPmEvents.push(event);
             } else {
               // Started in AM
-              if (event.endTime) {
-                const endHour = parseInt(event.endTime.split(':')[0]);
-                if (endHour >= 12) {
-                  // Spanning Event (PM View)
-                  spanningPmEvents.push(event);
-                }
+              if (event.endTime && event.endTime > '12:00') {
+                // Spanning Event (PM View) - Only if it goes PAST 12:00
+                spanningPmEvents.push(event);
               }
             }
           });

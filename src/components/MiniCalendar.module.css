@@ -1,0 +1,132 @@
+
+.calendarPopup {
+  position: absolute;
+  top: 100%;
+  left: 0; /* Or adjust based on alignment */
+  margin-top: 0.5rem;
+  z-index: 100;
+  
+  /* Glassmorphism */
+  background: rgba(255, 255, 255, 0.85);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.6);
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.15), 0 0 0 1px rgba(0,0,0,0.05);
+  border-radius: 1rem;
+  
+  padding: 1.25rem;
+  width: 300px;
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.navControls {
+  display: flex;
+  gap: 0.25rem;
+}
+
+.navButton {
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  padding: 0.25rem;
+  border-radius: 0.5rem;
+  color: #6b7280;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background-color 0.2s;
+}
+
+.navButton:hover {
+  background-color: rgba(0,0,0,0.05);
+  color: #111827;
+}
+
+.selectGroup {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.systemSelect {
+  appearance: none; /* Hide default arrow somewhat? No, keep it for system look */
+  background: transparent;
+  border: none;
+  font-size: 1rem;
+  font-weight: 600;
+  color: #111827;
+  cursor: pointer;
+  padding-right: 0.2rem;
+}
+.systemSelect:focus {
+  outline: none;
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 2px;
+}
+
+.dayName {
+  text-align: center;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: #9ca3af;
+  padding-bottom: 0.5rem;
+}
+
+.dayCell {
+  aspect-ratio: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.9rem;
+  cursor: pointer;
+  border-radius: 9999px; /* Circle shape base */
+  position: relative;
+  z-index: 1;
+  color: #374151;
+  transition: all 0.2s ease;
+}
+
+.dayCell:hover {
+  background-color: rgba(0,0,0,0.05);
+}
+
+.dayCellOutside {
+  color: #d1d5db;
+}
+
+/* Range Visuals */
+.dayCellSelected {
+  background-color: #3b82f6;
+  color: white;
+  font-weight: 600;
+}
+.dayCellSelected:hover {
+  background-color: #2563eb;
+}
+
+.dayCellInRange {
+  background-color: rgba(59, 130, 246, 0.1); /* Light Blue */
+  color: #2563eb;
+  border-radius: 0; /* Connect rectangle */
+}
+
+/* Round ends of range */
+.dayCellRangeStart {
+  border-top-left-radius: 50%;
+  border-bottom-left-radius: 50%;
+}
+.dayCellRangeEnd {
+  border-top-right-radius: 50%;
+  border-bottom-right-radius: 50%;
+}

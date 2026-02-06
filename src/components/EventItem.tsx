@@ -8,7 +8,9 @@ interface EventItemProps {
   onEventDoubleClick: (event: Event, anchorEl: HTMLElement) => void;
   onDeleteEvent: (eventId: string) => void;
   timeDisplay?: 'default' | 'start-only' | 'end-only';
+  variant?: 'standard' | 'compact';
   hideDeleteButton?: boolean;
+  className?: string;
 }
 
 const formatEventTime = (startTime?: string, endTime?: string, displayMode: 'default' | 'start-only' | 'end-only' = 'default') => {
@@ -39,9 +41,11 @@ const formatEventTime = (startTime?: string, endTime?: string, displayMode: 'def
 export const EventItem = memo(function EventItem({
   event,
   onEventDoubleClick,
-  onDeleteEvent: _onDeleteEvent, // Unused but kept for interface compatibility
+  onDeleteEvent: _onDeleteEvent,
   timeDisplay = 'default',
-  hideDeleteButton: _hideDeleteButton = false // Unused
+  variant = 'standard',
+  hideDeleteButton: _hideDeleteButton = false,
+  className
 }: EventItemProps) {
   const { selectedIdsSet, toggleSelection } = useSelection();
   const isSelected = selectedIdsSet.has(event.id);
@@ -51,17 +55,16 @@ export const EventItem = memo(function EventItem({
   const backgroundColor = isSelected ? baseColor : baseColor + '20';
   const textColor = isSelected ? '#fff' : baseColor;
 
+  const showTime = variant === 'standard' && (event.startTime || event.endTime);
+
   return (
     <div
       id={`event-item-${event.id}`}
-      className={`${styles.eventItem} ${isSelected ? styles.eventItemSelected : ''}`}
+      className={`${styles.eventItem} ${variant === 'compact' ? styles.eventItemCompact : ''} ${isSelected ? styles.eventItemSelected : ''} ${className || ''}`}
       data-event-item="true"
       style={{ backgroundColor, color: textColor }}
       onMouseDown={(e) => {
-        // Shift 선택 시 텍스트 드래그 기본 동작 방지
-        if (e.shiftKey) {
-          e.preventDefault();
-        }
+        if (e.shiftKey) e.preventDefault();
       }}
       onClick={e => {
         e.stopPropagation();
@@ -72,18 +75,12 @@ export const EventItem = memo(function EventItem({
         onEventDoubleClick(event, e.currentTarget);
       }}
     >
-
-
-      <div className={styles.eventContent}>
-        <div className={styles.eventContentLeft}>
-          {(event.startTime || event.endTime) && (
-            <div className={styles.eventTime}>
-              {formatEventTime(event.startTime, event.endTime, timeDisplay)}
-            </div>
-          )}
-          <div className={styles.eventTitle}>{event.title}</div>
+      {showTime && (
+        <div className={styles.eventTime}>
+          {formatEventTime(event.startTime, event.endTime, timeDisplay)}
         </div>
-      </div>
+      )}
+      <div className={styles.eventTitle}>{event.title}</div>
     </div>
   );
 });

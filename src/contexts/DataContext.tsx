@@ -83,7 +83,9 @@ export const DataProvider = ({
     todos, setTodos,
     dayDefinitions, setDayDefinitions,
     diaryEntries, setDiaryEntries,
-    loadData
+    loadData,
+    markEventAsDeleted,
+    markEventsAsDeleted
   } = useAppData(
     session,
     pastWeeks,
@@ -114,12 +116,15 @@ export const DataProvider = ({
   }, [setEvents]);
 
   const deleteEvent = useCallback(async (eventId: string) => {
+    // 삭제 전에 ID를 추적 (loadData 시 복원 방지)
+    markEventAsDeleted(eventId);
+
     const success = await apiDeleteEvent(eventId);
     if (success) {
       setEvents(prev => prev.filter(e => e.id !== eventId));
     }
     return success;
-  }, [setEvents]);
+  }, [setEvents, markEventAsDeleted]);
 
   const updateEvent = useCallback(async (eventId: string, updates: Partial<Event>) => {
     // Optimistic Update
@@ -138,13 +143,17 @@ export const DataProvider = ({
 
   const deleteEvents = useCallback(async (eventIds: string[]) => {
     if (eventIds.length === 0) return [];
+
+    // 삭제 전에 ID들을 추적 (loadData 시 복원 방지)
+    markEventsAsDeleted(eventIds);
+
     const results = await Promise.all(eventIds.map(id => apiDeleteEvent(id)));
     const deletedIds = eventIds.filter((_, idx) => results[idx]);
     if (deletedIds.length > 0) {
       setEvents(prev => prev.filter(e => !deletedIds.includes(e.id)));
     }
     return deletedIds;
-  }, [setEvents]);
+  }, [setEvents, markEventsAsDeleted]);
 
   // --- Routines ---
   const addRoutine = useCallback(async (routine: Omit<Routine, 'id'>) => {

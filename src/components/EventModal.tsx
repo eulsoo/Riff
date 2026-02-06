@@ -1,7 +1,8 @@
-import { useState, useRef, useEffect, useLayoutEffect } from 'react';
+import { useState, useRef, useEffect, useLayoutEffect, useCallback } from 'react';
 import { Event } from '../types';
 import { CalendarMetadata, normalizeCalendarUrl } from '../services/api';
 import styles from './EventModal.module.css';
+import { MiniCalendar } from './MiniCalendar';
 
 
 export interface ModalPosition {
@@ -20,7 +21,7 @@ interface EventModalProps {
   calendars: CalendarMetadata[];
   position?: ModalPosition | null;
   onClose: () => void;
-  onSave: (event: Omit<Event, 'id'>, keepOpen?: boolean) => void;
+  onSave: (event: Omit<Event, 'id'>, keepOpen?: boolean) => Promise<void> | void;
   onUpdate?: (eventId: string, updates: Partial<Event>) => void;
   onDelete?: (eventId: string) => void;
   onDraftUpdate?: (updates: Partial<Event>) => void;
@@ -146,14 +147,37 @@ function TimeInput({ value, onChange, highlightColor }: TimeInputProps) {
   );
 }
 
-export function EventModal({ date, initialTitle, initialStartTime, initialEndTime, event, calendars, position, onClose, onSave, onUpdate, onDelete, onDraftUpdate }: EventModalProps) {
-  // 이 모달 세션이 "새 일정 생성"으로 시작했는지 기억 (저장 후에도 삭제 버튼 숨김)
-  const isCreateSession = useRef(!event);
-
+export function EventModal({ date, initialTitle, initialStartTime, initialEndTime, event, calendars, position, onClose, onSave, onUpdate, onDraftUpdate }: EventModalProps) {
   const [title, setTitle] = useState(event?.title || initialTitle || '');
   const [memo, setMemo] = useState(event?.memo || '');
+  const [isAllDay, setIsAllDay] = useState(() => {
+    if (event) return !event.startTime && !event.endTime;
+    if (initialStartTime || initialEndTime) return false;
+    return false; // Default off for new clicked events if undefined
+  });
+
   const [startTime, setStartTime] = useState(event?.startTime || initialStartTime || '09:00');
   const [endTime, setEndTime] = useState(event?.endTime || initialEndTime || '10:00');
+
+  const [currentStartDate, setCurrentStartDate] = useState(event?.date || date);
+  const [currentEndDate, setCurrentEndDate] = useState(event?.endDate || event?.date || date);
+  const [calendarTarget, setCalendarTarget] = useState<'start' | 'end' | null>(null);
+
+  const handleDateSelect = (dStr: string) => {
+    if (calendarTarget === 'start') {
+      setCurrentStartDate(dStr);
+      if (dStr > currentEndDate) setCurrentEndDate(dStr);
+    } else {
+      setCurrentEndDate(dStr);
+      if (dStr < currentStartDate) setCurrentStartDate(dStr);
+    }
+    setCalendarTarget(null);
+  };
+
+  const formatDateShort = (dStr: string) => {
+    const [y, m, d] = dStr.split('-').map(Number);
+    return `${String(y).slice(2)}. ${m}. ${d}.`;
+  };
 
   // 기본 캘린더 선택
   const [selectedCalendar, setSelectedCalendar] = useState<CalendarMetadata | null>(() => {
@@ -177,41 +201,73 @@ export function EventModal({ date, initialTitle, initialStartTime, initialEndTim
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
-  // Auto-Save Effect
-  useEffect(() => {
-    const timer = setTimeout(() => {
+  // --- Smart Auto-Save Logic ---
+  const saveTimerRef = useRef<NodeJS.Timeout | null>(null);
+
+  const getCurrentData = useCallback(() => ({
+    title: title.trim(),
+    memo: memo.trim() || undefined,
+    startTime: isAllDay ? undefined : (startTime || undefined),
+    endTime: isAllDay ? undefined : (endTime || undefined),
+    color: selectedCalendar?.color || '#3b82f6',
+    calendarUrl: selectedCalendar?.url,
+    date: currentStartDate,
+    endDate: currentEndDate
+  }), [title, memo, startTime, endTime, isAllDay, selectedCalendar, currentStartDate, currentEndDate]);
+
+  const handleAutoSave = useCallback((isImmediate: boolean) => {
+    // Clear any pending debounced save
+    if (saveTimerRef.current) {
+      clearTimeout(saveTimerRef.current);
+      saveTimerRef.current = null;
+    }
+
+    const performSave = () => {
       // 제목이 없거나, 새 일정인데 제목이 기본값인 경우 자동 저장 안함
       if (!title.trim() || (!event && title.trim() === '새로운 일정')) return;
 
-      const currentData = {
-        title: title.trim(),
-        memo: memo.trim() || undefined,
-        startTime: startTime || undefined,
-        endTime: endTime || undefined,
-        color: selectedCalendar?.color || '#3b82f6',
-        calendarUrl: selectedCalendar?.url
-      };
+      const currentData = getCurrentData();
 
       if (event) {
         if (onUpdate) {
           const isChanged =
             title !== event.title ||
             memo !== (event.memo || '') ||
-            startTime !== (event.startTime || '09:00') ||
-            endTime !== (event.endTime || '10:00') ||
-            selectedCalendar?.url !== event.calendarUrl;
+            (isAllDay ? undefined : startTime) !== event.startTime ||
+            (isAllDay ? undefined : endTime) !== event.endTime ||
+            selectedCalendar?.url !== event.calendarUrl ||
+            currentStartDate !== event.date ||
+            currentEndDate !== (event.endDate || event.date);
 
           if (isChanged) {
             onUpdate(event.id, currentData);
           }
         }
       } else {
-        // Create Mode: Only save if user has changed something
-        onSave({ ...currentData, date }, true);
+        // Create Mode: DO NOT SAVE TO DB AUTOMATICALLY during typing.
       }
-    }, 1000); // 1초 뒤에 저장 (사용자가 입력할 시간을 충분히 줌)
-    return () => clearTimeout(timer);
-  }, [title, memo, startTime, endTime, selectedCalendar, event, onUpdate, onSave, date]);
+    };
+
+    if (isImmediate) {
+      performSave();
+    } else {
+      saveTimerRef.current = setTimeout(performSave, 500);
+    }
+  }, [getCurrentData, event, onUpdate, onSave, title, memo, startTime, endTime, isAllDay, selectedCalendar, currentStartDate, currentEndDate]);
+
+  // 1. Immediate Save Triggers (Layout / Critical)
+  useEffect(() => {
+    // Mount 시 실행되지만 performSave 내부에서 diff 체크로 불필요한 저장 방지됨
+    handleAutoSave(true);
+  }, [startTime, endTime, isAllDay, currentStartDate, currentEndDate, selectedCalendar?.url, handleAutoSave]);
+
+  // 2. Debounced Save Triggers (Text Input)
+  useEffect(() => {
+    handleAutoSave(false);
+    return () => {
+      if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+    };
+  }, [title, memo, handleAutoSave]);
 
   const currentColor = selectedCalendar?.color || '#3b82f6';
 
@@ -221,13 +277,15 @@ export function EventModal({ date, initialTitle, initialStartTime, initialEndTim
       onDraftUpdate({
         title: title.trim(),
         memo: memo.trim() || undefined,
-        startTime: startTime || undefined,
-        endTime: endTime || undefined,
+        startTime: isAllDay ? undefined : (startTime || undefined),
+        endTime: isAllDay ? undefined : (endTime || undefined),
+        date: currentStartDate,
+        endDate: currentEndDate,
         color: currentColor,
         calendarUrl: selectedCalendar?.url
       });
     }
-  }, [title, memo, startTime, endTime, currentColor, selectedCalendar, event, onDraftUpdate]);
+  }, [title, memo, startTime, endTime, isAllDay, currentColor, selectedCalendar, event, onDraftUpdate, currentStartDate, currentEndDate]);
 
   const memoRef = useRef<HTMLTextAreaElement>(null);
 
@@ -260,46 +318,95 @@ export function EventModal({ date, initialTitle, initialStartTime, initialEndTim
 
   const isPositioned = !position || styleState !== undefined;
 
-  const handleDelete = (e: React.MouseEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    if (event && onDelete) {
-      if (window.confirm('정말 삭제하시겠습니까?')) {
-        onDelete(event.id);
-        onClose();
+
+
+  const modalRef = useRef<HTMLDivElement>(null);
+
+  // Keep latest state in ref for outside click handler without re-attaching listeners
+  const latestStateRef = useRef({ title, memo, startTime, endTime, isAllDay, selectedCalendar, currentStartDate, currentEndDate, event });
+  useEffect(() => {
+    latestStateRef.current = { title, memo, startTime, endTime, isAllDay, selectedCalendar, currentStartDate, currentEndDate, event };
+  }, [title, memo, startTime, endTime, isAllDay, selectedCalendar, currentStartDate, currentEndDate, event]);
+
+  // Global Outside Click Listener
+  useEffect(() => {
+    const handleOutsideClick = async (e: MouseEvent) => {
+      // Ignore if clicking inside the modal
+      if (modalRef.current && modalRef.current.contains(e.target as Node)) {
+        return;
       }
-    }
-  };
 
-  const formattedDateLine = (() => {
-    const [y, m, d] = date.split('-').map(Number);
-    return `${y}. ${m}. ${d}.`;
-  })();
+      // Force Save on Close Logic
+      const s = latestStateRef.current;
 
-  // currentColor is already defined above, no need to redefine
-  // const currentColor = selectedCalendar?.color || '#3b82f6';
+      // 입력값이 있고, 새 일정인 경우 저장 시도
+      if (!s.event) {
+        // 무조건 저장 (제목 없으면 기본값 '새로운 일정')
+        const titleToSend = s.title.trim() || '새로운 일정';
+
+        const finalData = {
+          title: titleToSend,
+          memo: s.memo.trim() || undefined,
+          startTime: s.isAllDay ? undefined : (s.startTime || undefined),
+          endTime: s.isAllDay ? undefined : (s.endTime || undefined),
+          color: s.selectedCalendar?.color || '#3b82f6',
+          calendarUrl: s.selectedCalendar?.url,
+          date: s.currentStartDate,
+          endDate: s.currentEndDate
+        };
+        // Wait for save to complete (and context update) BEFORE closing
+        // This prevents the draft from disappearing before the real event appears
+        await onSave(finalData, false);
+      } else {
+        // 수정 모드의 경우 자동 저장이 동작하지만, 마지막 변경사항(Debounce 중인 것)을 여기서 즉시 처리할 수도 있음
+        // 하지만 handleAutoSave가 있으므로 여기서는 생략하거나, 필요시 handleAutoSave(true) 호출 가능?
+        // handleAutoSave는 scope 밖임.
+        // 여기서는 안전하게 닫기만 함 (Update는 보통 타이핑 멈추면 저장되거나 Immediate Trigger로 저장됨)
+        // *만약* 타이핑하다 바로 닫으면? -> Debounce 타이머가 Unmount 시 취소됨 -> 저장 안됨.
+        // 수정 모드에서도 강제 저장이 필요할 수 있음.
+        if (onUpdate && s.event) {
+          const titleToSend = s.title.trim();
+          const currentData = {
+            title: titleToSend,
+            memo: s.memo.trim() || undefined,
+            startTime: s.isAllDay ? undefined : (s.startTime || undefined),
+            endTime: s.isAllDay ? undefined : (s.endTime || undefined),
+            color: s.selectedCalendar?.color || '#3b82f6',
+            calendarUrl: s.selectedCalendar?.url,
+            date: s.currentStartDate,
+            endDate: s.currentEndDate
+          };
+          // Diff check could be good, but simple update is safer
+          onUpdate(s.event.id, currentData);
+        }
+      }
+
+      onClose();
+    };
+
+    // Use mousedown to capture intention immediately
+    document.addEventListener('mousedown', handleOutsideClick);
+    return () => document.removeEventListener('mousedown', handleOutsideClick);
+  }, [onClose, onSave, onUpdate]);
 
   return (
-    <div className={position ? styles.modalOverlayAbsolute : styles.modalOverlay}>
+    <div
+      className={position ? styles.modalOverlayAbsolute : styles.modalOverlay}
+    // onClick handler on overlay removed/kept as backup, but mousedown covers it.
+    >
       <div
         className={styles.modalBackdrop}
-        onClick={onClose}
+      // onClick checked by mousedown
       />
 
       <div
+        ref={modalRef}
         className={`${styles.modal} ${position ? styles.modalPositioned : ''}`}
         style={position ? (absoluteStyle || { visibility: 'hidden' }) : undefined}
       >
         {isPositioned && (
           <>
-            {position && (
-              <div
-                className={`${styles.modalArrow} ${position.align === 'left' ? styles.arrowLeft : styles.arrowRight}`}
-                style={{
-                  top: '20px'
-                }}
-              />
-            )}
+
             <div className={styles.modalForm}>
 
               <div className={`${styles.inputWrapper} ${styles.titleRow}`}>
@@ -351,19 +458,64 @@ export function EventModal({ date, initialTitle, initialStartTime, initialEndTim
                 </div>
               </div>
 
-              <div className={`${styles.inputWrapper} ${styles.dateTimeRow}`}>
-                <span className={styles.dateText}>{formattedDateLine}</span>
-                <TimeInput
-                  value={startTime}
-                  onChange={setStartTime}
-                  highlightColor={currentColor}
-                />
+              <div className={styles.allDayToggleWrapper}>
+                <span className={styles.allDayLabel}>하루 종일</span>
+                <label className={styles.allDayToggleSwitch} style={{ '--highlight-color': currentColor } as React.CSSProperties}>
+                  <input
+                    type="checkbox"
+                    checked={isAllDay}
+                    onChange={(e) => setIsAllDay(e.target.checked)}
+                  />
+                  <span className={styles.allDayToggleSlider}></span>
+                </label>
+              </div>
+
+              <div className={`${styles.inputWrapper} ${styles.dateTimeRow}`} style={{ position: 'relative' }}>
+                <div className={styles.dateTimeGroup}>
+                  <span
+                    className={styles.dateText}
+                    onClick={() => setCalendarTarget('start')}
+                    title="시작 날짜 변경"
+                  >
+                    {formatDateShort(currentStartDate)}
+                  </span>
+                  {!isAllDay && (
+                    <TimeInput
+                      value={startTime}
+                      onChange={setStartTime}
+                      highlightColor={currentColor}
+                    />
+                  )}
+                </div>
+
                 <span className={styles.timeSeparator}>~</span>
-                <TimeInput
-                  value={endTime}
-                  onChange={setEndTime}
-                  highlightColor={currentColor}
-                />
+
+                <div className={styles.dateTimeGroup}>
+                  <span
+                    className={styles.dateText}
+                    onClick={() => setCalendarTarget('end')}
+                    title="종료 날짜 변경"
+                  >
+                    {formatDateShort(currentEndDate)}
+                  </span>
+                  {!isAllDay && (
+                    <TimeInput
+                      value={endTime}
+                      onChange={setEndTime}
+                      highlightColor={currentColor}
+                    />
+                  )}
+                </div>
+
+                {calendarTarget && (
+                  <MiniCalendar
+                    startDate={currentStartDate}
+                    endDate={currentEndDate}
+                    target={calendarTarget}
+                    onSelect={handleDateSelect}
+                    onClose={() => setCalendarTarget(null)}
+                  />
+                )}
               </div>
 
               <div className={styles.inputWrapper}>

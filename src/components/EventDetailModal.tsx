@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { Event } from '../types';
 import styles from './EventDetailModal.module.css';
+import { MiniCalendar } from './MiniCalendar';
 
 interface EventDetailModalProps {
   event: Event;
@@ -91,15 +92,36 @@ export function EventDetailModal({ event, onClose, onUpdate, onDelete }: EventDe
     });
   };
 
-  const formatDate = (dateStr: string) => {
-    const date = new Date(dateStr + 'T00:00:00');
-    const year = date.getFullYear();
-    const month = date.getMonth() + 1;
-    const day = date.getDate();
-    const dayNames = ['일', '월', '화', '수', '목', '금', '토'];
-    const dayName = dayNames[date.getDay()];
+  // MiniCalendar State & Refs
+  const [calendarTarget, setCalendarTarget] = useState<'start' | 'end' | null>(null);
+  const startTimeRef = useRef<HTMLInputElement>(null);
+  const endTimeRef = useRef<HTMLInputElement>(null);
 
-    return `${year}. ${month}. ${day}. (${dayName})`;
+  const handleDateSelect = (dateStr: string) => {
+    if (calendarTarget === 'start') {
+      const updates: any = { date: dateStr };
+      // If start > end, auto-push end? For now just update start.
+      onUpdate(event.id, updates);
+    } else {
+      onUpdate(event.id, { endDate: dateStr } as any);
+    }
+    setCalendarTarget(null);
+  };
+
+  const formatDateShort = (dateStr: string) => {
+    const date = new Date(dateStr + 'T00:00:00');
+    const yy = date.getFullYear().toString().slice(2);
+    const m = date.getMonth() + 1;
+    const d = date.getDate();
+    return `${yy}. ${m}. ${d}.`;
+  };
+
+  const formatTime = (timeStr: string) => {
+    if (!timeStr) return '';
+    const [h, m] = timeStr.split(':').map(Number);
+    const ampm = h < 12 ? '오전' : '오후';
+    const displayH = h % 12 || 12;
+    return `${ampm} ${displayH}:${String(m).padStart(2, '0')}`;
   };
 
   const handleDelete = () => {
@@ -171,28 +193,63 @@ export function EventDetailModal({ event, onClose, onUpdate, onDelete }: EventDe
         </div>
 
         {/* 날짜/시간 섹션 */}
-        <div className={styles.modalDateSection}>
-          <div className={styles.modalDateText}>{formatDate(event.date)}</div>
-          <div className={styles.modalTimeInputs}>
-            <div className={styles.modalTimeInputGroup}>
-              <label className={styles.modalTimeLabel}>시작</label>
-              <input
-                type="time"
-                value={startTime}
-                onChange={(e) => setStartTime(e.target.value)}
-                className={styles.modalTimeInput}
-              />
-            </div>
-            <div className={styles.modalTimeInputGroup}>
-              <label className={styles.modalTimeLabel}>종료</label>
-              <input
-                type="time"
-                value={endTime}
-                onChange={(e) => setEndTime(e.target.value)}
-                className={styles.modalTimeInput}
-              />
-            </div>
+        <div className={styles.modalDateSection} style={{ position: 'relative' }}>
+          <div className={styles.integratedDateTime}>
+            <span
+              className={styles.dateText}
+              onClick={() => setCalendarTarget('start')}
+              title="시작 날짜 변경"
+            >
+              {formatDateShort(event.date)}
+            </span>
+            <span
+              className={styles.timeText}
+              onClick={() => startTimeRef.current?.showPicker()}
+              title="시작 시간 변경"
+            >
+              {formatTime(startTime) || '시간 선택'}
+            </span>
+            <span className={styles.separator}>~</span>
+            <span
+              className={styles.dateText}
+              onClick={() => setCalendarTarget('end')}
+              title="종료 날짜 변경"
+            >
+              {formatDateShort(event.endDate || event.date)}
+            </span>
+            <span
+              className={styles.timeText}
+              onClick={() => endTimeRef.current?.showPicker()}
+              title="종료 시간 변경"
+            >
+              {formatTime(endTime) || '시간 선택'}
+            </span>
           </div>
+
+          <input
+            type="time"
+            ref={startTimeRef}
+            value={startTime}
+            onChange={(e) => setStartTime(e.target.value)}
+            style={{ position: 'absolute', opacity: 0, pointerEvents: 'none', top: 0, left: 0 }}
+          />
+          <input
+            type="time"
+            ref={endTimeRef}
+            value={endTime}
+            onChange={(e) => setEndTime(e.target.value)}
+            style={{ position: 'absolute', opacity: 0, pointerEvents: 'none', top: 0, right: 0 }}
+          />
+
+          {calendarTarget && (
+            <MiniCalendar
+              startDate={event.date}
+              endDate={event.endDate || event.date}
+              target={calendarTarget}
+              onSelect={handleDateSelect}
+              onClose={() => setCalendarTarget(null)}
+            />
+          )}
         </div>
 
         {/* 메모 섹션 */}

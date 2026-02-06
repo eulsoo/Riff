@@ -127,6 +127,26 @@ export const getUserAvatar = async (): Promise<string | null> => {
   return data?.avatar_url || null;
 };
 
+const META_ID = '======VIVIDLY_META======';
+
+function serializeMemo(memo: string | undefined, meta: Record<string, any>): string {
+  const cleanMemo = memo ? memo.split(META_ID)[0].trimEnd() : '';
+  if (!meta || Object.keys(meta).length === 0) return cleanMemo;
+  return `${cleanMemo}\n${META_ID}\n${JSON.stringify(meta)}`;
+}
+
+function parseMemo(originalMemo: string | undefined): { memo: string | undefined; meta: Record<string, any> } {
+  if (!originalMemo) return { memo: undefined, meta: {} };
+  const parts = originalMemo.split(META_ID);
+  if (parts.length < 2) return { memo: originalMemo, meta: {} };
+  try {
+    const meta = JSON.parse(parts[1].trim());
+    return { memo: parts[0].trimEnd() || undefined, meta };
+  } catch {
+    return { memo: originalMemo, meta: {} };
+  }
+}
+
 // Events
 export const fetchEvents = async (startDate?: string, endDate?: string) => {
   let query = supabase
@@ -147,18 +167,23 @@ export const fetchEvents = async (startDate?: string, endDate?: string) => {
     console.error('Error fetching events:', error);
     return [];
   }
-  return (data || []).map((event: any) => ({
-    ...event,
-    startTime: event.start_time,
-    endTime: event.end_time,
-    calendarUrl: normalizeCalendarUrl(event.calendar_url), // calendar_url 매핑 추가
-    caldavUid: event.caldav_uid, // caldav_uid 매핑 추가
-  }));
+  return (data || []).map((event: any) => {
+    const { memo, meta } = parseMemo(event.memo);
+    return {
+      ...event,
+      memo, // Cleaned memo
+      startTime: event.start_time,
+      endTime: event.end_time,
+      endDate: event.end_date || meta.endDate, // Prefer DB col, fallback to meta
+      calendarUrl: normalizeCalendarUrl(event.calendar_url),
+      caldavUid: event.caldav_uid,
+    };
+  });
 };
 
 export const createEvent = async (event: Omit<Event, 'id'> & { uid?: string; caldavUid?: string; calendarUrl?: string; source?: string }) => {
   // uid, caldavUid, calendarUrl, source는 제외하고 나머지만 사용
-  const { startTime, endTime, uid, caldavUid, calendarUrl, source, ...rest } = event;
+  const { startTime, endTime, endDate, uid, caldavUid, calendarUrl, source, ...rest } = event;
   
   // rest에서 불필요한 필드 제거 (uid, caldavUid가 포함되어 있을 수 있음)
   const cleanRest: any = { ...rest };
@@ -171,6 +196,8 @@ export const createEvent = async (event: Omit<Event, 'id'> & { uid?: string; cal
     ...cleanRest,
     start_time: startTime,
     end_time: endTime,
+    // end_date: endDate, // REMOVED: DB column likely missing
+    memo: serializeMemo(rest.memo, { endDate }), // Store in Meta only
     source: source || 'manual',
   };
   
@@ -200,10 +227,13 @@ export const createEvent = async (event: Omit<Event, 'id'> & { uid?: string; cal
     console.error('Error creating event:', error);
     return null;
   }
+  const { memo: parsedMemo, meta } = parseMemo(data.memo);
   return {
     ...data,
+    memo: parsedMemo, // Return clean memo
     startTime: data.start_time,
     endTime: data.end_time,
+    endDate: meta.endDate || data.end_date, // Prefer Meta
     calendarUrl: data.calendar_url,
     caldavUid: data.caldav_uid,
   };
@@ -211,7 +241,7 @@ export const createEvent = async (event: Omit<Event, 'id'> & { uid?: string; cal
 
 // CalDAV 동기화용 Upsert (없으면 생성, 있으면 업데이트)
 export const upsertEvent = async (event: Omit<Event, 'id'> & { uid?: string; caldavUid?: string; calendarUrl?: string; source?: string }) => {
-  const { startTime, endTime, uid, caldavUid, calendarUrl, source, ...rest } = event;
+  const { startTime, endTime, endDate, uid, caldavUid, calendarUrl, source, ...rest } = event;
   
   const cleanRest: any = { ...rest };
   delete cleanRest.uid;
@@ -223,6 +253,8 @@ export const upsertEvent = async (event: Omit<Event, 'id'> & { uid?: string; cal
     ...cleanRest,
     start_time: startTime,
     end_time: endTime,
+    // end_date: endDate, // REMOVED: DB column likely missing
+    memo: serializeMemo(rest.memo, { endDate }), // Store in Meta
     source: source || 'caldav',
   };
   
@@ -241,10 +273,13 @@ export const upsertEvent = async (event: Omit<Event, 'id'> & { uid?: string; cal
     console.error('Error upserting event:', error);
     return null;
   }
+  const { memo: parsedMemo, meta } = parseMemo(data.memo);
   return {
     ...data,
+    memo: parsedMemo,
     startTime: data.start_time,
     endTime: data.end_time,
+    endDate: meta.endDate || data.end_date,
     calendarUrl: data.calendar_url,
     caldavUid: data.caldav_uid,
   };
@@ -308,10 +343,14 @@ export const fetchEventByUID = async (
 
   if (!data) return null;
 
+  const { memo: parsedMemo, meta } = parseMemo(data.memo);
+
   return {
     ...data,
+    memo: parsedMemo,
     startTime: data.start_time,
     endTime: data.end_time,
+    endDate: meta.endDate, // Restore from meta
     etag: data.etag,
   };
 };
@@ -325,6 +364,7 @@ export const updateEventByUID = async (
     memo: string | null;
     startTime: string | null;
     endTime: string | null;
+    endDate?: string | null;
     etag?: string | null;
   }>
 ): Promise<boolean> => {
@@ -336,6 +376,56 @@ export const updateEventByUID = async (
   if (updates.startTime !== undefined) payload.start_time = updates.startTime;
   if (updates.endTime !== undefined) payload.end_time = updates.endTime;
   if (updates.etag !== undefined) payload.etag = updates.etag;
+
+  // Handle endDate & memo metadata logic
+  if (updates.endDate !== undefined) {
+    // payload.end_date = updates.endDate; // Removed
+    // delete payload.endDate; // Not in payload object initially
+
+    // We must ensure memo is updated with new endDate meta
+    let currentMemo = updates.memo;
+    
+    // If memo is strictly undefined (not null), we might need to fetch existing
+    if (currentMemo === undefined) {
+      // NOTE: Unlike updateEvent, updateEventByUID is often used during sync where we might have full data or partial.
+      // If we don't have memo in updates, we should check DB.
+      // However, fetching here adds latency to sync.
+      // Let's assume if it's undefined, we fetch.
+      const { data: existing } = await supabase
+        .from('events')
+        .select('memo')
+        .eq('caldav_uid', uid)
+        .eq('calendar_url', normalizedCalendarUrl)
+        .single();
+        
+      if (existing) {
+        const parsed = parseMemo(existing.memo);
+        currentMemo = parsed.memo;
+      }
+    }
+    // Note: updates.memo could be null (cleared). verify serializeMemo handles null.
+    // serializeMemo expects string | undefined. null -> undefined.
+    payload.memo = serializeMemo(currentMemo || undefined, { endDate: updates.endDate });
+
+  } else if (payload.memo !== undefined) {
+    // Memo changed, preserve endDate if exists
+    const { data: existing } = await supabase
+      .from('events')
+      .select('memo')
+      .eq('caldav_uid', uid)
+      .eq('calendar_url', normalizedCalendarUrl)
+      .single();
+      
+    if (existing) {
+      const parsed = parseMemo(existing.memo);
+      const existingEndDate = parsed.meta.endDate;
+      if (existingEndDate) {
+        payload.memo = serializeMemo(payload.memo, { endDate: existingEndDate });
+      } else {
+        payload.memo = serializeMemo(payload.memo, {});
+      }
+    }
+  }
 
   const { error } = await supabase
     .from('events')
@@ -525,6 +615,7 @@ export const updateEvent = async (id: string, updates: Partial<{
   memo?: string;
   startTime?: string;
   endTime?: string;
+  endDate?: string;
   color: string;
   calendarUrl?: string;
 }>) => {
@@ -537,6 +628,47 @@ export const updateEvent = async (id: string, updates: Partial<{
     payload.end_time = updates.endTime;
     delete payload.endTime;
   }
+  
+  // Handle endDate & memo metadata logic
+  // Handle endDate & memo metadata logic
+  if (updates.endDate !== undefined) {
+    // payload.end_date = updates.endDate; // REMOVED
+    delete payload.endDate;
+
+    // If endDate changed, we must update memo to store metadata
+    let currentMemo = updates.memo;
+    
+    // If user didn't change memo (undefined), we fetch existing to preserve it
+    if (currentMemo === undefined) {
+      const { data: existing } = await supabase.from('events').select('memo').eq('id', id).single();
+      if (existing) {
+        const parsed = parseMemo(existing.memo);
+        currentMemo = parsed.memo;
+      }
+    }
+    payload.memo = serializeMemo(currentMemo, { endDate: updates.endDate });
+  
+  } else if (payload.memo !== undefined) {
+    // Only memo changed. We must preserve existing endDate metadata.
+    const { data: existing } = await supabase.from('events').select('memo').eq('id', id).single();
+    if (existing) {
+      const parsed = parseMemo(existing.memo);
+      const existingEndDate = parsed.meta.endDate; // Only rely on Meta
+      // If there was an endDate, re-serialize with it
+      if (existingEndDate) {
+        payload.memo = serializeMemo(payload.memo, { endDate: existingEndDate });
+      } else {
+        // No existing endDate, just clean memo? No, just use what user sent.
+        // User sent raw memo text. serializeMemo will add meta if provided.
+        // Here we provide nothing, so it cleans it? No, we should call serializeMemo to ensure format if we want consistency,
+        // or just let it be. But serializeMemo also strips existing meta if we don't pass it.
+        // So payload.memo is raw. If we save it directly, we lose meta.
+        // So we MUST use serializeMemo here too.
+        payload.memo = serializeMemo(payload.memo, {});
+      }
+    }
+  }
+
   // calendarUrl -> calendar_url 매핑
   if ('calendarUrl' in updates) {
     payload.calendar_url = updates.calendarUrl;
@@ -558,6 +690,7 @@ export const updateEvent = async (id: string, updates: Partial<{
     ...data,
     startTime: data.start_time,
     endTime: data.end_time,
+    endDate: data.end_date, // This might be null if DB col missing, but we rely on fetchEvents to parse it next time
     calendarUrl: data.calendar_url,
   };
 };

@@ -6,6 +6,7 @@ export interface Event {
   memo?: string;
   startTime?: string;
   endTime?: string;
+  endDate?: string; // For multi-day events
   color: string;
   calendarUrl?: string;
   caldavUid?: string;

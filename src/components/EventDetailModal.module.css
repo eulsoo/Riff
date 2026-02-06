@@ -231,3 +231,43 @@
   width: 1rem;
   height: 1rem;
 }
+
+.integratedDateTime {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 1.1rem;
+  color: #374151;
+  font-weight: 500;
+  background: white;
+  padding: 0.5rem 0.75rem;
+  border-radius: 0.5rem;
+  border: 1px solid #e5e7eb;
+}
+
+.dateText {
+  cursor: pointer;
+  padding: 0.1rem 0.3rem;
+  border-radius: 0.25rem;
+  transition: background 0.2s;
+}
+.dateText:hover {
+  background: #f3f4f6;
+  color: #111827;
+}
+
+.timeText {
+  cursor: pointer;
+  padding: 0.1rem 0.3rem;
+  border-radius: 0.25rem;
+  transition: background 0.2s;
+}
+.timeText:hover {
+  background: #f3f4f6;
+  color: #111827;
+}
+
+.separator {
+  color: #9ca3af;
+  margin: 0 0.25rem;
+}

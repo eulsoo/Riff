@@ -199,8 +199,11 @@ export function serializeEventToICS(event: Partial<Event>): string {
   if (event.date) {
     if (event.startTime && event.endTime) {
       // 시간 지정 이벤트
+      // End Date가 있으면 사용, 없으면 Start Date 사용 (단일)
+      const endDateStr = event.endDate || event.date;
+      
       const start = ICAL.Time.fromJSDate(new Date(`${event.date}T${event.startTime}`));
-      const end = ICAL.Time.fromJSDate(new Date(`${event.date}T${event.endTime}`));
+      const end = ICAL.Time.fromJSDate(new Date(`${endDateStr}T${event.endTime}`));
       icalEvent.startDate = start;
       icalEvent.endDate = end;
     } else {
@@ -210,8 +213,11 @@ export function serializeEventToICS(event: Partial<Event>): string {
       icalEvent.startDate = start;
        
       // 종일 이벤트는 종료일이 다음날 자정이어야 함 (일반적인 컨벤션)
-      const nextDay = new Date(event.date);
+      // endDate가 있으면 그 다음 날, 없으면 date의 다음 날
+      const endDateStr = event.endDate || event.date;
+      const nextDay = new Date(endDateStr);
       nextDay.setDate(nextDay.getDate() + 1);
+      
       const end = ICAL.Time.fromJSDate(nextDay);
       end.isDate = true;
       icalEvent.endDate = end;

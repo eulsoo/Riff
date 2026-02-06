@@ -239,21 +239,22 @@ export const MainLayout = ({
 
       // Check visibility
       if (!e.calendarUrl) return true;
-      return visibleCalendarUrlSet.has(normalizeCalendarUrl(e.calendarUrl));
+      return visibleCalendarUrlSet.has(normalizeCalendarUrl(e.calendarUrl || ''));
     });
 
     // Draft Event Injection
     if (draftEvent && draftEvent.date) {
       const temp: Event = {
         id: 'draft-preview',
-        date: draftEvent.date,
+        date: draftEvent.date, // Updates rely on this being current
         title: draftEvent.title || '새로운 일정',
         startTime: draftEvent.startTime,
         endTime: draftEvent.endTime,
+        endDate: (draftEvent as any).endDate, // Pass endDate for multi-day
         color: draftEvent.color || '#B3E5FC',
         calendarUrl: draftEvent.calendarUrl || 'local',
-        isLocal: true, // Ensure it's treated as local
-        // Add other required fields if necessary via spreading partial, or casting
+        isLocal: true,
+        // Spread any other properties if needed, but explicit is safer
       } as Event;
       return [...list, temp];
     }
@@ -264,17 +265,42 @@ export const MainLayout = ({
   const eventsByWeek = useMemo(() => {
     const map: Record<string, Event[]> = {};
     filteredEvents.forEach(e => {
-      const eDate = new Date(e.date);
-      const wStart = getWeekStartForDate(eDate, weekOrder);
-      const wKey = formatLocalDate(wStart);
-      if (!map[wKey]) map[wKey] = [];
-      map[wKey].push(e);
+      const startDate = new Date(e.date);
+      const endDateStr = (e as any).endDate || e.date;
+      const endDate = new Date(endDateStr);
+
+      // Loop current date from start to end, strictly by week boundaries would be more efficient,
+      // but iterating by day is safe and simple for finding all relevant weeks.
+      // Optimization: Jump to next week start.
+
+      let current = new Date(startDate);
+      // Normalize current to start of its week to avoid unnecessary daily iterations
+      const startWeek = getWeekStartForDate(current, weekOrder);
+
+      // We'll iterate by weeks. 
+      // Calculate the Last Week Start
+      const lastWeekStart = getWeekStartForDate(new Date(endDate), weekOrder);
+
+      let currentWeekStart = new Date(startWeek);
+
+      while (currentWeekStart <= lastWeekStart) {
+        const wKey = formatLocalDate(currentWeekStart);
+        if (!map[wKey]) map[wKey] = [];
+
+        // Dedup: Check if already added (e.g. if single event, logic is fine, but safe guard)
+        if (!map[wKey].some(existing => existing.id === e.id)) {
+          map[wKey].push(e);
+        }
+
+        // Move to next week
+        currentWeekStart.setDate(currentWeekStart.getDate() + 7);
+      }
     });
 
     // Sort events in each week
     Object.keys(map).forEach(key => {
       map[key].sort((a, b) => {
-        // 1. Sort by Date first (should be same week, but important for display order within week if structure differs)
+        // 1. Sort by Date first
         if (a.date !== b.date) return a.date.localeCompare(b.date);
 
         // 2. Sort by Start Time
@@ -389,6 +415,14 @@ export const MainLayout = ({
   // --- Handlers ---
   // --- Handlers ---
   const handleDateClick = useCallback((date: string, anchorEl?: HTMLElement, timeSlot?: 'am' | 'pm') => {
+    // Toggle check: If clicking the same date while modal is open, close it.
+    if (selectedDate === date && isEventModalOpen) {
+      setIsEventModalOpen(false);
+      setPopupPosition(null);
+      setSelectedDate(null);
+      return;
+    }
+
     // Default times based on slot
     const defaultStart = timeSlot === 'pm' ? '13:00' : '09:00';
     const defaultEnd = timeSlot === 'pm' ? '14:00' : '10:00';
@@ -403,7 +437,7 @@ export const MainLayout = ({
       const rect = anchorEl.getBoundingClientRect();
       const isRightHalf = rect.left > window.innerWidth / 2;
       const gap = 12;
-      const top = rect.top;
+      const top = rect.top + window.scrollY;
 
       let left: number | undefined;
       let right: number | undefined;
@@ -418,7 +452,7 @@ export const MainLayout = ({
     } else {
       setPopupPosition(null);
     }
-  }, []);
+  }, [selectedDate, isEventModalOpen]);
 
   // --- Scrolled Center Point Detection Logic ---
   useEffect(() => {
@@ -468,7 +502,7 @@ export const MainLayout = ({
       const rect = anchorEl.getBoundingClientRect();
       const isRightHalf = rect.left > window.innerWidth / 2;
       const gap = 12;
-      const top = rect.top;
+      const top = rect.top + window.scrollY;
 
       let left: number | undefined;
       let right: number | undefined;
@@ -604,7 +638,7 @@ export const MainLayout = ({
                 };
                 console.log('Syncing to CalDAV (Delete - Background)...', eventToDelete.title);
                 // Ensure calendarUrl is treated as string since we checked it in the if condition above
-                const { success: caldavSuccess } = await deleteCalDavEvent(config, eventToDelete.calendarUrl!, eventToDelete.caldavUid);
+                const { success: caldavSuccess } = await deleteCalDavEvent(config, eventToDelete.calendarUrl!, eventToDelete.caldavUid!);
 
                 if (!caldavSuccess) {
                   console.error('CalDAV deletion failed (Background)');

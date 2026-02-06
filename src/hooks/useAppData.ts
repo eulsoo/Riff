@@ -30,6 +30,9 @@ export const useAppData = (
   const [dayDefinitions, setDayDefinitions] = useState<Record<string, string>>({});
   const [diaryEntries, setDiaryEntries] = useState<Record<string, DiaryEntry>>({});
 
+  // 삭제된 이벤트 ID 추적 (loadData 병합 시 제외하기 위함)
+  const deletedEventIdsRef = useRef<Set<string>>(new Set());
+
   const loadDataInFlightRef = useRef(false);
   const lastLoadSessionRef = useRef<string | null>(null);
   const lastLoadAtRef = useRef<number>(0);
@@ -106,11 +109,13 @@ export const useAppData = (
         // Actually, mixing cache with new fetch logic is tricky. 
         // For simplicity, we hydrate from cache but still fall through to network if range changed.
         if (cached) {
-          // 캐시 복원 시에도 로컬 이벤트 유지
+          // 캐시 복원 시에도 로컬 이벤트 유지 (단, 삭제된 이벤트는 제외)
           setEvents(prev => {
             const cachedIds = new Set((cached.events || []).map(e => e.id));
-            const localOnly = prev.filter(e => !cachedIds.has(e.id));
-            return [...(cached.events || []), ...localOnly];
+            const deletedIds = deletedEventIdsRef.current;
+            const localOnly = prev.filter(e => !cachedIds.has(e.id) && !deletedIds.has(e.id));
+            const filteredCache = (cached.events || []).filter(e => !deletedIds.has(e.id));
+            return [...filteredCache, ...localOnly];
           });
           setRoutines(cached.routines || []);
           setRoutineCompletions(cached.routineCompletions || []);
@@ -133,12 +138,16 @@ export const useAppData = (
         fetchDayDefinitions(),
       ]);
       
-      // 서버 데이터와 로컬 상태 병합: 서버에 없는 로컬 이벤트 유지
-      setEvents(prev => {
-        const serverIds = new Set(eventsData.map(e => e.id));
-        const localOnly = prev.filter(e => !serverIds.has(e.id));
-        return [...eventsData, ...localOnly];
+      // 서버 데이터와 로컬 상태 병합: 서버에 없는 로컬 이벤트 유지 (단, 삭제된 이벤트는 제외)
+      const deletedIds = deletedEventIdsRef.current;
+      setEvents(_prev => {
+        // 서버 데이터가 최신이므로 서버 데이터만 사용 (삭제된 이벤트 제외)
+        // localOnly 로직 제거: 서버에 없으면 삭제된 것이므로 복원하지 않음
+        return eventsData.filter(e => !deletedIds.has(e.id));
       });
+      
+      // 서버에서 성공적으로 데이터를 가져왔으므로 삭제 추적 ID 클리어
+      deletedEventIdsRef.current.clear();
       
       setRoutines(routinesData);
       setRoutineCompletions(completionsData);
@@ -172,6 +181,15 @@ export const useAppData = (
     }
   }, [session, getEventRange, rolloverTodosToCurrentWeek]);
 
+  // 삭제된 이벤트 ID를 추적 (loadData 시 복원 방지)
+  const markEventAsDeleted = useCallback((eventId: string) => {
+    deletedEventIdsRef.current.add(eventId);
+  }, []);
+
+  const markEventsAsDeleted = useCallback((eventIds: string[]) => {
+    eventIds.forEach(id => deletedEventIdsRef.current.add(id));
+  }, []);
+
   return {
     events, setEvents,
     routines, setRoutines,
@@ -179,6 +197,8 @@ export const useAppData = (
     todos, setTodos,
     dayDefinitions, setDayDefinitions,
     diaryEntries, setDiaryEntries,
-    loadData
+    loadData,
+    markEventAsDeleted,
+    markEventsAsDeleted
   };
 };
