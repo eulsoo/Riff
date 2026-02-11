@@ -1,4 +1,4 @@
-# Vividly - Weekly Calendar UI
+# Riff - Weekly Calendar UI
 
 This is a code bundle for a Weekly Calendar UI application. 
 
