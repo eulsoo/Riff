@@ -1,5 +1,4 @@
 import { useState, useRef, useEffect, useMemo, memo } from 'react';
-
 import { HexColorPicker } from 'react-colorful';
 import { CalendarMetadata } from '../services/api';
 import styles from './CalendarListPopup.module.css';
@@ -13,6 +12,7 @@ export interface CalendarListPopupProps {
   onUpdateLocalCalendar?: (url: string, updates: Partial<CalendarMetadata>) => void;
   onDeleteCalendar?: (url: string) => void;
   onSyncToMac?: (calendar: CalendarMetadata) => void; // Sync local calendar to Mac/iCloud
+  onOpenCalDAVModal?: () => void;
 }
 
 const PRESET_COLORS = [
@@ -119,6 +119,7 @@ function CalendarListPopupComponent({
   onUpdateLocalCalendar,
   onDeleteCalendar,
   onSyncToMac,
+  onOpenCalDAVModal,
 }: CalendarListPopupProps) {
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; calendarUrl: string } | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -128,17 +129,30 @@ function CalendarListPopupComponent({
 
   const contextMenuRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const popupRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
+      // Context Menu
       if (contextMenuRef.current && !contextMenuRef.current.contains(e.target as Node)) {
         setContextMenu(null);
         setShowColorPicker(false); // Reset picker state on close
       }
+
+      // Popup Close on Outside Click
+      if (popupRef.current && !popupRef.current.contains(e.target as Node)) {
+        // Exclude CalDAV Sync Modal
+        const caldavModal = document.getElementById('caldav-sync-modal-container');
+        if (caldavModal && caldavModal.contains(e.target as Node)) {
+          return;
+        }
+
+        onClose();
+      }
     };
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, []);
+  }, [onClose]);
 
   useEffect(() => {
     if (editingId && inputRef.current) {
@@ -188,7 +202,6 @@ function CalendarListPopupComponent({
   const handleColorChange = (color: string) => {
     if (contextMenu && onUpdateLocalCalendar) {
       onUpdateLocalCalendar(contextMenu.calendarUrl, { color });
-      // Don't close immediately if using picker, let user slide
       if (!showColorPicker) {
         setContextMenu(null);
       }
@@ -198,9 +211,9 @@ function CalendarListPopupComponent({
   // Group calendars - memoized to prevent recalculation on every render
   const groups = useMemo(() => {
     const result = {
-      riff: [] as CalendarMetadata[],        // 1. riff (Local + Sync To iCloud)
+      riff: [] as CalendarMetadata[],        // 1. riff (Local + App-created CalDAV)
       riffFromIcloud: [] as CalendarMetadata[], // 2. riff <- icloud
-      subscription: [] as CalendarMetadata[],     // 4. Subscription
+      subscription: [] as CalendarMetadata[],     // 3. Subscription
     };
 
     calendars.forEach(cal => {
@@ -230,26 +243,19 @@ function CalendarListPopupComponent({
 
   return (
     <>
-      <div className={styles.popupContainer}>
-        <div className={styles.header}>
-          <h3 className={styles.title}>캘린더 목록</h3>
-          <button onClick={onClose} className={styles.closeButton}>
-            <span className="material-symbols-rounded" style={{ fontSize: '18px' }}>close</span>
-          </button>
-        </div>
-
-        {calendars.length === 0 ? (
-          <div style={{ padding: '1rem 0', fontSize: '0.85rem', color: '#666', textAlign: 'center' }}>
-            표시할 캘린더가 없습니다.
-          </div>
-        ) : (
-          <div className={styles.calendarList}>
-            {/* 1. riff (Local) */}
-            {groups.riff.length > 0 && (
+      <div className={styles.popupContainer} ref={popupRef}>
+        <div className={styles.scrollArea}>
+          {calendars.length === 0 ? (
+            <div style={{ padding: '1rem 0', fontSize: '0.85rem', color: '#666', textAlign: 'center' }}>
+              캘린더가 없습니다.
+            </div>
+          ) : (
+            <>
+              {/* 1. riff (Local + App-created CalDAV) */}
               <div className={styles.section}>
                 <div className={styles.sectionTitle} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                   <span>Riff</span>
-                  <span className={`material-symbols-rounded ${styles.actionIcon}`} style={{ fontSize: '16px' }}>add</span>
+                  <span className={`material-symbols-rounded ${styles.actionIcon}`} style={{ fontVariationSettings: "'wght' 700" }} onClick={handleAddClick}>add_2</span>
                 </div>
                 {groups.riff.map(cal => renderCalendarItem(
                   cal, true, visibleUrlSet, editingId, editingName, selectedId,
@@ -257,84 +263,68 @@ function CalendarListPopupComponent({
                   setEditingId, setEditingName, handleNameSave, handleKeyDown
                 ))}
               </div>
-            )}
 
-
-
-            {/* 3. riff <- icloud */}
-            {groups.riffFromIcloud.length > 0 && (
+              {/* 2. riff <- icloud */}
               <div className={styles.section}>
                 <div className={styles.sectionTitle} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                    {/* <span>riff</span>
-                    <ArrowLeft size={12} /> */}
                     <span>iCloud</span>
                   </div>
-                  <span className={`material-symbols-rounded ${styles.actionIcon}`} style={{ fontSize: '16px' }}>cloud_download</span>
+                  <span
+                    className={`material-symbols-rounded ${styles.actionIcon}`}
+                    style={{ fontSize: '16px', cursor: 'pointer' }}
+                    onClick={onOpenCalDAVModal}
+                    title="Mac 캘린더 동기화"
+                  >cloud_download</span>
                 </div>
-                {groups.riffFromIcloud.map(cal => renderCalendarItem(
-                  cal, false, visibleUrlSet, editingId, editingName, selectedId,
-                  inputRef, onToggle, handleContextMenu, setSelectedId,
-                  setEditingId, setEditingName, handleNameSave, handleKeyDown
-                ))}
+                {groups.riffFromIcloud.length > 0 ? (
+                  groups.riffFromIcloud.map(cal => renderCalendarItem(
+                    cal, false, visibleUrlSet, editingId, editingName, selectedId,
+                    inputRef, onToggle, handleContextMenu, setSelectedId,
+                    setEditingId, setEditingName, handleNameSave, handleKeyDown
+                  ))
+                ) : (
+                  <div style={{ padding: '0.5rem 0.75rem', fontSize: '0.8rem', color: '#9ca3af' }}>
+                    동기화된 캘린더가 없습니다.
+                  </div>
+                )}
               </div>
-            )}
 
-            {/* 4. Subscription */}
-            {groups.subscription.length > 0 && (
-              <div className={styles.section}>
-                <div className={styles.sectionTitle} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                  <span>구독</span>
-                  <span className={`material-symbols-rounded ${styles.actionIcon}`} style={{ fontSize: '16px' }}>cloud_download</span>
+              {/* 3. Subscription */}
+              {groups.subscription.length > 0 && (
+                <div className={styles.section}>
+                  <div className={styles.sectionTitle}>구독</div>
+                  {groups.subscription.map(cal => renderCalendarItem(
+                    cal, false, visibleUrlSet, editingId, editingName, selectedId,
+                    inputRef, onToggle, handleContextMenu, setSelectedId,
+                    setEditingId, setEditingName, handleNameSave, handleKeyDown
+                  ))}
                 </div>
-                {groups.subscription.map(cal => renderCalendarItem(
-                  cal, false, visibleUrlSet, editingId, editingName, selectedId,
-                  inputRef, onToggle, handleContextMenu, setSelectedId,
-                  setEditingId, setEditingName, handleNameSave, handleKeyDown
-                ))}
-              </div>
-            )}
-          </div>
-        )}
+              )}
+            </>
+          )}
+        </div>
 
-        <button className={styles.addButton} onClick={handleAddClick}>
-          <span className="material-symbols-rounded" style={{ fontSize: '16px' }}>add</span>
-          <span>캘린더 추가</span>
-        </button>
-      </div >
-
-      {/* Context Menu */}
-      {
-        contextMenu && (
+        {/* Context Menu (Color Picker Included) */}
+        {contextMenu && (
           <div
             ref={contextMenuRef}
             className={styles.contextMenu}
             style={{ top: contextMenu.y, left: contextMenu.x }}
           >
+            {/* Color Picker Toggle */}
             {!showColorPicker ? (
               <>
-                <div className={styles.colorGrid}>
-                  {PRESET_COLORS.map(color => (
-                    <div
-                      key={color}
-                      className={styles.colorOption}
-                      style={{ backgroundColor: color }}
-                      onClick={() => handleColorChange(color)}
-                    />
-                  ))}
-                </div>
-
-                <div
+                <button
                   className={styles.contextMenuItem}
-                  style={{ marginBottom: '0.25rem', cursor: 'pointer' }}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    setShowColorPicker(true);
-                  }}
+                  onClick={(e) => { e.stopPropagation(); setShowColorPicker(true); }}
                 >
-                  <span className="material-symbols-rounded" style={{ fontSize: '14px' }}>palette</span>
-                  <span>사용자 색상 설정...</span>
-                </div>
+                  <div
+                    style={{ width: 12, height: 12, borderRadius: '50%', backgroundColor: calendars.find(c => c.url === contextMenu.calendarUrl)?.color || '#3b82f6', border: '1px solid rgba(0,0,0,0.1)', marginRight: '8px' }}
+                  />
+                  <span>색상 변경</span>
+                  <span className="material-symbols-rounded" style={{ fontSize: '14px', marginLeft: 'auto', color: '#9ca3af' }}>chevron_right</span>
+                </button>
 
                 <div className={styles.contextMenuDivider} />
 
@@ -364,8 +354,6 @@ function CalendarListPopupComponent({
                   <span>
                     {(() => {
                       const cal = calendars.find(c => c.url === contextMenu.calendarUrl);
-                      // 읽기 전용이거나 구독 전용인 경우만 '구독 취소'
-                      // 내 캘린더(CalDAV 포함)는 '삭제'
                       if (cal?.isLocal) return '삭제';
                       if (cal?.readOnly || cal?.isSubscription) return '구독 취소';
                       return '삭제';
@@ -391,8 +379,8 @@ function CalendarListPopupComponent({
               </div>
             )}
           </div>
-        )
-      }
+        )}
+      </div>
     </>
   );
 }

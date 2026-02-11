@@ -19,7 +19,21 @@ export const useCalendarMetadata = () => {
         .map(c => normalizeCalendarUrl(c.url))
         .filter((url): url is string => !!url)
     );
-    // Default local calendar
+    // Default local calendar (if not exists)
+    const localExists = metaList.some(c => c.url === 'local');
+    if (!localExists) {
+        const defaultCal: CalendarMetadata = {
+            url: 'local',
+            displayName: '미팅',
+            color: '#3b82f6',
+            isVisible: true,
+            isLocal: true,
+            type: 'local'
+        };
+        metaList.push(defaultCal);
+        saveLocalCalendarMetadata(metaList); // Save all local calendars
+    }
+    
     if (!visible.has('local')) visible.add('local');
     
     // Check for South Korea Holidays (Apple iCloud)
@@ -77,6 +91,97 @@ export const useCalendarMetadata = () => {
     // Re-calculate visible set if needed, or just keep existing set but filter by new list?
     // Usually visibility is separate, but we should ensure deleted calendars are removed from visibility set.
     // For now, simpler is just refreshing the list.
+  }, []);
+
+  // 서버 캘린더 목록과 비교하여 createdFromApp 플래그 정리
+  // 서버에 더 이상 없는 캘린더의 createdFromApp 플래그 제거
+  const refreshMetadataWithServerList = useCallback((serverCalendarUrls: string[]) => {
+    const metaMap = getCalendarMetadata();
+    const metaList = Object.values(metaMap);
+    
+    // 서버 URL 정규화 (pathname 기준)
+    const serverPathMap = new Map<string, string>(); // pathname -> fullUrl
+    serverCalendarUrls.forEach(url => {
+        try {
+            // URL 객체 생성 시도
+            const urlObj = new URL(url);
+            // pathname 끝의 슬래시 제거 및 디코딩
+            const cleanPath = decodeURIComponent(urlObj.pathname).replace(/\/+$/, '');
+            serverPathMap.set(cleanPath, url);
+        } catch (e) {
+            // URL 파싱 실패 시 원본 사용 (정규화만)
+            const norm = normalizeCalendarUrl(url);
+            if (norm) serverPathMap.set(norm, url);
+        }
+    });
+    
+    console.log('[Metadata Check] Server Paths:', Array.from(serverPathMap.keys()));
+
+    let hasChanges = false;
+    const updatedList = metaList.reduce((acc, cal) => {
+      // 로컬 캘린더나 구독 캘린더는 건드리지 않음
+      if (cal.isLocal || cal.type === 'subscription' || cal.isSubscription) {
+        acc.push(cal);
+        return acc;
+      }
+
+      // CalDAV 캘린더 확인
+      let exists = false;
+      const normUrl = normalizeCalendarUrl(cal.url) || '';
+      
+      try {
+          const calUrlObj = new URL(cal.url);
+          // pathname 끝의 슬래시 제거 및 디코딩
+          const calCleanPath = decodeURIComponent(calUrlObj.pathname).replace(/\/+$/, '');
+          exists = serverPathMap.has(calCleanPath);
+          console.log(`[Metadata Check] Checking "${cal.displayName}":`, { 
+              url: cal.url, 
+              path: calCleanPath, 
+              existsInServer: exists,
+              createdFromApp: cal.createdFromApp
+          });
+      } catch (e) {
+          // URL 파싱 실패 시 단순 비교 fallback
+           exists = Array.from(serverPathMap.values()).some(serverUrl => 
+              normalizeCalendarUrl(serverUrl) === normUrl
+           );
+           console.log(`[Metadata Check] Checking "${cal.displayName}" (fallback):`, { url: cal.url, existsInServer: exists });
+      }
+
+      // 서버에 존재하는 경우 유지
+      if (exists) {
+        acc.push(cal);
+        return acc;
+      }
+
+      // 서버에 없는 경우 처리
+      hasChanges = true;
+      if (cal.createdFromApp) {
+        // 1. 앱에서 만든 캘린더: 로컬 캘린더로 전환 (데이터 보존)
+        console.log(`캘린더 "${cal.displayName}"이(가) 서버에서 삭제됨 - 로컬 캘린더로 전환`);
+        acc.push({ 
+          ...cal, 
+          createdFromApp: false,
+          isLocal: true,
+          type: 'local' as const,
+          color: cal.color
+        });
+      } else {
+        // 2. 일반 iCloud 캘린더: 목록에서 제거 (동기화 반영)
+        console.log(`캘린더 "${cal.displayName}"이(가) 서버에서 삭제됨 - 목록에서 제거`);
+        // acc.push(cal)을 하지 않음으로써 제거됨
+      }
+      
+      return acc;
+    }, [] as CalendarMetadata[]);
+    
+    if (hasChanges) {
+      // 변경사항 저장
+      saveCalendarMetadata(updatedList);
+      saveLocalCalendarMetadata(updatedList);
+    }
+    
+    setCalendarMetadata(updatedList);
   }, []);
 
   const toggleCalendarVisibility = useCallback((url: string) => {
@@ -153,5 +258,6 @@ export const useCalendarMetadata = () => {
     convertLocalToCalDAV,
     deleteCalendar,
     refreshMetadata,
+    refreshMetadataWithServerList,
   };
 };

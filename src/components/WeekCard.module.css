@@ -73,22 +73,27 @@
 }
 
 .allDayItemContainer {
-  padding: 0 0.5rem; /* Horizontal gap between adjacent days */
+  padding: 0 0.3rem; /* Horizontal gap between adjacent days */
   position: relative;
   min-height: 20px;
 }
 .amEvents .eventsList .allday {
   margin-top: 0 !important;
 }
-
+.eventsList + .eventsList {
+  margin-top: 0;
+}
+.amEvents .eventsList + .eventsList > *:first-child {
+  margin-top: 0;
+}
 .allDayItemContainer .eventItem {
-  padding:0.1rem 0.5rem;;
+  padding:0.1rem 0.5rem;
 }
 
 /* Vertical borders for all cells */
 .amEvents, .pmEvents, .dayRoutineCell {
   border-right: 1px solid #e5e7eb;
-  padding: 0.2rem 0.5rem; /* Add padding for event lists */
+  padding: 0.2rem 0.3rem; /* Add padding for event lists */
   display: flex; /* Flex needed for stretching height if empty? No, grid handles it. */
   flex-direction: column;
 }
@@ -431,6 +436,8 @@
 }
 
 .allday {
+  transform: rotate(0deg);
+  transform-origin: left center;
   /* Style for Single-Day All-Day events in AM List */
 }
 

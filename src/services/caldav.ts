@@ -462,12 +462,13 @@ export async function syncSelectedCalendars(
         }
 
         let eventsToProcess: Omit<Event, 'id'>[] = [];
+        let fullStartDate: Date | undefined;
+        let fullEndDate: Date | undefined;
+        
         if (syncResult) {
           eventsToProcess = syncResult.events;
         } else {
           usedFullFetch = true;
-          let fullStartDate: Date;
-          let fullEndDate: Date;
 
           if (manualRange) {
             fullStartDate = manualRange.startDate;
@@ -589,17 +590,12 @@ export async function syncSelectedCalendars(
         
         // 해당 캘린더에서 삭제된 이벤트 찾기 및 삭제
         // allEvents가 빈 배열이어도 삭제 체크 수행 (캘린더에서 모든 이벤트를 삭제한 경우 처리)
-        if (usedFullFetch) {
-           // fetchCalendarEvents에서 사용한 날짜 범위를 그대로 전달 (재계산)
-          const rangeStart = new Date();
-          rangeStart.setMonth(rangeStart.getMonth() - 1);
-          const rangeEnd = new Date();
-          rangeEnd.setMonth(rangeEnd.getMonth() + 3);
-
-          const deleted = await deleteRemovedEvents(calendarUrl, currentEventUids, eventsToProcess, rangeStart, rangeEnd);
+        if (usedFullFetch && fullStartDate && fullEndDate) {
+          // 삭제 체크는 실제 동기화 범위(fullStartDate/fullEndDate)와 동일하게 사용
+          const deleted = await deleteRemovedEvents(calendarUrl, currentEventUids, eventsToProcess, fullStartDate, fullEndDate);
           deletedCount += deleted;
           if (deleted > 0) {
-            console.log(`캘린더 ${calendarUrl}: ${deleted}개 삭제 (범위: ${rangeStart.toISOString().slice(0,10)} ~ ${rangeEnd.toISOString().slice(0,10)})`);
+            console.log(`캘린더 ${calendarUrl}: ${deleted}개 삭제 (범위: ${fullStartDate.toISOString().slice(0,10)} ~ ${fullEndDate.toISOString().slice(0,10)})`);
           } else if (eventsToProcess.length === 0) {
             console.log(`캘린더 ${calendarUrl}: 이벤트 없음 (삭제 체크 완료)`);
           }

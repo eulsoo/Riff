@@ -6,7 +6,7 @@ import styles from './CalDAVSyncModal.module.css';
 
 interface CalDAVSyncModalProps {
   onClose: () => void;
-  onSyncComplete: (count: number) => void;
+  onSyncComplete: (count: number, syncedCalendarUrls?: string[]) => void;
   mode?: 'sync' | 'auth-only';
   existingCalendars: CalendarMetadata[];
 }
@@ -104,7 +104,17 @@ export function CalDAVSyncModal({ onClose, onSyncComplete, mode = 'sync', existi
         return;
       }
 
-      const calendarList = await getCalendars(config);
+      const rawCalendars = await getCalendars(config);
+
+      // Filter out system calendars (inbox, outbox, notification) and reminders
+      // These are not typically shown in the main calendar view
+      const calendarList = rawCalendars.filter(cal => {
+        const name = (cal.displayName || '').toLowerCase();
+        // Check for specific system names. 'reminders' is Apple's Reminders app list.
+        const excludedKeywords = ['inbox', 'outbox', 'notification', 'reminders'];
+        return !excludedKeywords.some(keyword => name.includes(keyword));
+      });
+
       setCalendars(calendarList);
 
       // 자동 저장 (성공 시)
@@ -241,7 +251,8 @@ export function CalDAVSyncModal({ onClose, onSyncComplete, mode = 'sync', existi
         syncIntervalMinutes: 60,
       });
 
-      onSyncComplete(count);
+      // 서버에서 가져온 모든 캘린더 URL 전달 (선택 여부와 무관)
+      onSyncComplete(count, calendars.map(c => c.url));
       onClose();
     } catch (err: any) {
       setError(err.message || '동기화 중 오류가 발생했습니다.');
@@ -287,27 +298,32 @@ export function CalDAVSyncModal({ onClose, onSyncComplete, mode = 'sync', existi
   }, []);
 
   return (
-    <div className={styles.modalOverlay}>
+    <div id="caldav-sync-modal-container" className={styles.modalOverlay}>
       <div className={styles.modalBackdrop} onClick={onClose} />
       <div className={styles.modal}>
         <div className={styles.modalHeader}>
-          {step === 'selection' && (
-            <button onClick={() => setStep('credentials')} className={styles.backButton} aria-label="뒤로">
-              <span className={`material-symbols-rounded ${styles.backIcon}`}>chevron_left</span>
+          <div style={{ width: '40px', display: 'flex', alignItems: 'center' }}>
+            {step === 'selection' && (
+              <button onClick={() => setStep('credentials')} className={styles.backButton} aria-label="뒤로">
+                <span className={`material-symbols-rounded ${styles.backIcon}`}>arrow_back_ios</span>
+              </button>
+            )}
+          </div>
+          <div className={styles.modalTitle} style={{ flex: 1, textAlign: 'center' }}>
+            {step === 'credentials' ? '계정정보 입력' : '캘린더 선택'}
+          </div>
+          <div style={{ width: '40px', display: 'flex', justifyContent: 'flex-end', alignItems: 'center' }}>
+            <button onClick={onClose} className={styles.modalCloseButton}>
+              <span className={`material-symbols-rounded ${styles.modalCloseIcon}`}>close</span>
             </button>
-          )}
-          <div style={{ flex: 1 }} />
-          <button onClick={onClose} className={styles.modalCloseButton}>
-            <span className={`material-symbols-rounded ${styles.modalCloseIcon}`}>close</span>
-          </button>
+          </div>
         </div>
 
         <div className={styles.modalContent}>
           {step === 'credentials' ? (
             /* Step 1: Credentials Form */
             <form
-              className={styles.section}
-              style={{ paddingTop: '0.5rem' }}
+              className={`${styles.section} ${styles.credentialsForm}`}
               onSubmit={(e) => {
                 e.preventDefault();
                 handleFetchCalendars();
@@ -343,8 +359,8 @@ export function CalDAVSyncModal({ onClose, onSyncComplete, mode = 'sync', existi
               <div className={styles.formGroup}>
                 <label className={styles.formLabel}>암호</label>
                 {hasSavedPassword ? (
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                    <div style={{ flex: 1, padding: '8px', background: '#f5f5f5', borderRadius: '4px', color: '#666', fontSize: '14px', border: '1px solid #ddd' }}>
+                  <div className={styles.savedPasswordContainer}>
+                    <div className={styles.savedPasswordBox}>
                       🔒 안전하게 저장된 암호 사용 중
                     </div>
                     <button
@@ -360,7 +376,7 @@ export function CalDAVSyncModal({ onClose, onSyncComplete, mode = 'sync', existi
                         setSettingId(null);
                         setPassword('');
                       }}
-                      style={{ padding: '8px 12px', fontSize: '13px', border: '1px solid #ddd', borderRadius: '4px', background: 'white', cursor: 'pointer' }}
+                      className={styles.resetButton}
                     >
                       재설정
                     </button>
@@ -377,15 +393,15 @@ export function CalDAVSyncModal({ onClose, onSyncComplete, mode = 'sync', existi
                       autoComplete="new-password"
                       name="caldav-password"
                     />
-                    <div style={{ marginTop: '8px', display: 'flex', alignItems: 'center' }}>
+                    <div className={styles.checkboxWrapper}>
                       <input
                         type="checkbox"
                         id="savePassword"
                         checked={savePasswordChecked}
                         onChange={(e) => setSavePasswordChecked(e.target.checked)}
-                        style={{ marginRight: '6px' }}
+                        className={styles.checkboxInput}
                       />
-                      <label htmlFor="savePassword" style={{ fontSize: '13px', color: '#444', cursor: 'pointer' }}>
+                      <label htmlFor="savePassword" className={styles.checkboxLabel}>
                         🔒 이 암호를 안전하게 저장하기 (다음부터 입력 생략)
                       </label>
                     </div>
@@ -399,14 +415,13 @@ export function CalDAVSyncModal({ onClose, onSyncComplete, mode = 'sync', existi
                 onClick={handleFetchCalendars}
                 disabled={loading || syncing}
                 className={styles.fetchButton}
-                style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}
               >
                 {loading && (
-                  <div style={{ width: 16, height: 16, border: '2px solid white', borderTopColor: 'transparent', borderRadius: '50%', animation: 'spin 1s linear infinite' }}></div>
+                  <div className={styles.spinner}></div>
                 )}
                 {loading ? '확인 중...' : '확인'}
               </button>
-              <style>{`@keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }`}</style>
+
 
               {existingSettings && (
                 <button
@@ -420,18 +435,20 @@ export function CalDAVSyncModal({ onClose, onSyncComplete, mode = 'sync', existi
             </form>
           ) : (
             /* Step 2: Selection Form */
-            <div className={styles.section} style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
-              <div className={styles.sectionHeader}>
-                <h3 className={styles.sectionTitle}>동기화할 캘린더 선택</h3>
-                <button
-                  onClick={toggleAllCalendars}
-                  className={styles.selectAllButton}
-                  disabled={syncing}
-                >
-                  {selectedCalendars.size === calendars.length ? '전체 해제' : '전체 선택'}
-                </button>
+            <div className={`${styles.section} ${styles.selectionSection}`}>
+              <div className={styles.selectAllRow}>
+                <label className={styles.selectAllLabel}>
+                  <input
+                    type="checkbox"
+                    checked={selectedCalendars.size === calendars.length && calendars.length > 0}
+                    onChange={toggleAllCalendars}
+                    disabled={syncing}
+                    className={styles.checkboxInput}
+                  />
+                  <span>전체 선택</span>
+                </label>
               </div>
-              <div className={styles.calendarList} style={{ maxHeight: 'none', flex: 1, minHeight: '200px' }}>
+              <div className={styles.calendarList}>
                 {calendars.map((calendar) => (
                   <label key={calendar.url} className={styles.calendarItem}>
                     <input
@@ -439,8 +456,8 @@ export function CalDAVSyncModal({ onClose, onSyncComplete, mode = 'sync', existi
                       checked={selectedCalendars.has(calendar.url)}
                       onChange={() => toggleCalendar(calendar.url)}
                       disabled={syncing}
+                      style={{ '--cal-color': calendar.color || '#3b82f6' } as React.CSSProperties}
                     />
-                    <div className={styles.colorChip} style={{ backgroundColor: calendar.color || '#cccccc' }} />
                     <span>{calendar.displayName}</span>
                   </label>
                 ))}
@@ -448,8 +465,7 @@ export function CalDAVSyncModal({ onClose, onSyncComplete, mode = 'sync', existi
               <button
                 onClick={handleSync}
                 disabled={syncing || selectedCalendars.size === 0}
-                className={styles.syncButton}
-                style={{ marginTop: '1rem' }}
+                className={`${styles.syncButton} ${styles.syncButtonMargin}`}
               >
                 {syncing
                   ? '동기화 중...'
@@ -462,7 +478,7 @@ export function CalDAVSyncModal({ onClose, onSyncComplete, mode = 'sync', existi
             <div className={styles.errorMessage}>
               {error}
               {error.includes('CORS') && (
-                <div style={{ marginTop: '0.5rem', fontSize: '0.75rem' }}>
+                <div className={styles.corsMessage}>
                   💡 브라우저 보안 제한으로 CalDAV 직접 연결이 불가능합니다.
                   ICS 파일 import 기능을 사용해주세요.
                 </div>

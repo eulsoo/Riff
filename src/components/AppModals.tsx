@@ -28,7 +28,7 @@ interface AppModalsProps {
   onAddRoutine: (routine: Omit<Routine, 'id'>) => void;
   onDeleteRoutine: (routineId: string) => void;
   onCloseCalDAVModal: () => void;
-  onSyncComplete: (count: number) => void;
+  onSyncComplete: (count: number, syncedCalendarUrls?: string[]) => void;
   onCloseSettings: () => void;
   onSettingsSaved: (data: { avatarUrl: string | null; weekOrder: WeekOrder }) => void;
   onDraftUpdate?: (updates: Partial<Event>) => void;

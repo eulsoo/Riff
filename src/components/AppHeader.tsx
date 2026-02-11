@@ -77,13 +77,8 @@ export function AppHeader({
             )}
             {isProfileMenuOpen && (
               <div className={styles.profileMenu} role="menu">
-                {/* 헤더 (제목 + 닫기 버튼) */}
-                <div className={styles.profileHeader}>
-                  <span className={styles.profileTitle}>계정</span>
-                  <button onClick={onToggleProfileMenu} className={styles.profileCloseButton}>
-                    <span className="material-symbols-rounded" style={{ fontSize: '18px' }}>close</span>
-                  </button>
-                </div>
+                {/* Header (Title + Close) Removed */}
+
 
                 {/* 루틴 관리 */}
                 <div className={styles.profileMenuItemGroup}>

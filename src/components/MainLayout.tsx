@@ -11,7 +11,7 @@ import { useSelection, useHover } from '../contexts/SelectionContext';
 import { useCalendarMetadata } from '../hooks/useCalendarMetadata';
 import { WeekOrder, Event, DiaryEntry, Todo } from '../types';
 import { normalizeCalendarUrl, CalendarMetadata, upsertDiaryEntry, getUserAvatar, getCalDAVSyncSettings } from '../services/api';
-import { createCalDavEvent, updateCalDavEvent, deleteCalDavEvent, syncSelectedCalendars, CalDAVConfig, createRemoteCalendar, deleteRemoteCalendar } from '../services/caldav';
+import { createCalDavEvent, updateCalDavEvent, deleteCalDavEvent, syncSelectedCalendars, CalDAVConfig, createRemoteCalendar, deleteRemoteCalendar, getCalendars } from '../services/caldav';
 import { getWeekStartForDate, getTodoWeekStart, formatLocalDate } from '../utils/dateUtils';
 import { useUndoRedo, HistoryAction } from '../hooks/useUndoRedo';
 import { ModalPosition } from './EventModal';
@@ -65,7 +65,8 @@ export const MainLayout = ({
     updateLocalCalendar,
     convertLocalToCalDAV,
     deleteCalendar,
-    refreshMetadata
+    refreshMetadata,
+    refreshMetadataWithServerList
   } = useCalendarMetadata();
 
   const { recordAction, registerHandlers } = useUndoRedo();
@@ -113,6 +114,22 @@ export const MainLayout = ({
         console.log(`Sync complete. Reloading data...`);
         loadData(true);
       }
+
+      // 5. 서버 캘린더 목록과 비교해서 삭제된 캘린더 정리 (createdFromApp 및 일반 CalDAV 모두)
+      const hasCalDAVCalendars = calendarMetadata.some(c =>
+        !c.isLocal && !c.isSubscription && c.type !== 'subscription'
+      );
+
+      if (hasCalDAVCalendars) {
+        try {
+          const serverCalendars = await getCalendars(config);
+          const serverUrls = serverCalendars.map(c => c.url);
+          refreshMetadataWithServerList(serverUrls);
+        } catch (e) {
+          // 캘린더 목록 가져오기 실패해도 동기화는 정상 진행
+          console.warn('서버 캘린더 목록 확인 실패:', e);
+        }
+      }
     } catch (error: any) {
       if (error?.message === 'Network is offline' || error?.code === 'OFFLINE') {
         console.log('Sync skipped (Offline)');
@@ -120,7 +137,7 @@ export const MainLayout = ({
         console.warn('Sync failed:', error);
       }
     }
-  }, [calendarMetadata, loadData]);
+  }, [calendarMetadata, loadData, refreshMetadataWithServerList]);
 
   // Use the reusable hook for Infinite Scroll & Windowed Fetching
   const { trigger: triggerSync } = useWindowedSync({
@@ -197,6 +214,17 @@ export const MainLayout = ({
   const prevScrollHeightRef = useRef(0);
   const profileMenuRef = useRef<HTMLDivElement>(null);
   const hasScrolledRef = useRef(false);
+
+  // Close profile menu on outside click
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (isProfileMenuOpen && profileMenuRef.current && !profileMenuRef.current.contains(e.target as Node)) {
+        setIsProfileMenuOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [isProfileMenuOpen]);
 
   // --- Initial Avatar Load ---
   useEffect(() => {
@@ -1024,6 +1052,10 @@ export const MainLayout = ({
             onUpdateLocalCalendar={updateLocalCalendar}
             onDeleteCalendar={handleDeleteCalendar}
             onSyncToMac={handleSyncToMac}
+            onOpenCalDAVModal={() => {
+              setCalDAVModalMode('sync');
+              setIsCalDAVModalOpen(true);
+            }}
           />
         )}
       </>
@@ -1085,7 +1117,7 @@ export const MainLayout = ({
           draftEvent={draftEvent as Event}
           modalSessionId={modalSessionId}
           routines={routines}
-          calendars={calendarMetadata}
+          calendars={calendarMetadata.filter(c => !c.isSubscription && !c.readOnly)}
           isRoutineModalOpen={isRoutineModalOpen}
           isCalDAVModalOpen={isCalDAVModalOpen}
           isSettingsModalOpen={isSettingsModalOpen}
@@ -1101,10 +1133,16 @@ export const MainLayout = ({
           onDeleteRoutine={deleteRoutine}
           onCloseCalDAVModal={() => setIsCalDAVModalOpen(false)}
           calDAVMode={calDAVModalMode}
-          onSyncComplete={(count) => {
+          onSyncComplete={(count, syncedCalendarUrls) => {
             console.log(`Sync complete: ${count} items. Refreshing...`);
             loadData(true); // Refresh events
-            refreshMetadata(); // Refresh calendar list
+
+            // 서버 캘린더 목록과 비교하여 createdFromApp 플래그 정리
+            if (syncedCalendarUrls && syncedCalendarUrls.length > 0) {
+              refreshMetadataWithServerList(syncedCalendarUrls);
+            } else {
+              refreshMetadata(); // Fallback to simple refresh
+            }
 
             if (pendingSyncCalendar) {
               const cal = pendingSyncCalendar;

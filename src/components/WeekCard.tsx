@@ -333,7 +333,7 @@ export const WeekCard = memo(function WeekCard({
             {visibleAllDayEvents.map(ve => (
               <div
                 key={`${ve.id}-allDay-${ve.startIdx}`}
-                className={styles.allDayItemContainer}
+                className={`${styles.allDayItemContainer}${ve.span === 1 ? ` ${styles.allday}` : ''}`}
                 style={{
                   gridColumnStart: ve.startIdx + 1,
                   gridColumnEnd: ve.startIdx + 1 + ve.span,

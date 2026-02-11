@@ -85,14 +85,17 @@
 }
 
 .checkbox {
-  position: relative;
-  width: 18px;
-  height: 18px;
-  border-radius: 4px;
-  border: 2px solid #d1d5db;
   appearance: none;
+  -webkit-appearance: none;
+  width: 1.25rem;
+  height: 1.25rem;
+  border: none;
+  border-radius: 4px;
+  background-color: var(--cal-color, #d1d5db);
   cursor: pointer;
+  position: relative;
   transition: all 0.2s;
+  flex-shrink: 0;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -100,20 +103,25 @@
 
 .checkbox:checked {
   background-color: var(--cal-color, #3b82f6);
-  border-color: var(--cal-color, #3b82f6);
 }
 
-/* Custom Checkmark */
-.checkbox:checked::after {
-  content: "";
+/* Custom Checkmark with SVG */
+.checkbox::after {
+  content: '';
   position: absolute;
-  top: 1px;
-  left: 5px;
-  width: 4px;
-  height: 9px;
-  border: solid white;
-  border-width: 0 2px 2px 0;
-  transform: rotate(45deg);
+  inset: 0;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='white'%3E%3Cpath d='M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z'/%3E%3C/svg%3E");
+  background-size: 16px;
+  background-position: center;
+  background-repeat: no-repeat;
+  opacity: 0;
+  transform: scale(0.5);
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.checkbox:checked::after {
+  opacity: 1;
+  transform: scale(1);
 }
 
 .calendarName {
@@ -303,6 +311,7 @@
   color: var(--color-gray-400, #6b7280);
   cursor: pointer;
   transition: color 0.2s;
+  font-size: 1.2rem !important;
 }
 
 .actionIcon:hover {

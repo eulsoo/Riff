@@ -25,14 +25,26 @@ export interface CalendarMetadata {
 }
 
 // CalDAV 메타데이터 저장 (로컬 캘린더 제외)
+// createdFromApp 플래그는 기존 데이터에서 유지 (단, 새 데이터에 해당 캘린더가 있을 때만)
 export const saveCalendarMetadata = (metadata: CalendarMetadata[]) => {
   if (typeof window === 'undefined') return;
   try {
+    // 기존 메타데이터에서 createdFromApp 플래그 가져오기
+    const existingRaw = window.localStorage.getItem(CALENDAR_METADATA_KEY);
+    const existingMap: Record<string, CalendarMetadata> = existingRaw ? JSON.parse(existingRaw) : {};
+
     const map = metadata
       .filter(m => !m.isLocal) // 로컬 제외하고 저장
       .reduce((acc, item) => {
         const normalizedUrl = normalizeCalendarUrl(item.url)!;
-        acc[normalizedUrl] = { ...item, url: normalizedUrl };
+        // 기존에 createdFromApp: true였던 캘린더는 플래그 유지
+        const existingMeta = existingMap[normalizedUrl];
+        acc[normalizedUrl] = { 
+          ...item, 
+          url: normalizedUrl,
+          // 새 데이터에 createdFromApp이 없으면 기존 값 유지
+          createdFromApp: item.createdFromApp ?? existingMeta?.createdFromApp
+        };
         return acc;
       }, {} as Record<string, CalendarMetadata>);
     window.localStorage.setItem(CALENDAR_METADATA_KEY, JSON.stringify(map));

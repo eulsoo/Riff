@@ -138,12 +138,17 @@ export const useAppData = (
         fetchDayDefinitions(),
       ]);
       
-      // 서버 데이터와 로컬 상태 병합: 서버에 없는 로컬 이벤트 유지 (단, 삭제된 이벤트는 제외)
+      // 서버 데이터와 로컬 상태 병합
+      // - 서버에서 가져온 범위 내 이벤트: 서버 데이터 사용
+      // - 서버 범위 밖의 로컬 이벤트: 유지 (스크롤 시 사라지지 않도록)
+      // - 삭제된 이벤트: 제외
       const deletedIds = deletedEventIdsRef.current;
-      setEvents(_prev => {
-        // 서버 데이터가 최신이므로 서버 데이터만 사용 (삭제된 이벤트 제외)
-        // localOnly 로직 제거: 서버에 없으면 삭제된 것이므로 복원하지 않음
-        return eventsData.filter(e => !deletedIds.has(e.id));
+      setEvents(prev => {
+        const serverIds = new Set(eventsData.map(e => e.id));
+        // 서버 범위에 없고, 삭제되지 않은 로컬 이벤트 유지
+        const localOnly = prev.filter(e => !serverIds.has(e.id) && !deletedIds.has(e.id));
+        // 서버 데이터 + 범위 밖 로컬 이벤트 (삭제된 것 제외)
+        return [...eventsData.filter(e => !deletedIds.has(e.id)), ...localOnly];
       });
       
       // 서버에서 성공적으로 데이터를 가져왔으므로 삭제 추적 ID 클리어
