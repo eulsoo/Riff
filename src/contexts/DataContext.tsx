@@ -9,7 +9,6 @@ import {
   createRoutine, deleteRoutine as apiDeleteRoutine,
   toggleRoutineCompletion,
   createTodo, updateTodo as apiUpdateTodo, deleteTodo as apiDeleteTodo,
-  upsertDayDefinition, deleteDayDefinition as apiDeleteDayDefinition,
   fetchDiaryEntry, deleteDiaryEntry as apiDeleteDiaryEntry,
   upsertDiaryEntry
 } from '../services/api';
@@ -20,7 +19,6 @@ interface DataContextType {
   routines: Routine[];
   routineCompletions: RoutineCompletion[];
   todos: Todo[];
-  dayDefinitions: Record<string, string>;
   diaryEntries: Record<string, DiaryEntry>;
 
   // Actions - Events
@@ -35,14 +33,10 @@ interface DataContextType {
   toggleRoutine: (routineId: string, date: string) => Promise<void>;
 
   // Actions - Todos
-  addTodo: (weekStart: string, text: string) => Promise<Todo | null>;
+  addTodo: (weekStart: string, text: string, deadline?: string) => Promise<Todo | null>;
   toggleTodo: (todoId: string) => Promise<void>;
-  updateTodo: (todoId: string, text: string) => Promise<void>;
+  updateTodo: (todoId: string, text: string, deadline?: string) => Promise<void>;
   deleteTodo: (todoId: string) => Promise<boolean>;
-
-  // Actions - Day Definitions
-  saveDayDefinition: (date: string, text: string) => Promise<void>;
-  deleteDayDefinition: (date: string) => Promise<void>;
 
   // Actions - Diary
   fetchDiary: (date: string) => Promise<DiaryEntry | null>; // Just fetch, state update handled internally if needed
@@ -81,7 +75,6 @@ export const DataProvider = ({
     routines, setRoutines,
     routineCompletions, setRoutineCompletions,
     todos, setTodos,
-    dayDefinitions, setDayDefinitions,
     diaryEntries, setDiaryEntries,
     loadData,
     markEventAsDeleted,
@@ -197,16 +190,46 @@ export const DataProvider = ({
   }, [setRoutineCompletions]);
 
   // --- Todos ---
-  const addTodo = useCallback(async (weekStart: string, text: string) => {
-    const newTodo = await createTodo({
+  const addTodo = useCallback(async (weekStart: string, text: string, deadline?: string) => {
+    // 1. Optimistic Updates: Add temp todo immediately
+    const tempId = `temp-${Date.now()}`;
+    const tempTodo: Todo = {
+      id: tempId,
       weekStart,
       text,
       completed: false,
-    });
-    if (newTodo) {
-      setTodos(prev => [...prev, newTodo]);
+      deadline
+    };
+
+    setTodos(prev => [...prev, tempTodo]);
+
+    try {
+      // 2. Server Request
+      const newTodo = await createTodo({
+        weekStart,
+        text,
+        completed: false,
+        deadline
+      });
+
+      // 3. Reconcile
+      if (newTodo) {
+        const todoWithFlag = { ...newTodo, isNew: true };
+        setTodos(prev => prev.map(t => t.id === tempId ? todoWithFlag : t));
+        return newTodo;
+      } else {
+        // Failed: DONT Remove temp immediately. 
+        // If it was a false negative (saved but returned null), we wait for loadData to fetch it.
+        // If it was a real failure, it will stay as temp (better than disappearing).
+        console.warn("Create todo failed (null), preserving temp item");
+        // setTodos(prev => prev.filter(t => t.id !== tempId));
+        return null;
+      }
+    } catch (e) {
+      console.error("Add Todo Exception", e);
+      // setTodos(prev => prev.filter(t => t.id !== tempId));
+      return null;
     }
-    return newTodo;
   }, [setTodos]);
 
   const toggleTodo = useCallback(async (todoId: string) => {
@@ -219,8 +242,12 @@ export const DataProvider = ({
     });
   }, [setTodos]);
 
-  const updateTodo = useCallback(async (todoId: string, text: string) => {
-    const updated = await apiUpdateTodo(todoId, { text });
+  const updateTodo = useCallback(async (todoId: string, text: string, deadline?: string) => {
+    // If deadline is explicitly passed (including null if we supported it, but here optional), update it
+    const updates: any = { text };
+    if (deadline !== undefined) updates.deadline = deadline;
+
+    const updated = await apiUpdateTodo(todoId, updates);
     if (updated) {
       setTodos(prev => prev.map(t => t.id === todoId ? updated : t));
     }
@@ -234,24 +261,7 @@ export const DataProvider = ({
     return success;
   }, [setTodos]);
 
-  // --- Day Definitions ---
-  const saveDayDefinition = useCallback(async (date: string, text: string) => {
-    const saved = await upsertDayDefinition(date, text);
-    if (saved) {
-      setDayDefinitions(prev => ({ ...prev, [date]: text }));
-    }
-  }, [setDayDefinitions]);
 
-  const deleteDayDefinition = useCallback(async (date: string) => {
-    const success = await apiDeleteDayDefinition(date);
-    if (success) {
-      setDayDefinitions(prev => {
-        const next = { ...prev };
-        delete next[date];
-        return next;
-      });
-    }
-  }, [setDayDefinitions]);
 
   // --- Diary ---
   const fetchDiary = useCallback(async (date: string) => {
@@ -323,11 +333,10 @@ export const DataProvider = ({
 
 
   const value = {
-    events, routines, routineCompletions, todos, dayDefinitions, diaryEntries,
+    events, routines, routineCompletions, todos, diaryEntries,
     addEvent, deleteEvent, updateEvent, deleteEvents,
     addRoutine, deleteRoutine, toggleRoutine,
     addTodo, toggleTodo, updateTodo, deleteTodo,
-    saveDayDefinition, deleteDayDefinition,
     fetchDiary, saveDiary, deleteDiary,
     loadData
   };

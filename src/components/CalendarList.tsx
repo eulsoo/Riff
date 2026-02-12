@@ -10,7 +10,6 @@ interface CalendarListProps {
   todosByWeek: Record<string, Todo[]>;
   routines: Routine[];
   routineCompletions: RoutineCompletion[];
-  dayDefinitions: Record<string, string>;
   weekOrder: WeekOrder;
   diaryCompletionMap: Record<string, boolean>;
   showRoutines: boolean;
@@ -31,7 +30,6 @@ export const CalendarList = memo(({
   todosByWeek,
   routines,
   routineCompletions,
-  dayDefinitions,
   weekOrder,
   diaryCompletionMap,
   showRoutines,
@@ -50,8 +48,6 @@ export const CalendarList = memo(({
     toggleTodo,
     updateTodo,
     deleteTodo,
-    saveDayDefinition,
-    deleteDayDefinition,
   } = useData();
 
   return (
@@ -66,7 +62,6 @@ export const CalendarList = memo(({
             routines={routines}
             routineCompletions={routineCompletions}
             todos={todosByWeek[todoWeekStartStr] || EMPTY_LIST}
-            dayDefinitions={dayDefinitions}
 
             weekOrder={weekOrder}
             onDateClick={onDateClick}
@@ -78,8 +73,6 @@ export const CalendarList = memo(({
             onToggleTodo={toggleTodo}
             onUpdateTodo={updateTodo}
             onDeleteTodo={deleteTodo}
-            onSaveDayDefinition={saveDayDefinition}
-            onDeleteDayDefinition={deleteDayDefinition}
 
             onOpenDiary={onOpenDiary}
             diaryCompletions={diaryCompletionMap}

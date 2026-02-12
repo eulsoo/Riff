@@ -1,9 +1,8 @@
 .todoList {
-  border-top: 1px solid #e5e7eb;
-  /* background-color: rgba(249, 250, 251, 0.5); */
-  padding: 1rem 1.5rem;
+  /* border-top: 1px solid #e5e7eb; */
+  padding: 0 1.5rem;
   display: flex;
-  align-items: center;
+  align-items: flex-start;
 }
 
 .todoListHeader {
@@ -37,6 +36,7 @@
   position: relative;
 }
 
+/* Edit Mode Styles */
 .todoItemEditing {
   display: flex;
   align-items: center;
@@ -45,31 +45,103 @@
   border: 1px solid #3b82f6;
   border-radius: 1rem;
   padding: 0.3rem 0.75rem;
-  box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
+  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+  position: relative; /* For DatePicker positioning */
+  z-index: 10;
 }
 
+/* .newItemConfig removed */
+
+.todoInput {
+  font-size: 0.75rem;
+  outline: none;
+  min-width: 8rem; /* Slightly wider for editing */
+  border: none;
+  background: transparent;
+  color: #111827;
+}
+
+.editActions {
+  display: flex;
+  align-items: center;
+  gap: 0.2rem;
+  border-left: 1px solid #e5e7eb;
+  padding-left: 0.5rem;
+}
+
+.todoInputButton {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.2rem;
+  border: none;
+  background: transparent;
+  border-radius: 0.25rem;
+  cursor: pointer;
+  color: #6b7280;
+  transition: all 0.2s;
+}
+
+.todoInputButton:hover {
+  background-color: #f3f4f6;
+  color: #111827;
+}
+
+.todoInputButton.active,
+.active {
+  color: #3b82f6;
+  background-color: #eff6ff;
+}
+
+.todoInputIcon {
+  font-size: 1.1rem;
+}
+
+.todoInputIconCheck {
+  color: #16a34a; /* Green */
+}
+
+.todoInputIconDelete {
+  color: #ef4444; /* Red */
+}
+
+/* Date Picker Container */
+.datePickerContainer {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  margin-top: 0.5rem;
+  z-index: 50; /* Higher than item */
+}
+
+
+/* Display Mode Styles */
 .todoItemDisplay {
   display: flex;
   align-items: center;
   gap: 0.5rem;
   background-color: rgba(241, 241, 241, 0.8);
-  /* border: 1px solid #d1d5db; */
   border-radius: 2rem;
-  padding: 0.3rem 0.5rem;
-  transition: all 0.2s ease-in-out;
+  padding: 0.3rem 0.4rem;
+  min-height: 1.6rem;
+  cursor: pointer; /* Click to edit */
+}
+
+.todoItemDisplay:hover {
+  background-color: rgba(229, 231, 235, 0.8);
 }
 
 .todoItemDisplayCompleted {
-  border-color: #d1d5db;
   background-color: #f3f4f6;
+  border: 1px solid transparent;
 }
 
 .todoItemDisplayIncomplete {
-  border-color: #d1d5db;
+  border: 1px solid transparent;
 }
 
-.todoItemDisplayIncomplete:hover {
-  border-color: #9ca3af;
+.todoItemNoDDay {
+  padding-right: 0.8rem; /* D-Day가 없을 때 오른쪽 여백 조절 */
 }
 
 .todoCheckbox {
@@ -78,7 +150,6 @@
   height: 1.1rem;
   border: none;
   border-radius: 9999px;
-  /* transition: all 0.2s ease-in-out; */
   background: none;
   padding: 0;
   cursor: pointer;
@@ -88,8 +159,8 @@
 }
 
 .todoCheckboxCompleted {
-  color: #2563eb;
-  transform: scale(1.8) translate(3px, -5px);
+  color: #686868;
+  transform: scale(1.3) translate(3px, -1px);
 }
 
 .todoCheckboxIncomplete {
@@ -100,11 +171,9 @@
   color: #3b82f6;
 }
 
-.todoItemDisplay .todoCheckboxIcon {
+.todoCheckboxIcon {
   width: 1.5rem;
   height: 1.5rem;
-  /* font-size and variation settings removed for SVG */
-
 }
 
 .todoCheckboxEmpty {
@@ -112,111 +181,77 @@
   height: 1.1rem;
   border-radius: 9999px;
   background: #ffffff;
-  /* border: 1px solid #d1d5db; */
 }
 
 .todoText {
-  font-size: 0.875rem;
+  font-size: 0.75rem;
+  user-select: none;
 }
 
 .todoTextCompleted {
   text-decoration: line-through;
-  color: #6b7280;
+  color: #9ca3af;
 }
 
 .todoTextIncomplete {
   color: #111827;
 }
 
-.todoActions {
-  display: flex;
-  align-items: center;
-  gap: 0.25rem;
-  opacity: 0;
-  /* margin-left: 0.25rem; */
-  transition: opacity 0.2s ease-in-out;
+/* D-Day Badge */
+.dDayBadge {
+  font-size: 0.65rem;
+  font-weight: 600;
+  padding: 0.1rem 0.4rem;
+  border-radius: 9999px;
+  margin-left: 0.1rem;
+  white-space: nowrap;
 }
 
-.todoItem:hover .todoActions {
-  opacity: 1;
-}
-
-.todoActionButton {
-  padding: 0;
-  border: none;
-  background: none;
-  border-radius: 0.25rem;
-  transition: background-color 0.2s ease-in-out;
-  cursor: pointer;
-}
-
-.todoActionButtonDelete:hover {
-  background-color: transparent;
-}
-
-.todoItem .todoActionIcon {
-  /* width: 0.75rem;
-  height: 0.75rem; */
-  font-size: 1rem;
-  vertical-align: -2px;
-}
-
-.todoActionIconDelete {
-  color: #6b7280;
-}
-
-.todoInput {
-  font-size: 0.875rem;
-  outline: none;
-  width: 7rem;
-  border: none;
-  background: transparent;
-}
-
-.todoInputButton {
-  /* padding: 0.25rem; */
-  border: none;
-  background: none;
-  border-radius: 0.25rem;
-  transition: background-color 0.2s ease-in-out;
-  cursor: pointer;
-}
-
-.todoInputButton:hover {
-  background-color: #f3f4f6;
-}
-
-.todoItem .todoInputIcon {
-  /* width: 1.3rem; */
-  /* height: 1.3rem; */
-  font-size: 1.2rem;
-  vertical-align: middle;
-}
-
-.todoInputIconCheck {
-  color: #16a34a;
-}
-
-.todoInputIconCancel {
+.dDayBadgeOverdue {
+  background-color: #fee2e2;
   color: #ef4444;
 }
 
+.dDayBadgeUpcoming {
+  background-color: #dcfce7;
+  color: #16a34a;
+}
+
+.dDayBadgeCompleted {
+  background-color: #e5e7eb;
+  color: #9ca3af;
+}
+
+.dDayBadgeInline {
+  font-size: 0.65rem;
+  font-weight: 600;
+  padding: 0.1rem 0.35rem;
+  border-radius: 9999px;
+  white-space: nowrap;
+  cursor: pointer;
+  border: none;
+}
+
+.dDayBadgeDefault {
+  background-color: #f3f4f6;
+  color: #9ca3af;
+}
+
+/* Add Button */
 .todoAddButton {
   display: flex;
   align-items: center;
   justify-content: center;
-  background-color: white;
+  background-color: transparent;
   border: none;
   border-radius: 0.5rem;
   transition: all 0.2s ease-in-out;
   cursor: pointer;
   padding: 0;
-  
 }
 
 .todoAddButton:hover {
-  border-color: transparent;
-  background-color: transparent;
+  transform: scale(1.1);
 }
 
 .todoAddButton .todoAddIcon {

@@ -1,4 +1,4 @@
-import { KeyboardEvent, useEffect, useRef, useState, memo } from 'react';
+import { memo } from 'react';
 import { EventItem } from './EventItem';
 import { Event, Routine, RoutineCompletion, Todo, WeekOrder } from '../types';
 import { RoutineIcon } from './RoutineIcon';
@@ -14,18 +14,15 @@ interface WeekCardProps {
   routines: Routine[];
   routineCompletions: RoutineCompletion[];
   todos: Todo[];
-  dayDefinitions: Record<string, string>;
   weekOrder: WeekOrder;
   onDateClick: (date: string, anchorEl?: HTMLElement, timeSlot?: 'am' | 'pm') => void;
   onEventDoubleClick: (event: Event, anchorEl?: HTMLElement) => void;
   onDeleteEvent: (eventId: string) => void;
   onToggleRoutine: (routineId: string, date: string) => void;
-  onAddTodo: (weekStart: string, text: string) => void;
+  onAddTodo: (weekStart: string, text: string, deadline?: string) => void;
   onToggleTodo: (todoId: string) => void;
-  onUpdateTodo: (todoId: string, text: string) => void;
+  onUpdateTodo: (todoId: string, text: string, deadline?: string) => void;
   onDeleteTodo: (todoId: string) => void;
-  onSaveDayDefinition: (date: string, text: string) => void;
-  onDeleteDayDefinition: (date: string) => void;
   onOpenDiary: (date: string) => void;
   diaryCompletions: Record<string, boolean>;
   weekStatus: 'current' | 'prev' | 'next' | 'other';
@@ -48,7 +45,6 @@ export const WeekCard = memo(function WeekCard({
   routines,
   routineCompletions,
   todos,
-  dayDefinitions,
   weekOrder,
   onDateClick,
   onEventDoubleClick,
@@ -58,8 +54,6 @@ export const WeekCard = memo(function WeekCard({
   onToggleTodo,
   onUpdateTodo,
   onDeleteTodo,
-  onSaveDayDefinition,
-  onDeleteDayDefinition,
   onOpenDiary,
   diaryCompletions,
   weekStatus,
@@ -68,23 +62,6 @@ export const WeekCard = memo(function WeekCard({
 }: WeekCardProps) {
   const { setHoveredDate } = useHover();
   // Performance Monitoring
-
-  const [draftDefinitions, setDraftDefinitions] = useState<Record<string, string>>({});
-  const [activeDefinitionDate, setActiveDefinitionDate] = useState<string | null>(null);
-  const dayDefinitionInputRefs = useRef<Record<string, HTMLInputElement | null>>({});
-
-  useEffect(() => {
-    setDraftDefinitions(dayDefinitions);
-  }, [dayDefinitions]);
-
-  useEffect(() => {
-    if (!activeDefinitionDate) return;
-    const target = dayDefinitionInputRefs.current[activeDefinitionDate];
-    if (target) {
-      target.focus();
-      target.select();
-    }
-  }, [activeDefinitionDate]);
 
   const days = Array.from({ length: 7 }, (_, i) => {
     const date = new Date(weekStart);
@@ -184,53 +161,24 @@ export const WeekCard = memo(function WeekCard({
 
 
 
-  const getWeekCardClassName = () => {
+  const getWeekGridClassName = () => {
     if (weekStatus === 'current') {
-      return `${styles.weekCard} ${styles.weekCardCurrent}`;
+      return `${styles.weekGrid} ${styles.weekGridCurrent}`;
     } else if (weekStatus === 'prev' || weekStatus === 'next') {
-      return `${styles.weekCard} ${styles.weekCardPrevNext}`;
+      return `${styles.weekGrid} ${styles.weekGridPrevNext}`;
     }
-    return `${styles.weekCard} ${styles.weekCardOther}`;
-  };
-
-  const handleDefinitionSave = (dateKey: string) => {
-    const value = (draftDefinitions[dateKey] ?? '').trim();
-    setDraftDefinitions(prev => ({ ...prev, [dateKey]: value }));
-    onSaveDayDefinition(dateKey, value);
-    setActiveDefinitionDate(null);
-  };
-
-  const handleDefinitionDelete = (dateKey: string) => {
-    onDeleteDayDefinition(dateKey);
-    setDraftDefinitions(prev => {
-      const next = { ...prev };
-      delete next[dateKey];
-      return next;
-    });
-    setActiveDefinitionDate(null);
-  };
-
-  const handleDefinitionKeyDown = (event: KeyboardEvent<HTMLInputElement>, dateKey: string) => {
-    if (event.key === 'Enter') {
-      event.preventDefault();
-      handleDefinitionSave(dateKey);
-    }
-    if (event.key === 'Escape') {
-      setActiveDefinitionDate(null);
-    }
-  };
-
-  const handleDefinitionClick = (dateKey: string) => {
-    setActiveDefinitionDate(dateKey);
+    return `${styles.weekGrid} ${styles.weekGridOther}`;
   };
 
   // 주간 고유 ID 생성 (스크롤 복원용)
   const weekId = `${weekStart.getFullYear()}-${String(weekStart.getMonth() + 1).padStart(2, '0')}-${String(weekStart.getDate()).padStart(2, '0')}`;
 
+  const { label: weekLabel } = getWeekLabelInfo();
+
   return (
-    <div className={getWeekCardClassName()} data-week-id={weekId}>
+    <div className={styles.weekCard} data-week-id={weekId}>
       {/* 7일 그리드 */}
-      <div className={styles.weekGrid}>
+      <div className={getWeekGridClassName()}>
 
         {/* 1. Header Row (Row 1) */}
         {days.map((date, index) => {
@@ -244,9 +192,6 @@ export const WeekCard = memo(function WeekCard({
             : ['월', '화', '수', '목', '금', '토', '일'];
           const isWeekend = weekOrder === 'sun' ? (index === 0 || index === 6) : (index === 5 || index === 6);
 
-          const dayDefinition = (draftDefinitions[dateStr] ?? dayDefinitions[dateStr] ?? '').trim();
-          const isDefinitionHidden = !dayDefinition && activeDefinitionDate !== dateStr;
-
           return (
             <div
               key={`header-${dateStr}`}
@@ -254,49 +199,13 @@ export const WeekCard = memo(function WeekCard({
               onMouseEnter={() => setHoveredDate(dateStr)}
               onMouseLeave={() => setHoveredDate(null)}
             >
-              <div
-                className={`${styles.dayDefinition} ${activeDefinitionDate === dateStr ? styles.dayDefinitionActive : ''
-                  } ${isDefinitionHidden ? styles.dayDefinitionHidden : ''} ${dayDefinition ? styles.dayDefinitionFilled : ''
-                  }`}
-                onClick={() => handleDefinitionClick(dateStr)}
-                title={dayDefinition || undefined}
-              >
-                {activeDefinitionDate === dateStr ? (
-                  <input
-                    ref={(el) => {
-                      dayDefinitionInputRefs.current[dateStr] = el;
-                    }}
-                    className={styles.dayDefinitionInput}
-                    value={draftDefinitions[dateStr] ?? ''}
-                    onChange={(e) => setDraftDefinitions(prev => ({ ...prev, [dateStr]: e.target.value }))}
-                    placeholder="하루 정의 입력"
-                    onBlur={() => handleDefinitionSave(dateStr)}
-                    onKeyDown={(event) => handleDefinitionKeyDown(event, dateStr)}
-                  />
-                ) : (
-                  <>
-                    <span
-                      className={`${styles.dayDefinitionText} ${dayDefinition ? '' : styles.dayDefinitionPlaceholder
-                        }`}
-                    >
-                      {dayDefinition || '하루 정의 추가'}
-                    </span>
-                    {dayDefinition && (
-                      <button
-                        className={styles.dayDefinitionDelete}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          handleDefinitionDelete(dateStr);
-                        }}
-                        aria-label="하루 정의 삭제"
-                        title="삭제"
-                      >
-                        <span className={`material-symbols-rounded ${styles.dayDefinitionDeleteIcon}`}>delete</span>
-                      </button>
-                    )}
-                  </>
-                )}
-              </div>
+              {index === 0 && (
+                <div className={styles.weekLabelContainer}>
+                  <span className={styles.weekLabelText}>{weekLabel}</span>
+                </div>
+              )}
+              {/* Spacer needed if not first day, or use flexbox effectively */}
+              {index !== 0 && <div style={{ flex: 1 }} />}
 
               <div className={styles.dayMeta}>
                 <span
@@ -573,20 +482,15 @@ export const WeekCard = memo(function WeekCard({
       </div>
 
       {/* 투두 리스트 */}
-      {showTodos && (() => {
-        const { label, isMultiMonth } = getWeekLabelInfo();
-        return (
-          <TodoList
-            todos={todos}
-            onAdd={(text) => onAddTodo(todoWeekStart, text)}
-            onToggle={onToggleTodo}
-            onUpdate={onUpdateTodo}
-            onDelete={onDeleteTodo}
-            weekLabel={label}
-            isMultiMonthWeek={isMultiMonth}
-          />
-        );
-      })()}
+      {showTodos && (
+        <TodoList
+          todos={todos}
+          onAdd={(text, deadline) => onAddTodo(todoWeekStart, text, deadline)}
+          onToggle={onToggleTodo}
+          onUpdate={onUpdateTodo}
+          onDelete={onDeleteTodo}
+        />
+      )}
     </div>
   );
 });

@@ -1,6 +1,6 @@
 
 import { supabase } from '../lib/supabase';
-import { DayDefinition, DiaryEntry, Event, Routine, RoutineCompletion, Todo } from '../types';
+import { DiaryEntry, Event, Routine, RoutineCompletion, Todo } from '../types';
 
 // 캘린더 URL 정규화: 끝의 슬래시 제거
 export const normalizeCalendarUrl = (url?: string | null) =>
@@ -817,10 +817,15 @@ export const fetchTodos = async () => {
 export const createTodo = async (todo: Omit<Todo, 'id'>) => {
   const { weekStart, ...rest } = todo as any; 
   // Map weekStart -> week_start
-  const payload = {
+  const payload: any = {
     ...rest,
     week_start: todo.weekStart
   };
+
+  // Remove undefined deadline
+  if (payload.deadline === undefined) {
+    delete payload.deadline;
+  }
 
   const { data, error } = await supabase
     .from('todos')
@@ -829,6 +834,18 @@ export const createTodo = async (todo: Omit<Todo, 'id'>) => {
     .single();
 
   if (error) {
+    // Retry without deadline if column doesn't exist yet
+    if (error.code === 'PGRST204' || error.message?.includes('deadline')) {
+      console.warn('deadline column not found, retrying without it');
+      delete payload.deadline;
+      const { data: d2, error: e2 } = await supabase
+        .from('todos')
+        .insert([payload])
+        .select()
+        .single();
+      if (e2) { console.error('Error creating todo (retry):', e2); return null; }
+      return { ...d2, weekStart: d2.week_start };
+    }
     console.error('Error creating todo:', error);
     return null;
   }
@@ -841,6 +858,12 @@ export const updateTodo = async (id: string, updates: Partial<Todo>) => {
     payload.week_start = updates.weekStart;
     delete payload.weekStart;
   }
+  
+  if (payload.deadline === undefined) {
+    delete payload.deadline;
+  }
+  // Remove isNew flag — it's a client-only field
+  delete payload.isNew;
 
   const { data, error } = await supabase
     .from('todos')
@@ -850,6 +873,19 @@ export const updateTodo = async (id: string, updates: Partial<Todo>) => {
     .single();
 
   if (error) {
+    // Retry without deadline if column doesn't exist yet
+    if (error.code === 'PGRST204' || error.message?.includes('deadline')) {
+      console.warn('deadline column not found, retrying without it');
+      delete payload.deadline;
+      const { data: d2, error: e2 } = await supabase
+        .from('todos')
+        .update(payload)
+        .eq('id', id)
+        .select()
+        .single();
+      if (e2) { console.error('Error updating todo (retry):', e2); return null; }
+      return { ...d2, weekStart: d2.week_start };
+    }
     console.error('Error updating todo:', error);
     return null;
   }
@@ -949,59 +985,7 @@ export const deleteDiaryEntry = async (date: string): Promise<boolean> => {
   return true;
 };
 
-// Day Definitions
-export const fetchDayDefinitions = async (): Promise<DayDefinition[]> => {
-  const { data, error } = await supabase
-    .from('day_definitions')
-    .select('*')
-    .order('date', { ascending: true });
 
-  if (error) {
-    console.error('Error fetching day definitions:', error);
-    return [];
-  }
-
-  return (data || []).map((item: any) => ({
-    id: item.id,
-    date: item.date,
-    text: item.text || '',
-  }));
-};
-
-export const upsertDayDefinition = async (date: string, text: string): Promise<DayDefinition | null> => {
-  const { data, error } = await supabase
-    .from('day_definitions')
-    .upsert(
-      { date, text },
-      { onConflict: 'date' }
-    )
-    .select()
-    .single();
-
-  if (error) {
-    console.error('Error saving day definition:', error);
-    return null;
-  }
-
-  return {
-    id: data.id,
-    date: data.date,
-    text: data.text || '',
-  };
-};
-
-export const deleteDayDefinition = async (date: string): Promise<boolean> => {
-  const { error } = await supabase
-    .from('day_definitions')
-    .delete()
-    .eq('date', date);
-
-  if (error) {
-    console.error('Error deleting day definition:', error);
-    return false;
-  }
-  return true;
-};
 
 // CalDAV Sync Settings
 export interface CalDAVSyncSettings {

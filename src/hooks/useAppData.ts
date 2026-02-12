@@ -2,11 +2,11 @@
 import { useState, useRef, useCallback } from 'react';
 import { Session } from '@supabase/supabase-js';
 import {
-  Event, Routine, RoutineCompletion, Todo, DiaryEntry, DayDefinition
+  Event, Routine, RoutineCompletion, Todo, DiaryEntry
 } from '../types';
 import {
   fetchEvents, fetchRoutines, fetchRoutineCompletions,
-  fetchTodos, fetchDayDefinitions, fetchDiaryEntriesByRange,
+  fetchTodos, 
   updateTodo
 } from '../services/api';
 import { getCacheKey, readCache, writeCache } from '../lib/cache';
@@ -27,7 +27,6 @@ export const useAppData = (
   const [routines, setRoutines] = useState<Routine[]>([]);
   const [routineCompletions, setRoutineCompletions] = useState<RoutineCompletion[]>([]);
   const [todos, setTodos] = useState<Todo[]>([]);
-  const [dayDefinitions, setDayDefinitions] = useState<Record<string, string>>({});
   const [diaryEntries, setDiaryEntries] = useState<Record<string, DiaryEntry>>({});
 
   // 삭제된 이벤트 ID 추적 (loadData 병합 시 제외하기 위함)
@@ -37,6 +36,7 @@ export const useAppData = (
   const lastLoadSessionRef = useRef<string | null>(null);
   const lastLoadAtRef = useRef<number>(0);
   const lastLoadRangeRef = useRef<{ startDate: string; endDate: string } | null>(null);
+  const hasHydratedFromCacheRef = useRef(false);
 
   const getEventRange = useCallback(() => {
     const currentWeekStart = getWeekStartForDate(new Date());
@@ -102,13 +102,13 @@ export const useAppData = (
           routines: Routine[];
           routineCompletions: RoutineCompletion[];
           todos: Todo[];
-          dayDefinitions: Record<string, string>;
         }>(cacheKey, cacheTtlMs);
 
         // Only use cache if range matches or we aren't forcing a range update? 
         // Actually, mixing cache with new fetch logic is tricky. 
         // For simplicity, we hydrate from cache but still fall through to network if range changed.
-        if (cached) {
+        if (cached && !hasHydratedFromCacheRef.current) {
+          hasHydratedFromCacheRef.current = true;
           // 캐시 복원 시에도 로컬 이벤트 유지 (단, 삭제된 이벤트는 제외)
           setEvents(prev => {
             const cachedIds = new Set((cached.events || []).map(e => e.id));
@@ -119,8 +119,15 @@ export const useAppData = (
           });
           setRoutines(cached.routines || []);
           setRoutineCompletions(cached.routineCompletions || []);
-          setTodos(cached.todos || []);
-          setDayDefinitions(cached.dayDefinitions || {});
+          setTodos(prev => {
+            const cachedTodos = cached.todos || [];
+            const cachedIds = new Set(cachedTodos.map(t => t.id));
+            // Preserve temp and isNew todos that aren't in the cache
+            const localOnly = prev.filter(t =>
+              !cachedIds.has(t.id) && (t.id.startsWith('temp-') || t.isNew)
+            );
+            return [...cachedTodos, ...localOnly];
+          });
           const endAt = typeof performance !== 'undefined' ? performance.now() : Date.now();
           console.log(`cache:core hydrate ${Math.round(endAt - startAt)} ms`);
         }
@@ -130,12 +137,11 @@ export const useAppData = (
       // Use the range we calculated earlier
       const { startDate, endDate } = currentRange;
       
-      const [eventsData, routinesData, completionsData, todosData, dayDefinitionsData] = await Promise.all([
+      const [eventsData, routinesData, completionsData, todosData] = await Promise.all([
         fetchEvents(startDate, endDate),
         fetchRoutines(),
         fetchRoutineCompletions(),
         fetchTodos(),
-        fetchDayDefinitions(),
       ]);
       
       // 서버 데이터와 로컬 상태 병합
@@ -158,13 +164,17 @@ export const useAppData = (
       setRoutineCompletions(completionsData);
       
       const rolledTodos = await rolloverTodosToCurrentWeek(todosData);
-      setTodos(rolledTodos);
-      
-      const dayDefinitionMap = (dayDefinitionsData || []).reduce((acc: Record<string, string>, item) => {
-        acc[item.date] = item.text || '';
-        return acc;
-      }, {});
-      setDayDefinitions(dayDefinitionMap);
+      setTodos(prev => {
+        // Keep optimistic updates (temp todos) AND newly created todos (isNew)
+        // that might be missing from the stale server data we just fetched
+        const tempAndNewTodos = prev.filter(t => t.id.startsWith('temp-') || t.isNew);
+        
+        // Remove duplicates: if server data actually has the todo, use server data
+        const serverIds = new Set(rolledTodos.map(t => t.id));
+        const keptTodos = tempAndNewTodos.filter(t => !serverIds.has(t.id));
+        
+        return [...rolledTodos, ...keptTodos];
+      });
       
       const networkEnd = typeof performance !== 'undefined' ? performance.now() : Date.now();
       console.log(`network:core load ${Math.round(networkEnd - networkStart)} ms`);
@@ -175,7 +185,6 @@ export const useAppData = (
           routines: routinesData,
           routineCompletions: completionsData,
           todos: rolledTodos,
-          dayDefinitions: dayDefinitionMap,
         });
       }
       lastLoadSessionRef.current = sessionId;
@@ -200,7 +209,6 @@ export const useAppData = (
     routines, setRoutines,
     routineCompletions, setRoutineCompletions,
     todos, setTodos,
-    dayDefinitions, setDayDefinitions,
     diaryEntries, setDiaryEntries,
     loadData,
     markEventAsDeleted,

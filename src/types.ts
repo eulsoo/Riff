@@ -35,6 +35,8 @@ export interface Todo {
   weekStart: string; // 주의 시작 날짜
   text: string;
   completed: boolean;
+  deadline?: string;
+  isNew?: boolean;
 }
 
 export interface DiaryEntry {
@@ -44,10 +46,6 @@ export interface DiaryEntry {
   updatedAt?: string;
 }
 
-export interface DayDefinition {
-  id: string;
-  date: string;
-  text: string;
-}
+
 
 export type WeekOrder = 'mon' | 'sun';
