@@ -33,7 +33,7 @@ interface WeekCardProps {
 const DIARY_ROUTINE: Routine = {
   id: 'diary',
   name: '일기쓰기',
-  icon: 'edit_note',
+  icon: 'note_alt',
   color: '#8b5cf6',
   days: [],
 };

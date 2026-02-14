@@ -31,7 +31,17 @@ export default function App() {
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange((_event, session) => {
-      setSession(session);
+      // Only update session if we actually have a new session.
+      // Avoid setting null on TOKEN_REFRESHED failures to prevent
+      // unmounting the entire app tree and losing unsaved work.
+      if (session) {
+        setSession(session);
+      } else if (_event === 'SIGNED_OUT') {
+        // Only clear session on explicit sign-out
+        setSession(null);
+      }
+      // For other events with null session (e.g., failed refresh),
+      // keep the existing session to preserve UI state.
     });
 
     return () => subscription.unsubscribe();

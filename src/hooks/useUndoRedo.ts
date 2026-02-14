@@ -1,64 +1,93 @@
 import { useState, useCallback, useEffect, useRef } from 'react';
-import { Event } from '../types';
+import { Event, Routine, Todo } from '../types';
 
-export type ActionType = 'CREATE' | 'UPDATE' | 'DELETE';
+export type ActionType = 'CREATE' | 'UPDATE' | 'DELETE' | 'TOGGLE';
+export type ActionCategory = 'event' | 'routine' | 'todo';
 
 export interface HistoryAction {
+  category: ActionCategory;
   type: ActionType;
-  event: Event; // For CREATE/UPDATE: the new state. For DELETE: the deleted event.
-  prevEvent?: Event; // For UPDATE: the previous state.
+
+  // Event data
+  event?: Event;
+  prevEvent?: Event;
+
+  // Routine data
+  routine?: Routine;
+  prevRoutine?: Routine;
+
+  // Todo data
+  todo?: Todo;
+  prevTodo?: Todo;
+
+  description?: string;
 }
+
+type CategoryHandler = {
+  onUndo: (action: HistoryAction) => Promise<void>;
+  onRedo: (action: HistoryAction) => Promise<void>;
+};
+
+const MAX_STACK_SIZE = 50;
 
 export const useUndoRedo = () => {
   const [undoStack, setUndoStack] = useState<HistoryAction[]>([]);
   const [redoStack, setRedoStack] = useState<HistoryAction[]>([]);
 
-  // Refs for handlers to avoid circular dependencies
-  const handlersRef = useRef<{
-    onUndo: (action: HistoryAction) => Promise<void>;
-    onRedo: (action: HistoryAction) => Promise<void>;
-  }>({ onUndo: async () => {}, onRedo: async () => {} });
+  // Per-category handlers to avoid overwrite issues
+  const handlersRef = useRef<Record<string, CategoryHandler>>({});
 
-  const registerHandlers = useCallback((
+  const registerCategoryHandlers = useCallback((
+    category: ActionCategory,
     onUndo: (action: HistoryAction) => Promise<void>,
     onRedo: (action: HistoryAction) => Promise<void>
   ) => {
-    handlersRef.current = { onUndo, onRedo };
+    handlersRef.current[category] = { onUndo, onRedo };
   }, []);
 
   const recordAction = useCallback((action: HistoryAction) => {
-    setUndoStack(prev => [...prev, action]);
+    setUndoStack(prev => [...prev.slice(-(MAX_STACK_SIZE - 1)), action]);
     setRedoStack([]);
-    console.log(`Action recorded: ${action.type}`, action.event.id);
+    console.log(`[UndoRedo] Recorded: ${action.category}/${action.type}`, action.description ?? '');
   }, []);
 
   const handleUndo = useCallback(async () => {
     if (undoStack.length === 0) return;
     const action = undoStack[undoStack.length - 1];
+    const handler = handlersRef.current[action.category];
+
+    if (!handler) {
+      console.warn(`[UndoRedo] No handler registered for category: ${action.category}`);
+      return;
+    }
 
     try {
-      console.log('Undoing action:', action.type);
-      await handlersRef.current.onUndo(action);
-      
+      console.log('[UndoRedo] Undo:', action.category, action.type);
+      await handler.onUndo(action);
       setUndoStack(prev => prev.slice(0, prev.length - 1));
-      setRedoStack(prev => [...prev, action]);
+      setRedoStack(prev => [...prev.slice(-(MAX_STACK_SIZE - 1)), action]);
     } catch (e) {
-      console.error('Undo execution failed:', e);
+      console.error('[UndoRedo] Undo failed:', e);
     }
   }, [undoStack]);
 
   const handleRedo = useCallback(async () => {
     if (redoStack.length === 0) return;
     const action = redoStack[redoStack.length - 1];
+    const handler = handlersRef.current[action.category];
+
+    if (!handler) {
+      console.warn(`[UndoRedo] No handler registered for category: ${action.category}`);
+      return;
+    }
 
     try {
-      console.log('Redoing action:', action.type);
-      await handlersRef.current.onRedo(action);
-
+      console.log('[UndoRedo] Redo:', action.category, action.type);
+      await handler.onRedo(action);
       setRedoStack(prev => prev.slice(0, prev.length - 1));
-      setUndoStack(prev => [...prev, action]);
+      setUndoStack(prev => [...prev.slice(-(MAX_STACK_SIZE - 1)), action]);
     } catch (e) {
-      console.error('Redo execution failed:', e);
+      console.error('[UndoRedo] Redo failed:', e);
     }
   }, [redoStack]);
 
@@ -88,7 +117,7 @@ export const useUndoRedo = () => {
 
   return {
     recordAction,
-    registerHandlers,
+    registerCategoryHandlers,
     canUndo: undoStack.length > 0,
     canRedo: redoStack.length > 0,
     handleUndo,

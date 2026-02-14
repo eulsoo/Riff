@@ -41,6 +41,13 @@
 
   --color-white: #ffffff;
   --color-black: #000000;
+
+  /* === Primary Color (앱 전체 주요 액션 컬러) === */
+  --color-primary: #3b82f6;
+  --color-primary-hover: #2563eb;
+  --color-primary-light: rgba(59, 130, 246, 0.08);
+  --color-primary-border: rgba(59, 130, 246, 0.2);
+  --color-primary-shadow: rgba(59, 130, 246, 0.25);
 }
 
 html,

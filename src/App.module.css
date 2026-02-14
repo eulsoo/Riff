@@ -133,7 +133,7 @@
   width: 40px;
   height: 40px;
   border-radius: 50%;
-  border: 2px solid #0055ff;
+  border: 2px solid var(--color-primary);
   background: #f3f4f6;
   color: #374151;
   display: flex;
@@ -221,7 +221,7 @@
   border: none;
   background: transparent;
   text-align: left;
-  padding: 0.6rem 0.75rem;
+  padding: 0.5rem 0.75rem;
   border-radius: 0.4rem;
   color: #111827;
   display: flex;
@@ -233,19 +233,32 @@
 }
 
 .profileMenuItem:hover {
-  background-color: #f3f4f6;
+  background-color: transparent;
 }
 
 .profileMenuItemGroup {
   display: flex;
   align-items: center;
-  gap: 0.5rem;
-  padding: 0.2rem 0.75rem;
+  padding: 0.5rem 0.75rem;
   border-radius: 0.4rem;
+  cursor: default;
 }
 
 .profileMenuItemGroup:hover {
-  background-color: #f3f4f6;
+  background-color: transparent;
+}
+
+.profileMenuLabel {
+  flex: 1;
+  font-size: 0.9rem;
+  color: #111827;
+}
+
+.profileMenuRightControls {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-left: auto;
 }
 
 .profileMenuToggleWrapper {
@@ -306,7 +319,7 @@
 }
 
 input:checked + .toggleSlider {
-  background-color: #2196F3;
+  background-color: var(--color-primary);
 }
 
 input:checked + .toggleSlider:before {
@@ -327,7 +340,7 @@ input:checked + .toggleSlider:before {
 .appWeeksList {
   display: flex;
   flex-direction: column;
-  gap: 2.5rem;
+  gap: 1.7rem;
 }
 
 .appSentinel {

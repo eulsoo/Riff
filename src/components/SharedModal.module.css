@@ -1,0 +1,311 @@
+/* ===== Shared Modal Styles =====
+   Common styles for popup modals (Routine, CalDAV, Settings, etc.)
+   Based on the CalDAV Sync Modal design language.
+*/
+
+/* --- Overlay & Backdrop --- */
+.modalOverlay {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+}
+
+.modalBackdrop {
+  position: absolute;
+  inset: 0;
+  background-color: transparent;
+  cursor: pointer;
+}
+
+/* --- Modal Container --- */
+.modal {
+  position: relative;
+  background: rgba(255, 255, 255, 0.65);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border-radius: 16px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+  width: 100%;
+  max-width: 24rem;
+  max-height: 85vh;
+  overflow-y: auto;
+  border: 1px solid rgba(255, 255, 255, 0.5);
+}
+
+/* --- Header (Title + Back + Close) --- */
+.modalHeader {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 1rem 1.25rem 0.5rem;
+  background: rgba(255, 255, 255, 0.65);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+}
+
+.modalHeaderSpacer {
+  width: 40px;
+  display: flex;
+  align-items: center;
+}
+
+.modalHeaderSpacerEnd {
+  width: 40px;
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+}
+
+.modalTitle {
+  flex: 1;
+  text-align: center;
+  font-size: 1rem;
+  font-weight: 600;
+  color: #111827;
+}
+
+/* --- Back Button --- */
+.backButton {
+  padding: 0;
+  background: transparent;
+  border: none;
+  border-radius: 0.5rem;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #6b7280;
+  width: 2rem;
+  height: 2rem;
+  transition: all 0.2s;
+}
+
+.backButton:hover {
+  color: #374151;
+}
+
+.backIcon {
+  font-size: 1.4rem;
+  line-height: 1;
+}
+
+/* --- Close Button --- */
+.modalCloseButton {
+  padding: 0;
+  border: none;
+  background: none;
+  border-radius: 0.5rem;
+  transition: background-color 0.2s ease-in-out;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.modalCloseButton:hover {
+  background-color: rgba(0, 0, 0, 0.05);
+}
+
+.modalCloseIcon {
+  font-size: 1.5rem;
+  line-height: 1;
+  color: #9ca3af;
+}
+
+/* --- Content Area --- */
+.modalContent {
+  padding: 0.75rem 1.25rem 1.25rem;
+}
+
+/* --- Section --- */
+.section {
+  margin-bottom: 1.5rem;
+}
+
+.section:last-child {
+  margin-bottom: 0;
+}
+
+/* --- Section Title (Subtitle) --- */
+.sectionTitle {
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: #9ca3af;
+  margin-bottom: 0.6rem;
+  letter-spacing: 0.02em;
+}
+
+/* --- Form Elements --- */
+.formGroup {
+  margin-bottom: 1rem;
+}
+
+.formLabel {
+  display: block;
+  font-size: 0.8rem;
+  font-weight: 500;
+  color: #6b7280;
+  margin-bottom: 0.4rem;
+}
+
+.formInput {
+  width: 100%;
+  padding: 0.6rem 0.85rem;
+  background-color: rgba(255, 255, 255, 0.8);
+  border: 1px solid #e5e7eb;
+  border-radius: 0.5rem;
+  font-size: 0.85rem;
+  outline: none;
+  transition: all 0.2s ease-in-out;
+  color: #111827;
+}
+
+.formInput:focus {
+  border-color: #3b82f6;
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+}
+
+.formInput:disabled {
+  background-color: #f3f4f6;
+  cursor: not-allowed;
+}
+
+/* --- Primary Action Button --- */
+.primaryButton {
+  width: 100%;
+  padding: 0.7rem 1rem;
+  background-color: var(--color-primary);
+  color: white;
+  border: none;
+  border-radius: 0.5rem;
+  font-size: 0.875rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background-color 0.2s ease-in-out;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
+}
+
+.primaryButton:hover:not(:disabled) {
+  background-color: var(--color-primary-hover);
+}
+
+.primaryButton:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* --- Accent Button (Now using Primary Color) --- */
+.accentButton {
+  width: 100%;
+  padding: 0.7rem 1rem;
+  background-color: var(--color-primary);
+  color: white;
+  border: none;
+  border-radius: 0.5rem;
+  font-size: 0.875rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background-color 0.2s ease-in-out;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
+}
+
+.accentButton:hover:not(:disabled) {
+  background-color: var(--color-primary-hover);
+}
+
+.accentButton:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* --- Danger Button --- */
+.dangerButton {
+  width: 100%;
+  padding: 0.7rem 1rem;
+  background-color: transparent;
+  color: #dc2626;
+  border: 1px solid #fee2e2;
+  border-radius: 0.5rem;
+  font-size: 0.875rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s ease-in-out;
+  margin-top: 0.75rem;
+}
+
+.dangerButton:hover:not(:disabled) {
+  background-color: #fef2f2;
+  border-color: #fecaca;
+}
+
+.dangerButton:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* --- Error Message --- */
+.errorMessage {
+  padding: 0.6rem 0.85rem;
+  background-color: #fee2e2;
+  color: #dc2626;
+  border-radius: 0.5rem;
+  font-size: 0.8rem;
+  margin-top: 0.75rem;
+}
+
+/* --- Help Text --- */
+.helpText {
+  font-size: 0.7rem;
+  color: #9ca3af;
+  margin-top: 0.25rem;
+}
+
+/* --- Spinner --- */
+.spinner {
+  width: 16px;
+  height: 16px;
+  border: 2px solid white;
+  border-top-color: transparent;
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+
+/* --- List Item (generic) --- */
+.listItem {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.6rem 0.75rem;
+  border-radius: 0.5rem;
+  transition: background-color 0.15s ease;
+}
+
+.listItem:hover {
+  background-color: rgba(0, 0, 0, 0.03);
+}
+
+/* --- Empty State --- */
+.emptyState {
+  font-size: 0.8rem;
+  color: #9ca3af;
+  padding: 1.5rem 0;
+  text-align: center;
+}

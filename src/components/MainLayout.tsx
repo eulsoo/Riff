@@ -13,13 +13,14 @@ import { WeekOrder, Event, DiaryEntry, Todo } from '../types';
 import { normalizeCalendarUrl, CalendarMetadata, upsertDiaryEntry, getUserAvatar, getCalDAVSyncSettings } from '../services/api';
 import { createCalDavEvent, updateCalDavEvent, deleteCalDavEvent, syncSelectedCalendars, CalDAVConfig, createRemoteCalendar, deleteRemoteCalendar, getCalendars } from '../services/caldav';
 import { getWeekStartForDate, getTodoWeekStart, formatLocalDate } from '../utils/dateUtils';
-import { useUndoRedo, HistoryAction } from '../hooks/useUndoRedo';
+import { HistoryAction } from '../hooks/useUndoRedo';
 import { ModalPosition } from './EventModal';
 import { ConfirmDialog } from './ConfirmDialog';
 import styles from '../App.module.css';
 
 const AppModals = lazy(() => import('./AppModals').then(module => ({ default: module.AppModals })));
 const DiaryModal = lazy(() => import('./DiaryModal').then(module => ({ default: module.DiaryModal })));
+const TimeSettingsModal = lazy(() => import('./TimeSettingsModal').then(module => ({ default: module.TimeSettingsModal })));
 
 interface MainLayoutProps {
   session: Session;
@@ -44,9 +45,9 @@ export const MainLayout = ({
   currentMonth, setCurrentMonth
 }: MainLayoutProps) => {
   const {
-    events, routines, routineCompletions, todos, dayDefinitions, diaryEntries,
+    events, routines, routineCompletions, todos, diaryEntries,
     addEvent, updateEvent, deleteEvent,
-    addRoutine, deleteRoutine,
+    addRoutine, deleteRoutine, updateRoutine,
     fetchDiary, saveDiary, deleteDiary,
     loadData // Add loadData for auto-sync refresh
   } = useData();
@@ -69,7 +70,7 @@ export const MainLayout = ({
     refreshMetadataWithServerList
   } = useCalendarMetadata();
 
-  const { recordAction, registerHandlers } = useUndoRedo();
+  const { recordAction, registerCategoryHandlers } = useData();
 
   // --- CalDAV Sync Logic (Refactored using useWindowedSync) ---
   const onSync = useCallback(async (range: SyncRange, isManual: boolean) => {
@@ -87,6 +88,7 @@ export const MainLayout = ({
 
     // 2. Filter Calendars
     const caldavCalendars = calendarMetadata.filter(c =>
+      c.url.startsWith('http') && // Valid CalDAV URL must start with http/https
       !c.url.startsWith('local-') && !c.isSubscription && c.type !== 'subscription' && !c.url?.endsWith('.ics')
     );
     if (caldavCalendars.length === 0) return;
@@ -164,6 +166,15 @@ export const MainLayout = ({
   const [calDAVModalMode, setCalDAVModalMode] = useState<'sync' | 'auth-only'>('sync');
   const [pendingSyncCalendar, setPendingSyncCalendar] = useState<CalendarMetadata | null>(null);
   const [isRoutineModalOpen, setIsRoutineModalOpen] = useState(false);
+  const [isTimeSettingsModalOpen, setIsTimeSettingsModalOpen] = useState(false);
+  const [appTimezone, setAppTimezone] = useState(() => {
+    const saved = localStorage.getItem('appTimezone');
+    return saved || Intl.DateTimeFormat().resolvedOptions().timeZone;
+  });
+  const [autoTimezone, setAutoTimezone] = useState(() => {
+    const saved = localStorage.getItem('autoTimezone');
+    return saved !== 'false';
+  });
 
   const [isEventModalOpen, setIsEventModalOpen] = useState(false);
   const [selectedEvent, setSelectedEvent] = useState<Event | null>(null);
@@ -623,7 +634,7 @@ export const MainLayout = ({
     // Record Action for Undo
     if (newEvent && !skipRecord) {
       // Must use newEvent as it contains the real ID
-      recordAction({ type: 'CREATE', event: newEvent });
+      recordAction({ category: 'event', type: 'CREATE', event: newEvent });
     }
     return;
   }, [addEvent, calendarMetadata, setVisibleCalendarUrlSet, recordAction]);
@@ -683,7 +694,7 @@ export const MainLayout = ({
     }
 
     if (success && eventToDelete && !skipRecord) {
-      recordAction({ type: 'DELETE', event: eventToDelete });
+      recordAction({ category: 'event', type: 'DELETE', event: eventToDelete });
     }
   }, [deleteEvent, selectedEvent, events, calendarMetadata, recordAction]); // removeIdFromSelection removed from dependency array
 
@@ -771,39 +782,36 @@ export const MainLayout = ({
     // Record Action for Undo
     if (oldEvent && !skipRecord) {
       const newEventFull = { ...oldEvent, ...updates };
-      recordAction({ type: 'UPDATE', prevEvent: oldEvent, event: newEventFull });
+      recordAction({ category: 'event', type: 'UPDATE', prevEvent: oldEvent, event: newEventFull });
     }
   }, [updateEvent, selectedEvent, events, calendarMetadata, recordAction]);
 
-  // Register Undo/Redo Handlers
+  // Register Undo/Redo Handlers for Events
   useEffect(() => {
-    registerHandlers(
+    registerCategoryHandlers(
+      'event',
       async (action: HistoryAction) => {
         // Undo Logic
-        if (action.type === 'CREATE') {
+        if (action.type === 'CREATE' && action.event) {
           await handleDeleteEventWrapper(action.event.id, true);
-        } else if (action.type === 'DELETE') {
-          // Restore deleted event
+        } else if (action.type === 'DELETE' && action.event) {
           await handleAddEventWrapper(action.event, false, true);
-        } else if (action.type === 'UPDATE' && action.prevEvent) {
-          // Revert update
+        } else if (action.type === 'UPDATE' && action.event && action.prevEvent) {
           await handleUpdateEventWrapper(action.event.id, action.prevEvent, true);
         }
       },
       async (action: HistoryAction) => {
         // Redo Logic
-        if (action.type === 'CREATE') {
+        if (action.type === 'CREATE' && action.event) {
           await handleAddEventWrapper(action.event, false, true);
-        } else if (action.type === 'DELETE') {
+        } else if (action.type === 'DELETE' && action.event) {
           await handleDeleteEventWrapper(action.event.id, true);
-        } else if (action.type === 'UPDATE') {
-          // Re-apply update
-          // Note: Use full event object for robust update
+        } else if (action.type === 'UPDATE' && action.event) {
           await handleUpdateEventWrapper(action.event.id, action.event, true);
         }
       }
     );
-  }, [registerHandlers, handleAddEventWrapper, handleDeleteEventWrapper, handleUpdateEventWrapper]);
+  }, [registerCategoryHandlers, handleAddEventWrapper, handleDeleteEventWrapper, handleUpdateEventWrapper]);
 
   const handleOpenDiary = useCallback(async (date: string) => {
     setActiveDiaryDate(date);
@@ -826,7 +834,7 @@ export const MainLayout = ({
   }, []);
 
   const activeDiaryEntry = activeDiaryDate ? diaryEntries[activeDiaryDate] : undefined;
-  const activeDiaryDayDefinition = activeDiaryDate ? dayDefinitions[activeDiaryDate] : undefined;
+
   const activeDiaryEvents = useMemo(() => {
     if (!activeDiaryDate) return [];
     return events.filter(e => e.date === activeDiaryDate);
@@ -1071,16 +1079,28 @@ export const MainLayout = ({
         onToggleProfileMenu={() => setIsProfileMenuOpen(p => !p)}
         onLogout={handleLogout}
 
-        onOpenRoutine={() => setIsRoutineModalOpen(true)}
+        onOpenRoutine={() => {
+          setIsProfileMenuOpen(false);
+          setIsSettingsModalOpen(false);
+          setIsTimeSettingsModalOpen(false);
+          setIsRoutineModalOpen(true);
+        }}
         showRoutines={showRoutines}
         onToggleRoutines={() => setShowRoutines(p => !p)}
         showTodos={showTodos}
         onToggleTodos={() => setShowTodos(p => !p)}
-        onOpenCalDAV={() => {
-          setCalDAVModalMode('sync');
-          setIsCalDAVModalOpen(true);
+        onOpenSettings={() => {
+          setIsProfileMenuOpen(false);
+          setIsRoutineModalOpen(false);
+          setIsTimeSettingsModalOpen(false);
+          setIsSettingsModalOpen(true);
         }}
-        onOpenSettings={() => setIsSettingsModalOpen(true)}
+        onOpenTimeSettings={() => {
+          setIsProfileMenuOpen(false);
+          setIsRoutineModalOpen(false);
+          setIsSettingsModalOpen(false);
+          setIsTimeSettingsModalOpen(true);
+        }}
       />
 
       <div
@@ -1094,7 +1114,7 @@ export const MainLayout = ({
           todosByWeek={todosByWeek}
           routines={routines}
           routineCompletions={routineCompletions}
-          dayDefinitions={dayDefinitions}
+
           weekOrder={weekOrder}
           diaryCompletionMap={Object.keys(diaryEntries).reduce((acc, date) => ({ ...acc, [date]: true }), {})}
           showRoutines={showRoutines}
@@ -1131,6 +1151,7 @@ export const MainLayout = ({
           onCloseRoutineModal={() => setIsRoutineModalOpen(false)}
           onAddRoutine={addRoutine}
           onDeleteRoutine={deleteRoutine}
+          onUpdateRoutine={updateRoutine}
           onCloseCalDAVModal={() => setIsCalDAVModalOpen(false)}
           calDAVMode={calDAVModalMode}
           onSyncComplete={(count, syncedCalendarUrls) => {
@@ -1155,11 +1176,28 @@ export const MainLayout = ({
           onSettingsSaved={({ avatarUrl: u, weekOrder: w }) => { setAvatarUrl(u); setWeekOrder(w); }}
         />
 
+        {isTimeSettingsModalOpen && (
+          <TimeSettingsModal
+            onClose={() => setIsTimeSettingsModalOpen(false)}
+            initialWeekOrder={weekOrder}
+            initialTimezone={appTimezone}
+            initialAutoTimezone={autoTimezone}
+            onSaved={({ weekOrder: w, timezone: tz, autoTimezone: auto }) => {
+              setWeekOrder(w);
+              localStorage.setItem('weekOrder', w);
+              setAppTimezone(tz);
+              localStorage.setItem('appTimezone', tz);
+              setAutoTimezone(auto);
+              localStorage.setItem('autoTimezone', String(auto));
+            }}
+          />
+        )}
+
         {isDiaryModalOpen && activeDiaryDate && (
           <DiaryModal
             date={activeDiaryDate}
             events={activeDiaryEvents}
-            dayDefinition={activeDiaryDayDefinition}
+
             weekOrder={weekOrder}
             initialEntry={activeDiaryEntry}
             onClose={() => { setIsDiaryModalOpen(false); setActiveDiaryDate(null); }}

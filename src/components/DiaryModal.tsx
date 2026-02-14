@@ -7,7 +7,7 @@ import styles from './DiaryModal.module.css';
 interface DiaryModalProps {
   date: string;
   events: Event[];
-  dayDefinition?: string;
+
   weekOrder: WeekOrder;
   initialEntry?: DiaryEntry;
   onClose: () => void;
@@ -19,7 +19,7 @@ interface DiaryModalProps {
 export function DiaryModal({
   date,
   events,
-  dayDefinition,
+
   weekOrder,
   initialEntry,
   onClose,
@@ -32,11 +32,33 @@ export function DiaryModal({
   const [isSaving, setIsSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [lastSavedAt, setLastSavedAt] = useState<string | null>(null);
+  const [draftRestored, setDraftRestored] = useState(false);
   const saveTimerRef = useRef<number | null>(null);
   const hasSavedRef = useRef(false);
   const suppressNextSaveRef = useRef(false);
   const lastSyncedRef = useRef({ date: '', title: '', content: '' });
   const contentRef = useRef<HTMLDivElement | null>(null);
+
+  // --- Draft backup helpers ---
+  const DRAFT_KEY = `diaryDraft:${date}`;
+
+  const saveDraftToLocal = (t: string, c: string) => {
+    try {
+      localStorage.setItem(DRAFT_KEY, JSON.stringify({ title: t, content: c, savedAt: Date.now() }));
+    } catch { /* quota exceeded etc. */ }
+  };
+
+  const loadDraftFromLocal = (): { title: string; content: string; savedAt: number } | null => {
+    try {
+      const raw = localStorage.getItem(DRAFT_KEY);
+      if (!raw) return null;
+      return JSON.parse(raw);
+    } catch { return null; }
+  };
+
+  const clearDraftFromLocal = () => {
+    localStorage.removeItem(DRAFT_KEY);
+  };
 
   const escapeHtml = (value: string) =>
     value
@@ -59,14 +81,24 @@ export function DiaryModal({
       .replace(/&nbsp;/g, ' ')
       .trim();
 
+  // Track whether this is the initial mount for this date
+  const isInitialMountRef = useRef(true);
+
+  // 모달 열림 시 배경 스크롤 잠금
+  useEffect(() => {
+    document.body.style.overflow = 'hidden';
+    return () => {
+      document.body.style.overflow = '';
+    };
+  }, []);
+
   useEffect(() => {
     const nextTitle = initialEntry?.title ?? '';
     const nextContent = normalizeContentToHtml(initialEntry?.content ?? '');
     const isSameDate = lastSyncedRef.current.date === date;
-    const isSameContent = lastSyncedRef.current.title === nextTitle
-      && lastSyncedRef.current.content === nextContent;
 
-    if (!isSameDate || !isSameContent) {
+    // Case 1: Date changed → always load new data (switching diary dates)
+    if (!isSameDate) {
       setTitle(nextTitle);
       setContent(nextContent);
       if (contentRef.current) {
@@ -74,11 +106,61 @@ export function DiaryModal({
       }
       suppressNextSaveRef.current = true;
       lastSyncedRef.current = { date, title: nextTitle, content: nextContent };
+      setLastSavedAt(initialEntry?.updatedAt ?? null);
+      setSaveError(null);
+      hasSavedRef.current = Boolean(initialEntry);
+      isInitialMountRef.current = false;
+      return;
     }
 
-    setLastSavedAt(initialEntry?.updatedAt ?? null);
-    setSaveError(null);
-    hasSavedRef.current = Boolean(initialEntry);
+    // Case 2: Same date, initial mount → load from initialEntry (or draft)
+    if (isInitialMountRef.current) {
+      isInitialMountRef.current = false;
+
+      // Check for unsaved draft in localStorage
+      const draft = loadDraftFromLocal();
+      const savedUpdatedAt = initialEntry?.updatedAt ? new Date(initialEntry.updatedAt).getTime() : 0;
+
+      if (draft && draft.savedAt > savedUpdatedAt && (draft.title || getPlainText(draft.content))) {
+        // Draft is newer than saved entry → restore draft
+        setTitle(draft.title);
+        const normalizedDraft = normalizeContentToHtml(draft.content);
+        setContent(normalizedDraft);
+        if (contentRef.current) {
+          contentRef.current.innerHTML = normalizedDraft;
+        }
+        suppressNextSaveRef.current = false; // Allow immediate save
+        lastSyncedRef.current = { date, title: draft.title, content: normalizedDraft };
+        setDraftRestored(true);
+        hasSavedRef.current = Boolean(initialEntry);
+        setLastSavedAt(initialEntry?.updatedAt ?? null);
+        setSaveError(null);
+        return;
+      }
+
+      const isSameContent = lastSyncedRef.current.title === nextTitle
+        && lastSyncedRef.current.content === nextContent;
+      if (!isSameContent) {
+        setTitle(nextTitle);
+        setContent(nextContent);
+        if (contentRef.current) {
+          contentRef.current.innerHTML = nextContent;
+        }
+        suppressNextSaveRef.current = true;
+        lastSyncedRef.current = { date, title: nextTitle, content: nextContent };
+      }
+      setLastSavedAt(initialEntry?.updatedAt ?? null);
+      setSaveError(null);
+      hasSavedRef.current = Boolean(initialEntry);
+      return;
+    }
+
+    // Case 3: Same date, NOT initial mount → user is actively editing
+    // Do NOT overwrite user's in-progress work!
+    // Only update the saved-at timestamp if the backend returns a newer one
+    if (initialEntry?.updatedAt) {
+      setLastSavedAt(initialEntry.updatedAt);
+    }
   }, [date, initialEntry]);
 
   useEffect(() => {
@@ -106,6 +188,9 @@ export function DiaryModal({
         return;
       }
 
+      // Save draft to localStorage immediately (backup)
+      saveDraftToLocal(title, content);
+
       setIsSaving(true);
       const saved = await onSave(date, title, content);
       if (saved) {
@@ -114,8 +199,11 @@ export function DiaryModal({
         lastSyncedRef.current = { date, title, content };
         setLastSavedAt(saved.updatedAt ?? null);
         setSaveError(null);
+        setDraftRestored(false);
+        clearDraftFromLocal(); // Saved successfully, remove draft
       } else {
-        setSaveError('저장 실패');
+        setSaveError('저장 실패 — 로컬에 임시 저장됨');
+        // Keep draft in localStorage as backup
       }
       setIsSaving(false);
     }, 500);
@@ -300,11 +388,7 @@ export function DiaryModal({
       <aside className={styles.sidebar}>
         <div className={styles.sidebarContent}>
           <div className={styles.dayHeader}>
-            <div className={styles.dayHeaderLeft}>
-              <div className={styles.dayDefinition}>
-                {dayDefinition?.trim() || '하루 정의 없음'}
-              </div>
-            </div>
+
             <div className={styles.dayMeta}>
               <span className={`${styles.dayName} ${isWeekend ? styles.dayNameWeekend : styles.dayNameWeekday}`}>
                 {dayName}
@@ -346,7 +430,7 @@ export function DiaryModal({
           </button>
           <div className={styles.header}>
             <div className={styles.saveStatus}>
-              {isSaving ? '저장 중...' : saveError ? saveError : lastSavedAt ? '저장됨' : ''}
+              {isSaving ? '저장 중...' : saveError ? saveError : draftRestored ? '임시 저장에서 복구됨' : lastSavedAt ? '저장됨' : ''}
             </div>
           </div>
           <input

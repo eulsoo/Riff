@@ -1,4 +1,5 @@
 import { useRef, useState } from 'react';
+import shared from './SharedModal.module.css';
 import styles from './SettingsModal.module.css';
 import { WeekOrder } from '../types';
 import { uploadAvatar, saveUserAvatar } from '../services/api';
@@ -11,7 +12,7 @@ interface SettingsModalProps {
   onSaved: (data: { avatarUrl: string | null; weekOrder: WeekOrder }) => void;
 }
 
-const VIEW_SIZE = 240; // 프리뷰 정사각 크기
+const VIEW_SIZE = 120; // 프리뷰 정사각 크기
 const OUTPUT_SIZE = 200; // 최종 썸네일 크기
 const MAX_DIMENSION = 512; // 업로드 이미지 리사이즈 최대 크기
 
@@ -191,104 +192,101 @@ export function SettingsModal({ onClose, initialAvatarUrl, initialWeekOrder, onS
   };
 
   return (
-    <div className={styles.modalOverlay}>
-      <div className={styles.modalBackdrop} onClick={onClose} />
-      <div className={styles.modal}>
-        <div className={styles.modalHeader}>
-          <h2 className={styles.modalTitle}>설정</h2>
-          <button className={styles.closeButton} onClick={onClose}>✕</button>
+    <div className={shared.modalOverlay}>
+      <div className={shared.modalBackdrop} onClick={onClose} />
+
+      <div className={shared.modal}>
+        {/* Header */}
+        <div className={shared.modalHeader}>
+          <div className={shared.modalHeaderSpacer} />
+          <div className={shared.modalTitle}>프로필 설정</div>
+          <div className={shared.modalHeaderSpacerEnd}>
+            <button onClick={onClose} className={shared.modalCloseButton}>
+              <span className={`material-symbols-rounded ${shared.modalCloseIcon}`}>close</span>
+            </button>
+          </div>
         </div>
 
-        <div className={styles.section}>
-          <p className={styles.sectionTitle}>프로필 이미지</p>
-          <div className={styles.previewRow}>
-            <div className={styles.avatarPreview}>
-              {imageSrc ? (
-                <img
-                  ref={imgRef}
-                  src={imageSrc}
-                  alt="avatar"
-                  style={{
-                    transform: `translate(-50%, -50%) translate(${offset.x}px, ${offset.y}px) scale(${computeBaseScale() * scale})`,
-                  }}
-                  className={styles.previewImage}
-                  onLoad={handleImageLoad}
+        {/* Content */}
+        <div className={shared.modalContent}>
+          {/* 프로필 이미지 */}
+          <div className={shared.section}>
+            <p className={shared.sectionTitle}>프로필 이미지</p>
+            <div className={styles.avatarSection}>
+              <div className={styles.avatarPreview}>
+                {imageSrc ? (
+                  <img
+                    ref={imgRef}
+                    src={imageSrc}
+                    alt="avatar"
+                    style={{
+                      transform: `translate(-50%, -50%) translate(${offset.x}px, ${offset.y}px) scale(${computeBaseScale() * scale})`,
+                    }}
+                    className={styles.previewImage}
+                    onLoad={handleImageLoad}
+                  />
+                ) : (
+                  <div className={styles.placeholder}>No Image</div>
+                )}
+                <div
+                  className={styles.dragLayer}
+                  onMouseDown={handleMouseDown}
+                  onMouseMove={handleMouseMove}
+                  onMouseUp={handleMouseUp}
+                  onMouseLeave={handleMouseUp}
+                  onWheel={handleWheel}
                 />
-              ) : (
-                <div className={styles.placeholder}>No Image</div>
-              )}
-              <div
-                className={styles.dragLayer}
-                onMouseDown={handleMouseDown}
-                onMouseMove={handleMouseMove}
-                onMouseUp={handleMouseUp}
-                onMouseLeave={handleMouseUp}
-                onWheel={handleWheel}
-              />
-            </div>
-            <div className={styles.controls}>
-              <button
-                className={styles.uploadButton}
-                onClick={() => fileInputRef.current?.click()}
-              >
-                이미지 선택
-              </button>
-              <input
-                ref={fileInputRef}
-                type="file"
-                accept="image/*"
-                className={styles.hiddenInput}
-                onChange={handleFileSelect}
-              />
-              <label className={styles.sliderLabel}>확대/축소</label>
-              <input
-                type="range"
-                min={0.5}
-                max={3}
-                step={0.01}
-                value={scale}
-                onChange={(e) => {
-                  const next = Number(e.target.value);
-                  setScale(next);
-                  setOffset((prev) => clampOffset(prev, next, imgRef.current, imgSize));
-                }}
-              />
-              <button className={styles.resetButton} onClick={resetTransform}>
-                위치 초기화
-              </button>
+              </div>
+
+              <div className={styles.avatarControls}>
+                <div className={styles.avatarButtons}>
+                  <button
+                    className={styles.uploadButton}
+                    onClick={() => fileInputRef.current?.click()}
+                  >
+                    이미지 선택
+                  </button>
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept="image/*"
+                    className={styles.hiddenInput}
+                    onChange={handleFileSelect}
+                  />
+                  <button className={styles.resetButton} onClick={resetTransform}>
+                    위치 초기화
+                  </button>
+                </div>
+
+                {imageSrc && (
+                  <div className={styles.zoomRow}>
+                    <span className={styles.zoomLabel}>축소</span>
+                    <input
+                      type="range"
+                      min={0.5}
+                      max={3}
+                      step={0.01}
+                      value={scale}
+                      className={styles.zoomSlider}
+                      onChange={(e) => {
+                        const next = Number(e.target.value);
+                        setScale(next);
+                        setOffset((prev) => clampOffset(prev, next, imgRef.current, imgSize));
+                      }}
+                    />
+                    <span className={styles.zoomLabel}>확대</span>
+                  </div>
+                )}
+              </div>
             </div>
           </div>
         </div>
 
-        <div className={styles.section}>
-          <p className={styles.sectionTitle}>주간 순서 조정</p>
-          <div className={styles.weekOrderOptions}>
-            <label className={styles.weekOrderOption}>
-              <input
-                type="radio"
-                name="weekOrder"
-                value="mon"
-                checked={weekOrder === 'mon'}
-                onChange={() => setWeekOrder('mon')}
-              />
-              <span>월 ~ 일</span>
-            </label>
-            <label className={styles.weekOrderOption}>
-              <input
-                type="radio"
-                name="weekOrder"
-                value="sun"
-                checked={weekOrder === 'sun'}
-                onChange={() => setWeekOrder('sun')}
-              />
-              <span>일 ~ 토</span>
-            </label>
-          </div>
-        </div>
-
-        <div className={styles.modalFooter}>
-          <button className={styles.cancelButton} onClick={onClose}>취소</button>
-          <button className={styles.saveButton} onClick={handleSave}>저장</button>
+        {/* Footer */}
+        <div className={styles.footer}>
+          <button className={shared.primaryButton} onClick={handleSave}>
+            저장
+          </button>
         </div>
       </div>
     </div>

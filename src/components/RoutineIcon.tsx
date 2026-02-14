@@ -49,12 +49,19 @@ export function RoutineIcon({ routine, completed, enabled, onClick }: RoutineIco
       className={`${styles.routineIcon} ${completed ? styles.routineIconCompleted : styles.routineIconIncomplete
         }`}
       style={{
-        backgroundColor: completed ? routine.color : '#e5e7eb',
-        color: completed ? 'white' : '#9ca3af',
+        backgroundColor: 'transparent',
+        color: completed ? routine.color : '#d1d5db',
       }}
       title={routine.name}
     >
-      <span className={`material-symbols-rounded ${styles.routineIconIcon}`} style={{ fontSize: '16px', fontWeight: 500 }}>
+      <span
+        className={`material-symbols-rounded ${styles.routineIconIcon}`}
+        style={{
+          fontSize: '20px',
+          fontWeight: 500,
+          fontVariationSettings: `'FILL' 1, 'wght' 500, 'GRAD' 0, 'opsz' 24`
+        }}
+      >
         {iconName}
       </span>
     </button>

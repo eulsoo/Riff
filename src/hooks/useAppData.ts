@@ -7,7 +7,8 @@ import {
 import {
   fetchEvents, fetchRoutines, fetchRoutineCompletions,
   fetchTodos, 
-  updateTodo
+  updateTodo,
+  fetchDiaryEntriesByRange
 } from '../services/api';
 import { getCacheKey, readCache, writeCache } from '../lib/cache';
 
@@ -137,11 +138,12 @@ export const useAppData = (
       // Use the range we calculated earlier
       const { startDate, endDate } = currentRange;
       
-      const [eventsData, routinesData, completionsData, todosData] = await Promise.all([
+      const [eventsData, routinesData, completionsData, todosData, diaryData] = await Promise.all([
         fetchEvents(startDate, endDate),
         fetchRoutines(),
         fetchRoutineCompletions(),
         fetchTodos(),
+        fetchDiaryEntriesByRange(startDate, endDate),
       ]);
       
       // 서버 데이터와 로컬 상태 병합
@@ -175,6 +177,22 @@ export const useAppData = (
         
         return [...rolledTodos, ...keptTodos];
       });
+
+      // Diary entries: merge server data with local cache
+      // Preserve locally cached entries (from active editing) to avoid overwriting unsaved work
+      if (diaryData.length > 0) {
+        setDiaryEntries(prev => {
+          const merged = { ...prev };
+          for (const entry of diaryData) {
+            const existing = merged[entry.date];
+            // Only overwrite if we don't have a local version, or server is newer
+            if (!existing || (entry.updatedAt && existing.updatedAt && entry.updatedAt > existing.updatedAt)) {
+              merged[entry.date] = entry;
+            }
+          }
+          return merged;
+        });
+      }
       
       const networkEnd = typeof performance !== 'undefined' ? performance.now() : Date.now();
       console.log(`network:core load ${Math.round(networkEnd - networkStart)} ms`);

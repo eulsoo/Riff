@@ -1,389 +1,257 @@
-.modalOverlay {
-  position: fixed;
-  inset: 0;
-  z-index: 50;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 1rem;
-}
+/* ===== Routine Modal — Component-Specific Styles =====
+   Common overlay/header/close/form styles live in SharedModal.module.css
+*/
 
-.modalBackdrop {
-  position: absolute;
-  inset: 0;
-  background-color: transparent;
-  backdrop-filter: blur(4px);
-  cursor: default;
-}
-
-.modal {
-  position: relative;
-  background-color: white;
-  border-radius: 0.75rem;
-  box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
-  width: 100%;
-  max-width: 42rem;
-  max-height: 90vh;
-  overflow-y: auto;
-}
-
-.modalHeader {
-  position: sticky;
-  top: 0;
-  background-color: white;
-  border-bottom: 1px solid #e5e7eb;
-  padding: 1rem 1.5rem;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-}
-
-.modalHeaderTitle {
-  font-weight: 600;
-  color: #111827;
-}
-
-.modalCloseButton {
-  padding: 0.5rem;
-  border: none;
-  background: none;
-  border-radius: 0.5rem;
-  transition: background-color 0.2s ease-in-out;
-  cursor: pointer;
-}
-
-.modalCloseButton:hover {
-  background-color: #f3f4f6;
-}
-
-.modalCloseIcon {
-  width: 1.25rem;
-  height: 1.25rem;
-  color: #6b7280;
-}
-
-.modalContent {
-  padding: 1.5rem;
-}
-
-.routinesSection {
-  margin-bottom: 1.5rem;
-}
-
-.routinesSectionTitle {
-  font-size: 0.875rem;
-  font-weight: 600;
-  color: #374151;
-  margin-bottom: 0.75rem;
-}
-
+/* --- Routine List (Step 1) --- */
 .routinesList {
   display: flex;
   flex-direction: column;
-  gap: 0.5rem;
-}
-
-.routinesEmpty {
-  font-size: 0.875rem;
-  color: #6b7280;
-  padding: 1rem 0;
-  text-align: center;
+  gap: 0.15rem;
+  margin-bottom: 0.75rem;
 }
 
 .routineItem {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 0.75rem;
-  background-color: #f9fafb;
+  padding: 0.55rem 0.5rem;
   border-radius: 0.5rem;
+  transition: background-color 0.15s ease;
+}
+
+.routineItem:hover {
+  background-color: rgba(0, 0, 0, 0.03);
 }
 
 .routineItemLeft {
   display: flex;
   align-items: center;
-  gap: 0.75rem;
+  gap: 0.7rem;
 }
 
-.routineIcon {
-  width: 2.5rem;
-  height: 2.5rem;
-  border-radius: 9999px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.routineIconSvg {
-  /* width: 1.25rem;
-  height: 1.25rem; */
-  color: white;
+.routineIconDisplay {
+  font-size: 28px;
+  line-height: 1;
+  flex-shrink: 0;
 }
 
 .routineInfo {
   display: flex;
   flex-direction: column;
+  gap: 0.1rem;
 }
 
 .routineName {
+  font-size: 0.95rem;
   font-weight: 500;
   color: #111827;
 }
 
 .routineDays {
-  font-size: 0.75rem;
+  font-size: 0.78rem;
+  color: #9ca3af;
+}
+
+/* Action buttons (edit + delete) */
+.routineActions {
+  display: flex;
+  align-items: center;
+  gap: 0.15rem;
+  opacity: 0;
+  transition: opacity 0.2s ease-in-out;
+}
+
+.routineItem:hover .routineActions {
+  opacity: 1;
+}
+
+.routineActionButton {
+  padding: 0.3rem;
+  border: none;
+  background: none;
+  border-radius: 0.4rem;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.routineActionIcon {
+  font-size: 18px;
+  color: #d1d5db;
+  transition: color 0.15s ease;
+}
+
+.routineActionButton:hover .routineActionIcon {
   color: #6b7280;
 }
 
-.routineDeleteButton {
-  padding: 0.5rem;
-  border: none;
-  background: none;
-  border-radius: 0.5rem;
-  transition: background-color 0.2s ease-in-out;
-  cursor: pointer;
-}
-
-.routineDeleteButton:hover {
-  background-color: #fee2e2;
-}
-
 .routineDeleteIcon {
-  width: 1rem;
-  height: 1rem;
-  color: #dc2626;
+  font-size: 18px;
+  color: #d1d5db;
+  transition: color 0.15s ease;
 }
 
-.addRoutineSection {
-  border-top: 1px solid #e5e7eb;
-  padding-top: 1.5rem;
+.routineActionButton:hover .routineDeleteIcon {
+  color: #ef4444;
 }
 
-.addRoutineSectionTitle {
-  font-size: 0.875rem;
-  font-weight: 600;
-  color: #374151;
-  margin-bottom: 1rem;
+.createButton {
+  margin-top: 0.25rem;
 }
 
-.addRoutineForm {
+/* --- Create Form (Step 2) --- */
+.createForm {
   display: flex;
   flex-direction: column;
-  gap: 1.25rem;
+  gap: 0.25rem;
 }
 
-.formGroup {
-  display: flex;
-  flex-direction: column;
-}
-
-.formLabel {
-  display: block;
-  font-size: 0.875rem;
-  font-weight: 500;
-  color: #374151;
-  margin-bottom: 0.5rem;
-}
-
-.formLabelLarge {
-  display: block;
-  font-size: 0.875rem;
-  font-weight: 500;
-  color: #374151;
-  margin-bottom: 0.75rem;
-}
-
-.formInput {
-  width: 100%;
-  padding: 0.625rem 1rem;
-  border: 1px solid #d1d5db;
-  border-radius: 0.5rem;
-  outline: none;
-  transition: all 0.2s ease-in-out;
-}
-
-.formInput:focus {
-  border-color: transparent;
-  box-shadow: 0 0 0 2px #9333ea;
-}
-
-.formInputSmall {
-  width: 100%;
-  padding: 0.5rem 1rem;
-  border: 1px solid #d1d5db;
-  border-radius: 0.5rem;
-  font-size: 0.875rem;
-  outline: none;
-  margin-bottom: 0.75rem;
-  transition: all 0.2s ease-in-out;
-}
-
-.formInputSmall:focus {
-  border-color: transparent;
-  box-shadow: 0 0 0 2px #9333ea;
-}
-
+/* Icon Grid */
 .iconGrid {
   display: grid;
-  grid-template-columns: repeat(8, 1fr);
-  gap: 0.5rem;
-  max-height: 12rem;
-  overflow-y: auto;
-  padding: 0.5rem;
-  background-color: #f9fafb;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 0.35rem;
+  padding: 0.4rem;
+  background-color: rgba(0, 0, 0, 0.02);
   border-radius: 0.5rem;
+  max-height: 11rem;
+  overflow-y: auto;
 }
 
 .iconButton {
-  padding: 0.75rem;
-  border-radius: 0.5rem;
-  transition: all 0.2s ease-in-out;
+  padding: 0.5rem;
+  border-radius: 0.4rem;
   border: none;
   cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.15s ease;
 }
 
 .iconButtonSelected {
-  background-color: #9333ea;
+  background-color: var(--color-primary);
   color: white;
-  transform: scale(1.1);
-}
-
-.iconButtonUnselected {
-  background-color: white;
-  color: #374151;
-}
-
-.iconButtonUnselected:hover {
-  background-color: #f3f4f6;
-}
-
-.iconButtonSvg {
-  width: 1.25rem;
-  height: 1.25rem;
-  margin: 0 auto;
-}
-
-.colorPicker {
-  display: flex;
-  gap: 0.75rem;
-}
-
-.colorButton {
-  width: 2.5rem;
-  height: 2.5rem;
-  border-radius: 0.5rem;
-  border: none;
-  transition: all 0.2s ease-in-out;
-  cursor: pointer;
-}
-
-.colorButton:hover {
   transform: scale(1.05);
 }
 
-.colorButtonSelected {
-  box-shadow: 0 0 0 2px white, 0 0 0 4px #9ca3af;
-  transform: scale(1.1);
+.iconButtonUnselected {
+  background-color: transparent;
+  color: #6b7280;
 }
 
+.iconButtonUnselected:hover {
+  background-color: rgba(0, 0, 0, 0.05);
+  color: #374151;
+}
+
+/* Name Input with Color Chip */
+.nameInputWrapper {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.nameInput {
+  padding-right: 2.8rem !important;
+}
+
+.colorChipContainer {
+  position: absolute;
+  right: 0.6rem;
+  display: flex;
+  align-items: center;
+}
+
+.colorChip {
+  width: 1.4rem;
+  height: 1.4rem;
+  border-radius: 50%;
+  border: 2px solid rgba(255, 255, 255, 0.8);
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.08);
+  cursor: pointer;
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+  flex-shrink: 0;
+}
+
+.colorChip:hover {
+  transform: scale(1.15);
+}
+
+.colorChipArrow {
+  font-size: 1.1rem;
+  color: #9ca3af;
+  cursor: pointer;
+  line-height: 1;
+  margin-left: -1px;
+}
+
+.colorDropdown {
+  position: absolute;
+  top: calc(100% + 0.5rem);
+  right: 0;
+  display: flex;
+  gap: 0.4rem;
+  padding: 0.6rem 0.7rem;
+  background: rgba(255, 255, 255, 0.85);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border-radius: 16px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.12);
+  z-index: 10;
+  flex-wrap: nowrap;
+}
+
+.colorDropdownItem {
+  width: 1.5rem;
+  height: 1.5rem;
+  border-radius: 50%;
+  border: 2px solid transparent;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.colorDropdownItem:hover {
+  transform: scale(1.15);
+}
+
+.colorDropdownItemSelected {
+  border-color: white;
+  box-shadow: 0 0 0 2px #6b7280;
+  transform: scale(1.15);
+}
+
+/* Day Buttons */
 .dayButtons {
   display: flex;
-  gap: 0.5rem;
+  gap: 0.35rem;
 }
 
 .dayButton {
   flex: 1;
-  padding: 0.625rem 0;
-  border-radius: 0.5rem;
+  padding: 0.5rem 0;
+  border-radius: 0.4rem;
+  font-size: 0.8rem;
   font-weight: 500;
-  transition: all 0.2s ease-in-out;
+  transition: all 0.15s ease;
   border: none;
   cursor: pointer;
 }
 
 .dayButtonSelected {
-  background-color: #9333ea;
+  background-color: var(--color-primary);
   color: white;
 }
 
 .dayButtonUnselected {
-  background-color: #f3f4f6;
-  color: #374151;
+  background-color: rgba(0, 0, 0, 0.04);
+  color: #6b7280;
 }
 
 .dayButtonUnselected:hover {
-  background-color: #e5e7eb;
+  background-color: rgba(0, 0, 0, 0.08);
+  color: #374151;
 }
 
-.preview {
-  display: flex;
-  align-items: center;
-  gap: 0.75rem;
-  padding: 1rem;
-  background-color: #faf5ff;
-  border-radius: 0.5rem;
-}
 
-.previewIcon {
-  width: 3rem;
-  height: 3rem;
-  border-radius: 9999px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.previewIconSvg {
-  width: 1.5rem;
-  height: 1.5rem;
-  color: white;
-}
-
-.previewInfo {
-  display: flex;
-  flex-direction: column;
-}
-
-.previewLabel {
-  font-size: 0.875rem;
-  color: #4b5563;
-}
-
-.previewName {
-  font-weight: 500;
-  color: #111827;
-}
-
-.addButton {
-  width: 100%;
-  padding: 0.75rem 1rem;
-  background-color: #9333ea;
-  color: white;
-  border-radius: 0.5rem;
-  font-weight: 500;
-  transition: background-color 0.2s ease-in-out;
-  border: none;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 0.5rem;
-}
-
-.addButton:hover {
-  background-color: #7e22ce;
-}
-
-.addButton:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-
-.addButton:disabled:hover {
-  background-color: #9333ea;
-}
-
-.addButtonIcon {
-  width: 1.25rem;
-  height: 1.25rem;
-}

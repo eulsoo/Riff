@@ -3,6 +3,7 @@ import { Calendar, CalDAVConfig, getCalendars, syncSelectedCalendars } from '../
 import { saveCalDAVSyncSettings, getCalDAVSyncSettings, deleteAllCalDAVData, saveCalendarMetadata, deleteCalDAVSyncSettings, normalizeCalendarUrl, CalendarMetadata } from '../services/api';
 import { supabase } from '../lib/supabase';
 import styles from './CalDAVSyncModal.module.css';
+import shared from './SharedModal.module.css';
 
 interface CalDAVSyncModalProps {
   onClose: () => void;
@@ -298,28 +299,28 @@ export function CalDAVSyncModal({ onClose, onSyncComplete, mode = 'sync', existi
   }, []);
 
   return (
-    <div id="caldav-sync-modal-container" className={styles.modalOverlay}>
-      <div className={styles.modalBackdrop} onClick={onClose} />
-      <div className={styles.modal}>
-        <div className={styles.modalHeader}>
-          <div style={{ width: '40px', display: 'flex', alignItems: 'center' }}>
+    <div id="caldav-sync-modal-container" className={shared.modalOverlay}>
+      <div className={shared.modalBackdrop} onClick={onClose} />
+      <div className={shared.modal}>
+        <div className={shared.modalHeader}>
+          <div className={shared.modalHeaderSpacer}>
             {step === 'selection' && (
-              <button onClick={() => setStep('credentials')} className={styles.backButton} aria-label="뒤로">
-                <span className={`material-symbols-rounded ${styles.backIcon}`}>arrow_back_ios</span>
+              <button onClick={() => setStep('credentials')} className={shared.backButton} aria-label="뒤로">
+                <span className={`material-symbols-rounded ${shared.backIcon}`}>arrow_back_ios</span>
               </button>
             )}
           </div>
-          <div className={styles.modalTitle} style={{ flex: 1, textAlign: 'center' }}>
+          <div className={shared.modalTitle}>
             {step === 'credentials' ? '계정정보 입력' : '캘린더 선택'}
           </div>
-          <div style={{ width: '40px', display: 'flex', justifyContent: 'flex-end', alignItems: 'center' }}>
-            <button onClick={onClose} className={styles.modalCloseButton}>
-              <span className={`material-symbols-rounded ${styles.modalCloseIcon}`}>close</span>
+          <div className={shared.modalHeaderSpacerEnd}>
+            <button onClick={onClose} className={shared.modalCloseButton}>
+              <span className={`material-symbols-rounded ${shared.modalCloseIcon}`}>close</span>
             </button>
           </div>
         </div>
 
-        <div className={styles.modalContent}>
+        <div className={shared.modalContent}>
           {step === 'credentials' ? (
             /* Step 1: Credentials Form */
             <form

@@ -754,6 +754,24 @@ export const deleteRoutine = async (id: string) => {
   return true;
 };
 
+export const updateRoutine = async (id: string, updates: Partial<Omit<Routine, 'id'>>) => {
+  const { data, error } = await supabase
+    .from('routines')
+    .update(updates)
+    .eq('id', id)
+    .select()
+    .single();
+
+  if (error) {
+    console.error('Error updating routine:', error);
+    return null;
+  }
+  return {
+    ...data,
+    createdAt: data.created_at,
+  } as Routine;
+};
+
 // Routine Completions
 export const fetchRoutineCompletions = async () => {
   const { data, error } = await supabase

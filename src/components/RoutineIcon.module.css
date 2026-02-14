@@ -1,7 +1,7 @@
 .routineIcon {
   width: 1.5rem;
   height: 1.5rem;
-  border-radius: 9999px;
+  border-radius: 19px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -30,7 +30,7 @@
 
 .routineIconIncomplete {
   opacity: 0.4;
-  transform: scale(0.9);
+  transform: scale(1);
 }
 
 .routineIconIcon {

@@ -1,12 +1,13 @@
 .weekCard {
   display: flex;
   flex-direction: column;
-  gap: 0.8rem;
+  gap: 0.4rem;
 }
 
 .weekGridCurrent {
-  border-color: #3b82f6 !important;
-  /* box-shadow: 0 0 0 5px rgba(59, 130, 246, 0.1) !important; */
+  border-width:2px !important;
+  border-color: #43b76d !important;
+  /* box-shadow: 0 0 20px rgba(0, 255, 4, 0.4) !important; */
 }
 
 .weekGridPrevNext {
@@ -21,7 +22,7 @@
   background-color: white;
   border-radius: 0.75rem;
   /* box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.05); */
-  border: 3px solid #e5e7eb;
+  border: 1px solid #e5e7eb;
   transition: all 0.2s ease-in-out;
   
   display: grid;
@@ -38,7 +39,7 @@
   justify-content: space-between;
   align-items: center;
   gap: 0.5rem;
-  padding: 0.2rem 0.5rem 0.2rem;
+  padding: 0.5rem 0.5rem 0.2rem;
   /* border-bottom: 1px solid #f3f4f6; */
   border-right: 1px solid #e5e7eb;
   min-width: 0;
@@ -170,8 +171,7 @@
 /* Routine Cell (Row 6 or last) */
 .dayRoutineCell {
   grid-row: 6;
-  border-top: 1px dashed #f3f4f6;
-  padding: 0.5rem 0.75rem;
+  padding: 0.5rem 0.75rem 0.8rem;
   display: flex;
   flex-direction: row;
   flex-wrap: wrap;
@@ -195,6 +195,9 @@
 }
 
 .weekLabelText {
+  position: absolute;
+  right: 40px;
+  transform: translateY(-30px);
   font-size: 1rem;
   font-weight: 600;
   color: #b7b7b7;

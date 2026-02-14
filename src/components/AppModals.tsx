@@ -27,6 +27,7 @@ interface AppModalsProps {
   onCloseRoutineModal: () => void;
   onAddRoutine: (routine: Omit<Routine, 'id'>) => void;
   onDeleteRoutine: (routineId: string) => void;
+  onUpdateRoutine: (routineId: string, updates: Partial<Omit<Routine, 'id'>>) => void;
   onCloseCalDAVModal: () => void;
   onSyncComplete: (count: number, syncedCalendarUrls?: string[]) => void;
   onCloseSettings: () => void;
@@ -55,6 +56,7 @@ export function AppModals({
   onCloseRoutineModal,
   onAddRoutine,
   onDeleteRoutine,
+  onUpdateRoutine,
   onCloseCalDAVModal,
   onSyncComplete,
   onCloseSettings,
@@ -88,6 +90,7 @@ export function AppModals({
           onClose={onCloseRoutineModal}
           onAdd={onAddRoutine}
           onDelete={onDeleteRoutine}
+          onUpdate={onUpdateRoutine}
         />
       )}
 

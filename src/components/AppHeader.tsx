@@ -11,8 +11,9 @@ interface AppHeaderProps {
   onScrollToToday: () => void;
   onToggleProfileMenu: () => void;
   onOpenRoutine: () => void;
-  onOpenCalDAV: () => void;
+
   onOpenSettings: () => void;
+  onOpenTimeSettings: () => void;
   onLogout: () => void;
   showRoutines: boolean;
   onToggleRoutines: () => void;
@@ -30,8 +31,9 @@ export function AppHeader({
   onScrollToToday,
   onToggleProfileMenu,
   onOpenRoutine,
-  onOpenCalDAV,
+
   onOpenSettings,
+  onOpenTimeSettings,
   onLogout,
   showRoutines,
   onToggleRoutines,
@@ -82,7 +84,8 @@ export function AppHeader({
 
                 {/* 루틴 관리 */}
                 <div className={styles.profileMenuItemGroup}>
-                  <div className={styles.profileMenuToggleWrapper}>
+                  <span className={styles.profileMenuLabel}>루틴</span>
+                  <div className={styles.profileMenuRightControls}>
                     <label className={styles.toggleSwitch}>
                       <input
                         type="checkbox"
@@ -91,19 +94,18 @@ export function AppHeader({
                       />
                       <span className={styles.toggleSlider}></span>
                     </label>
+                    <span
+                      className="material-symbols-rounded"
+                      style={{ fontSize: '16px', color: '#9ca3af', cursor: 'pointer' }}
+                      onClick={onOpenRoutine}
+                    >arrow_forward_ios</span>
                   </div>
-                  <button
-                    className={styles.profileMenuItemWithIcon}
-                    onClick={onOpenRoutine}
-                  >
-                    <span>루틴 관리</span>
-                    <span className="material-symbols-rounded" style={{ fontSize: '16px' }}>chevron_right</span>
-                  </button>
                 </div>
 
                 {/* 투두 리스트 */}
                 <div className={styles.profileMenuItemGroup}>
-                  <div className={styles.profileMenuToggleWrapper}>
+                  <span className={styles.profileMenuLabel}>할일</span>
+                  <div className={styles.profileMenuRightControls}>
                     <label className={styles.toggleSwitch}>
                       <input
                         type="checkbox"
@@ -112,19 +114,15 @@ export function AppHeader({
                       />
                       <span className={styles.toggleSlider}></span>
                     </label>
-                  </div>
-                  <div className={styles.profileMenuItemWithIcon} style={{ cursor: 'default' }}>
-                    <span>투두 리스트</span>
+                    <span style={{ width: '16px' }} />
                   </div>
                 </div>
 
-                <div className={styles.profileMenuDivider} style={{ height: '1px', backgroundColor: '#e5e7eb', margin: '0.25rem 0' }} />
-
-                <button className={styles.profileMenuItem} onClick={onOpenCalDAV}>
-                  맥 캘린더 동기화
-                </button>
                 <button className={styles.profileMenuItem} onClick={onOpenSettings}>
-                  설정
+                  프로필
+                </button>
+                <button className={styles.profileMenuItem} onClick={onOpenTimeSettings}>
+                  시간
                 </button>
                 <button className={styles.profileMenuItem} onClick={onLogout}>
                   로그아웃

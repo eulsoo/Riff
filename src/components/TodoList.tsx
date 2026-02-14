@@ -28,6 +28,7 @@ export function TodoList({
   const [editDeadline, setEditDeadline] = useState<string | undefined>(undefined);
 
   const [showDatePicker, setShowDatePicker] = useState(false);
+  const [pickerPosition, setPickerPosition] = useState<'bottom' | 'top'>('bottom');
 
   // Helper to format deadline as -Nd / +Nd
   const getDDay = (deadline: string) => {
@@ -41,6 +42,25 @@ export function TodoList({
     if (diffDays === 0) return '0d';
     if (diffDays > 0) return `-${diffDays}d`;
     return `+${Math.abs(diffDays)}d`;
+  };
+
+  const handleShowDatePicker = (e: React.MouseEvent<HTMLButtonElement>) => {
+    e.preventDefault();
+    if (showDatePicker) {
+      setShowDatePicker(false);
+      return;
+    }
+
+    const rect = e.currentTarget.getBoundingClientRect();
+    const spaceBelow = window.innerHeight - rect.bottom;
+    const CALENDAR_HEIGHT = 320; // Estimated height
+
+    if (spaceBelow < CALENDAR_HEIGHT) {
+      setPickerPosition('top');
+    } else {
+      setPickerPosition('bottom');
+    }
+    setShowDatePicker(true);
   };
 
   const handleAdd = () => {
@@ -131,7 +151,7 @@ export function TodoList({
                 />
                 {editDeadline ? (
                   <button
-                    onClick={() => setShowDatePicker(!showDatePicker)}
+                    onClick={handleShowDatePicker}
                     className={`${styles.dDayBadgeInline} ${(() => { const d = getDDay(editDeadline); return d.startsWith('+') ? styles.dDayBadgeOverdue : styles.dDayBadgeUpcoming; })()}`}
                     title="마감일 수정"
                   >
@@ -139,7 +159,7 @@ export function TodoList({
                   </button>
                 ) : (
                   <button
-                    onClick={() => setShowDatePicker(!showDatePicker)}
+                    onClick={handleShowDatePicker}
                     className={`${styles.dDayBadgeInline} ${styles.dDayBadgeDefault}`}
                     title="마감일 설정"
                   >
@@ -164,7 +184,7 @@ export function TodoList({
                 </div>
 
                 {showDatePicker && (
-                  <div className={styles.datePickerContainer}>
+                  <div className={`${styles.datePickerContainer} ${pickerPosition === 'top' ? styles.datePickerContainerTop : ''}`}>
                     <MiniCalendar
                       startDate={editDeadline || new Date().toISOString().split('T')[0]}
                       endDate={editDeadline || new Date().toISOString().split('T')[0]}
@@ -243,7 +263,7 @@ export function TodoList({
             />
             {newDeadline ? (
               <button
-                onClick={() => setShowDatePicker(!showDatePicker)}
+                onClick={handleShowDatePicker}
                 className={`${styles.dDayBadgeInline} ${(() => { const d = getDDay(newDeadline); return d.startsWith('+') ? styles.dDayBadgeOverdue : styles.dDayBadgeUpcoming; })()}`}
                 title="마감일 수정"
               >
@@ -251,7 +271,7 @@ export function TodoList({
               </button>
             ) : (
               <button
-                onClick={() => setShowDatePicker(!showDatePicker)}
+                onClick={handleShowDatePicker}
                 className={`${styles.dDayBadgeInline} ${styles.dDayBadgeDefault}`}
                 title="마감일 설정"
               >
@@ -275,7 +295,7 @@ export function TodoList({
               </button>
             </div>
             {showDatePicker && (
-              <div className={styles.datePickerContainer}>
+              <div className={`${styles.datePickerContainer} ${pickerPosition === 'top' ? styles.datePickerContainerTop : ''}`}>
                 <MiniCalendar
                   startDate={newDeadline || new Date().toISOString().split('T')[0]}
                   endDate={newDeadline || new Date().toISOString().split('T')[0]}

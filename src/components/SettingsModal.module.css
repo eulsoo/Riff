@@ -1,92 +1,24 @@
-.modalOverlay {
-  position: fixed;
-  inset: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 50;
-}
+/* ===== Settings Modal — Component-Specific Styles =====
+   Common overlay/header/close/form styles live in SharedModal.module.css
+*/
 
-.modalBackdrop {
-  position: absolute;
-  inset: 0;
-  background-color: transparent;
-  cursor: default;
-}
-
-.modal {
-  position: relative;
-  width: min(720px, 90vw);
-  background: #fff;
-  border-radius: 12px;
-  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.12);
-  padding: 20px;
-  z-index: 51;
+/* --- Avatar Section --- */
+.avatarSection {
   display: flex;
   flex-direction: column;
-  gap: 16px;
-}
-
-.modalHeader {
-  display: flex;
   align-items: center;
-  justify-content: space-between;
-}
-
-.modalTitle {
-  font-size: 1.15rem;
-  font-weight: 700;
-  color: #111827;
-}
-
-.closeButton {
-  border: none;
-  background: transparent;
-  font-size: 1rem;
-  cursor: pointer;
-  color: #6b7280;
-}
-
-.section {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-}
-
-.sectionTitle {
-  font-weight: 700;
-  color: #111827;
-}
-
-.weekOrderOptions {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  padding: 8px 0 4px;
-}
-
-.weekOrderOption {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 0.95rem;
-  color: #374151;
-}
-
-.previewRow {
-  display: flex;
-  gap: 16px;
-  flex-wrap: wrap;
+  gap: 0.75rem;
 }
 
 .avatarPreview {
   position: relative;
-  width: 240px;
-  height: 240px;
+  width: 120px;
+  height: 120px;
   border-radius: 50%;
   background: #f3f4f6;
   overflow: hidden;
-  border: 4px solid #d1d5db;
+  border: 3px solid rgba(0, 0, 0, 0.06);
+  flex-shrink: 0;
 }
 
 .previewImage {
@@ -105,7 +37,7 @@
   align-items: center;
   justify-content: center;
   color: #9ca3af;
-  font-size: 0.9rem;
+  font-size: 0.8rem;
 }
 
 .dragLayer {
@@ -118,56 +50,136 @@
   cursor: grabbing;
 }
 
-.controls {
-  flex: 1;
-  min-width: 240px;
+/* --- Avatar Controls --- */
+.avatarControls {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  align-items: center;
+  gap: 0.5rem;
+  width: 100%;
 }
 
-.uploadButton,
-.resetButton,
-.saveButton,
-.cancelButton {
-  border: none;
-  border-radius: 8px;
-  padding: 10px 12px;
-  font-weight: 600;
-  cursor: pointer;
+.avatarButtons {
+  display: flex;
+  gap: 0.5rem;
 }
 
 .uploadButton {
-  background: #2563eb;
+  padding: 0.4rem 0.85rem;
+  background: #3b82f6;
   color: white;
+  border: none;
+  border-radius: 0.4rem;
+  font-size: 0.8rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background-color 0.2s;
+}
+
+.uploadButton:hover {
+  background: #2563eb;
 }
 
 .resetButton {
-  background: #e5e7eb;
-  color: #111827;
+  padding: 0.4rem 0.85rem;
+  background: rgba(0, 0, 0, 0.04);
+  color: #6b7280;
+  border: none;
+  border-radius: 0.4rem;
+  font-size: 0.8rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background-color 0.2s;
 }
 
-.saveButton {
-  background: #10b981;
-  color: white;
-}
-
-.cancelButton {
-  background: #f3f4f6;
-  color: #111827;
-}
-
-.sliderLabel {
-  font-size: 0.85rem;
-  color: #4b5563;
+.resetButton:hover {
+  background: rgba(0, 0, 0, 0.08);
 }
 
 .hiddenInput {
   display: none;
 }
 
-.modalFooter {
+/* --- Zoom Slider --- */
+.zoomRow {
   display: flex;
-  justify-content: flex-end;
-  gap: 8px;
+  align-items: center;
+  gap: 0.5rem;
+  width: 100%;
+  padding: 0 0.5rem;
+}
+
+.zoomLabel {
+  font-size: 0.75rem;
+  color: #9ca3af;
+  white-space: nowrap;
+}
+
+.zoomSlider {
+  flex: 1;
+  height: 4px;
+  -webkit-appearance: none;
+  appearance: none;
+  background: #e5e7eb;
+  border-radius: 2px;
+  outline: none;
+}
+
+.zoomSlider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: #3b82f6;
+  cursor: pointer;
+  border: 2px solid white;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
+}
+
+/* --- Week Order --- */
+.weekOrderOptions {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.weekOrderOption {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
+  padding: 0.55rem 0.75rem;
+  border-radius: 0.5rem;
+  font-size: 0.85rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  border: 1px solid transparent;
+  background: rgba(0, 0, 0, 0.03);
+  color: #6b7280;
+}
+
+.weekOrderOption:hover {
+  background: rgba(0, 0, 0, 0.06);
+}
+
+.weekOrderOptionSelected {
+  background: rgba(59, 130, 246, 0.08);
+  color: #3b82f6;
+  border-color: rgba(59, 130, 246, 0.2);
+}
+
+.weekOrderOptionSelected:hover {
+  background: rgba(59, 130, 246, 0.12);
+}
+
+.weekOrderRadio {
+  display: none;
+}
+
+/* --- Footer --- */
+.footer {
+  display: flex;
+  gap: 0.5rem;
+  padding: 0.75rem 1.25rem 1rem;
 }
