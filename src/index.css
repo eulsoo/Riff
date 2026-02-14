@@ -62,7 +62,7 @@ body {
 }
 
 body {
-  background-color: var(--color-gray-50);
+  background-color: #F5F5F7;
   color: var(--color-gray-900);
   line-height: 1.5;
 }

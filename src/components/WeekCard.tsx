@@ -23,6 +23,7 @@ interface WeekCardProps {
   onToggleTodo: (todoId: string) => void;
   onUpdateTodo: (todoId: string, text: string, deadline?: string) => void;
   onDeleteTodo: (todoId: string) => void;
+  onReorderTodos: (weekStart: string, newTodos: Todo[]) => void;
   onOpenDiary: (date: string) => void;
   diaryCompletions: Record<string, boolean>;
   weekStatus: 'current' | 'prev' | 'next' | 'other';
@@ -54,6 +55,7 @@ export const WeekCard = memo(function WeekCard({
   onToggleTodo,
   onUpdateTodo,
   onDeleteTodo,
+  onReorderTodos,
   onOpenDiary,
   diaryCompletions,
   weekStatus,
@@ -489,6 +491,7 @@ export const WeekCard = memo(function WeekCard({
           onToggle={onToggleTodo}
           onUpdate={onUpdateTodo}
           onDelete={onDeleteTodo}
+          onReorder={(newTodos) => onReorderTodos(todoWeekStart, newTodos)}
         />
       )}
     </div>

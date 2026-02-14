@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useRef, Fragment } from 'react';
 import { Todo } from '../types';
 import styles from './TodoList.module.css';
 import { TodoCheckIcon } from './TodoCheckIcon';
@@ -10,6 +10,7 @@ interface TodoListProps {
   onToggle: (todoId: string) => void;
   onUpdate: (todoId: string, text: string, deadline?: string) => void;
   onDelete: (todoId: string) => void;
+  onReorder?: (newTodos: Todo[]) => void;
 }
 
 export function TodoList({
@@ -18,7 +19,9 @@ export function TodoList({
   onToggle,
   onUpdate,
   onDelete,
+  onReorder,
 }: TodoListProps) {
+  // --- Todo States (Restored) ---
   const [isAdding, setIsAdding] = useState(false);
   const [newTodoText, setNewTodoText] = useState('');
   const [newDeadline, setNewDeadline] = useState<string | undefined>(undefined);
@@ -29,6 +32,126 @@ export function TodoList({
 
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [pickerPosition, setPickerPosition] = useState<'bottom' | 'top'>('bottom');
+
+  // --- Drag & Drop States ---
+  const [dragIndex, setDragIndex] = useState<number | null>(null);
+  const [dropTargetIndex, setDropTargetIndex] = useState<number | null>(null);
+  const [ghostPos, setGhostPos] = useState<{ x: number, y: number } | null>(null);
+
+  const longPressTimer = useRef<NodeJS.Timeout | null>(null);
+  const dragStartPos = useRef<{ x: number, y: number } | null>(null);
+  const listRef = useRef<HTMLDivElement>(null);
+
+  // Refs for drag state to avoid stale closures in event listeners
+  const dragIndexRef = useRef<number | null>(null);
+  const dropTargetIndexRef = useRef<number | null>(null);
+  const blockClickRef = useRef(false);
+
+  // --- Drag Handlers ---
+  const handleMouseDown = (e: React.MouseEvent, index: number) => {
+    // Only left click, and not if editing
+    if (e.button !== 0 || editingId) return;
+
+    blockClickRef.current = false;
+    dragStartPos.current = { x: e.clientX, y: e.clientY };
+    longPressTimer.current = setTimeout(() => {
+      // Long press triggered!
+      setDragIndex(index);
+      dragIndexRef.current = index;
+      blockClickRef.current = true; // Block subsequent clicks
+
+      setGhostPos({ x: e.clientX, y: e.clientY });
+
+      // Add global listeners for drag/drop interaction
+      window.addEventListener('mousemove', handleGlobalMouseMove);
+      window.addEventListener('mouseup', handleGlobalMouseUp);
+    }, 200); // 0.2s hold time
+  };
+
+  const clearDragState = () => {
+    if (longPressTimer.current) {
+      clearTimeout(longPressTimer.current);
+      longPressTimer.current = null;
+    }
+    setDragIndex(null);
+    setDropTargetIndex(null);
+    setGhostPos(null);
+
+    dragIndexRef.current = null;
+    dropTargetIndexRef.current = null;
+    dragStartPos.current = null;
+
+    window.removeEventListener('mousemove', handleGlobalMouseMove);
+    window.removeEventListener('mouseup', handleGlobalMouseUp);
+  };
+
+  const handleGlobalMouseMove = (e: MouseEvent) => {
+    // Update ghost position
+    setGhostPos({ x: e.clientX, y: e.clientY });
+
+    // Find drop target (DropZone)
+    const elements = document.elementsFromPoint(e.clientX, e.clientY);
+    const dropZone = elements.find(el => el.closest('[data-drop-index]'));
+
+    if (dropZone) {
+      const zoneEl = dropZone.closest('[data-drop-index]') as HTMLElement;
+      const indexStr = zoneEl.dataset.dropIndex;
+      if (indexStr !== undefined) {
+        const index = parseInt(indexStr, 10);
+        setDropTargetIndex(index);
+        dropTargetIndexRef.current = index;
+      }
+    } else {
+      setDropTargetIndex(null);
+      dropTargetIndexRef.current = null;
+    }
+  };
+
+  const handleGlobalMouseUp = (e: MouseEvent) => {
+    // Use REFS to get fresh state without relying on closures
+    const sourceIndex = dragIndexRef.current;
+    const targetIndex = dropTargetIndexRef.current;
+
+    if (sourceIndex !== null && targetIndex !== null) {
+      // If dropping on same item or immediate next (no change)
+      if (targetIndex !== sourceIndex && targetIndex !== sourceIndex + 1) {
+        const newTodos = [...todos];
+        const [movedItem] = newTodos.splice(sourceIndex, 1);
+
+        // Adjust target index based on removal
+        // If source was before target, removing source shifts indices down by 1
+        let finalTarget = targetIndex;
+        if (sourceIndex < targetIndex) {
+          finalTarget -= 1;
+        }
+
+        // Safety check
+        if (finalTarget >= 0 && finalTarget <= newTodos.length) {
+          newTodos.splice(finalTarget, 0, movedItem);
+
+          if (onReorder) {
+            onReorder(newTodos);
+          }
+        }
+      }
+    }
+
+    clearDragState();
+    // Delay unblocking click to prevent triggering handleEdit immediately after drop
+    setTimeout(() => {
+      blockClickRef.current = false;
+    }, 100);
+  };
+
+  // Prevent text selection during long press attempt (optional but good)
+  // ... can be done with CSS user-select: none on items
+
+  const cancelLongPress = () => {
+    if (longPressTimer.current) {
+      clearTimeout(longPressTimer.current);
+      longPressTimer.current = null;
+    }
+  };
 
   // Helper to format deadline as -Nd / +Nd
   const getDDay = (deadline: string) => {
@@ -74,6 +197,7 @@ export function TodoList({
   };
 
   const handleEdit = (todo: Todo) => {
+    if (blockClickRef.current) return;
     // If already editing another, save or cancel? Let's cancel previous.
     setEditingId(todo.id);
     setEditText(todo.text);
@@ -117,136 +241,202 @@ export function TodoList({
   };
 
   return (
-    <div className={styles.todoList}>
+    <div className={styles.todoList} ref={listRef}>
+      {ghostPos && dragIndex !== null && (() => {
+        const todo = todos[dragIndex];
+        return (
+          <div
+            className={styles.dragGhostWrapper}
+            style={{ left: ghostPos.x, top: ghostPos.y }}
+          >
+            <div
+              className={`${styles.todoItemDisplay} ${todo.completed ? styles.todoItemDisplayCompleted : styles.todoItemDisplayIncomplete
+                } ${!todo.deadline ? styles.todoItemNoDDay : ''}`}
+            >
+              <div
+                className={`${styles.todoCheckbox} ${todo.completed ? styles.todoCheckboxCompleted : styles.todoCheckboxIncomplete
+                  }`}
+              >
+                {todo.completed ? (
+                  <TodoCheckIcon className={styles.todoCheckboxIcon} />
+                ) : (
+                  <span className={styles.todoCheckboxEmpty} />
+                )}
+              </div>
+
+              <span
+                className={`${styles.todoText} ${todo.completed ? styles.todoTextCompleted : styles.todoTextIncomplete
+                  }`}
+              >
+                {todo.text}
+              </span>
+
+              {todo.deadline && (() => {
+                const dday = getDDay(todo.deadline);
+                const isOverdue = dday.startsWith('+');
+                const badgeColor = todo.completed
+                  ? styles.dDayBadgeCompleted
+                  : isOverdue
+                    ? styles.dDayBadgeOverdue
+                    : styles.dDayBadgeUpcoming;
+                return (
+                  <span className={`${styles.dDayBadge} ${badgeColor}`}>
+                    {dday}
+                  </span>
+                );
+              })()}
+            </div>
+          </div>
+        );
+      })()}
       {/* Header removed */}
 
       <div className={styles.todoListItems}>
-        {todos.map(todo => (
-          <div
-            key={todo.id}
-            className={styles.todoItem}
-          >
-            {editingId === todo.id ? (
-              <div className={styles.todoItemEditing}>
-                <input
-                  type="text"
-                  value={editText}
-                  onChange={e => setEditText(e.target.value)}
-                  onKeyDown={e => {
-                    if (e.key === 'Enter') handleSaveEdit();
-                    if (e.key === 'Escape') handleCancelEdit();
-                  }}
-                  className={styles.todoInput}
-                  autoFocus
-                  onBlur={(e) => {
-                    // Prevent blur if clicking related buttons
-                    if (e.relatedTarget && (e.relatedTarget as HTMLElement).closest(`.${styles.todoItemEditing}`)) return;
-                    // handleCancelEdit(); // Optional: Auto-cancel/save on blur? Usually auto-save is better or stay open.
-                    // User requested specific behavior? "todoItemEditing 모드... check, Delete, Today"
-                    // Often blur saves in todo lists, or just keeps it open.
-                    // Let's NOT auto-close on blur to allow interacting with buttons safely, 
-                    // or implement robust click-outside detection.
-                    // For now, removing simple onBlur to verify button interactions work.
-                  }}
-                />
-                {editDeadline ? (
-                  <button
-                    onClick={handleShowDatePicker}
-                    className={`${styles.dDayBadgeInline} ${(() => { const d = getDDay(editDeadline); return d.startsWith('+') ? styles.dDayBadgeOverdue : styles.dDayBadgeUpcoming; })()}`}
-                    title="마감일 수정"
-                  >
-                    {getDDay(editDeadline)}
-                  </button>
-                ) : (
-                  <button
-                    onClick={handleShowDatePicker}
-                    className={`${styles.dDayBadgeInline} ${styles.dDayBadgeDefault}`}
-                    title="마감일 설정"
-                  >
-                    마감일
-                  </button>
-                )}
-                <div className={styles.editActions}>
-                  <button
-                    onClick={handleSaveEdit}
-                    className={styles.todoInputButton}
-                    title="저장"
-                  >
-                    <span className={`material-symbols-rounded ${styles.todoInputIcon} ${styles.todoInputIconCheck}`}>check</span>
-                  </button>
-                  <button
-                    onClick={() => handleDeleteInEdit(todo.id, false)}
-                    className={styles.todoInputButton}
-                    title="삭제"
-                  >
-                    <span className={`material-symbols-rounded ${styles.todoInputIcon} ${styles.todoInputIconDelete}`}>delete</span>
-                  </button>
-                </div>
+        {todos.map((todo, index) => (
+          <Fragment key={todo.id}>
+            {/* DropZone before item */}
+            <div
+              className={styles.dropZone}
+              data-drop-index={index}
+            >
+              {dropTargetIndex === index && dragIndex !== null && dragIndex !== index && dragIndex !== index - 1 && (
+                <div className={styles.dropIndicator} />
+              )}
+            </div>
 
-                {showDatePicker && (
-                  <div className={`${styles.datePickerContainer} ${pickerPosition === 'top' ? styles.datePickerContainerTop : ''}`}>
-                    <MiniCalendar
-                      startDate={editDeadline || new Date().toISOString().split('T')[0]}
-                      endDate={editDeadline || new Date().toISOString().split('T')[0]}
-                      target="start"
-                      onSelect={(date) => {
-                        setEditDeadline(date);
-                        setShowDatePicker(false);
-                      }}
-                      onClose={() => setShowDatePicker(false)}
-                    />
-                  </div>
-                )}
-              </div>
-            ) : (
-              <div
-                className={`${styles.todoItemDisplay} ${todo.completed ? styles.todoItemDisplayCompleted : styles.todoItemDisplayIncomplete
-                  } ${!todo.deadline ? styles.todoItemNoDDay : ''}`}
-              >
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onToggle(todo.id);
-                  }}
-                  className={`${styles.todoCheckbox} ${todo.completed ? styles.todoCheckboxCompleted : styles.todoCheckboxIncomplete
-                    }`}
-                  aria-label={todo.completed ? '완료 해제' : '완료'}
-                >
-                  {todo.completed ? (
-                    <TodoCheckIcon className={styles.todoCheckboxIcon} />
+            <div
+              className={`${styles.todoItem} ${dragIndex === index ? styles.todoItemDragging : ''}`}
+              data-todo-index={index} // Still useful for drag start? Actually handleMouseDown uses index closure.
+              onMouseDown={(e) => handleMouseDown(e, index)}
+              onMouseMove={() => cancelLongPress()}
+              onMouseLeave={() => cancelLongPress()}
+              onMouseUp={() => cancelLongPress()}
+            >
+              {editingId === todo.id ? (
+                <div className={styles.todoItemEditing}>
+                  <input
+                    type="text"
+                    value={editText}
+                    onChange={e => setEditText(e.target.value)}
+                    onKeyDown={e => {
+                      if (e.key === 'Enter') handleSaveEdit();
+                      if (e.key === 'Escape') handleCancelEdit();
+                    }}
+                    className={styles.todoInput}
+                    autoFocus
+                    onBlur={(e) => {
+                      if (e.relatedTarget && (e.relatedTarget as HTMLElement).closest(`.${styles.todoItemEditing}`)) return;
+                    }}
+                  />
+                  {editDeadline ? (
+                    <button
+                      onClick={handleShowDatePicker}
+                      className={`${styles.dDayBadgeInline} ${(() => { const d = getDDay(editDeadline); return d.startsWith('+') ? styles.dDayBadgeOverdue : styles.dDayBadgeUpcoming; })()}`}
+                      title="마감일 수정"
+                    >
+                      {getDDay(editDeadline)}
+                    </button>
                   ) : (
-                    <span className={styles.todoCheckboxEmpty} />
+                    <button
+                      onClick={handleShowDatePicker}
+                      className={`${styles.dDayBadgeInline} ${styles.dDayBadgeDefault}`}
+                      title="마감일 설정"
+                    >
+                      마감일
+                    </button>
                   )}
-                </button>
+                  <div className={styles.editActions}>
+                    <button
+                      onClick={handleSaveEdit}
+                      className={styles.todoInputButton}
+                      title="저장"
+                    >
+                      <span className={`material-symbols-rounded ${styles.todoInputIcon} ${styles.todoInputIconCheck}`}>check</span>
+                    </button>
+                    <button
+                      onClick={() => handleDeleteInEdit(todo.id, false)}
+                      className={styles.todoInputButton}
+                      title="삭제"
+                    >
+                      <span className={`material-symbols-rounded ${styles.todoInputIcon} ${styles.todoInputIconDelete}`}>delete</span>
+                    </button>
+                  </div>
 
-                <span
-                  className={`${styles.todoText} ${todo.completed ? styles.todoTextCompleted : styles.todoTextIncomplete
-                    }`}
-                  onClick={() => handleEdit(todo)}
+                  {showDatePicker && (
+                    <div className={`${styles.datePickerContainer} ${pickerPosition === 'top' ? styles.datePickerContainerTop : ''}`}>
+                      <MiniCalendar
+                        startDate={editDeadline || new Date().toISOString().split('T')[0]}
+                        endDate={editDeadline || new Date().toISOString().split('T')[0]}
+                        target="start"
+                        onSelect={(date) => {
+                          setEditDeadline(date);
+                          setShowDatePicker(false);
+                        }}
+                        onClose={() => setShowDatePicker(false)}
+                      />
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <div
+                  className={`${styles.todoItemDisplay} ${todo.completed ? styles.todoItemDisplayCompleted : styles.todoItemDisplayIncomplete
+                    } ${!todo.deadline ? styles.todoItemNoDDay : ''}`}
                 >
-                  {todo.text}
-                </span>
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onToggle(todo.id);
+                    }}
+                    className={`${styles.todoCheckbox} ${todo.completed ? styles.todoCheckboxCompleted : styles.todoCheckboxIncomplete
+                      }`}
+                    aria-label={todo.completed ? '완료 해제' : '완료'}
+                  >
+                    {todo.completed ? (
+                      <TodoCheckIcon className={styles.todoCheckboxIcon} />
+                    ) : (
+                      <span className={styles.todoCheckboxEmpty} />
+                    )}
+                  </button>
 
-                {todo.deadline && (() => {
-                  const dday = getDDay(todo.deadline);
-                  const isOverdue = dday.startsWith('+');
-                  const badgeColor = todo.completed
-                    ? styles.dDayBadgeCompleted
-                    : isOverdue
-                      ? styles.dDayBadgeOverdue
-                      : styles.dDayBadgeUpcoming;
-                  return (
-                    <span className={`${styles.dDayBadge} ${badgeColor}`}>
-                      {dday}
-                    </span>
-                  );
-                })()}
-              </div>
-            )}
-          </div>
+                  <span
+                    className={`${styles.todoText} ${todo.completed ? styles.todoTextCompleted : styles.todoTextIncomplete
+                      }`}
+                    onClick={() => handleEdit(todo)}
+                  >
+                    {todo.text}
+                  </span>
+
+                  {todo.deadline && (() => {
+                    const dday = getDDay(todo.deadline);
+                    const isOverdue = dday.startsWith('+');
+                    const badgeColor = todo.completed
+                      ? styles.dDayBadgeCompleted
+                      : isOverdue
+                        ? styles.dDayBadgeOverdue
+                        : styles.dDayBadgeUpcoming;
+                    return (
+                      <span className={`${styles.dDayBadge} ${badgeColor}`}>
+                        {dday}
+                      </span>
+                    );
+                  })()}
+                </div>
+              )}
+            </div>
+          </Fragment>
         ))}
 
-        {/* 추가 버튼 또는 입력 상자 */}
+        {/* Last DropZone */}
+        <div
+          className={styles.dropZone}
+          data-drop-index={todos.length}
+        >
+          {dropTargetIndex === todos.length && dragIndex !== null && dragIndex !== todos.length - 1 && (
+            <div className={styles.dropIndicator} />
+          )}
+        </div>
+
+        {/* 추가 버튼 및 입력 폼 */}
         {isAdding ? (
           <div className={`${styles.todoItemEditing} ${styles.newItemConfig}`}>
             <input

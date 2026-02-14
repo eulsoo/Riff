@@ -127,7 +127,27 @@ export const useAppData = (
             const localOnly = prev.filter(t =>
               !cachedIds.has(t.id) && (t.id.startsWith('temp-') || t.isNew)
             );
-            return [...cachedTodos, ...localOnly];
+            
+            let finalTodos = [...cachedTodos, ...localOnly];
+            
+            // Apply saved order (Cache Hydration)
+            if (typeof window !== 'undefined') {
+               try {
+                 const saved = localStorage.getItem('todo_order_v1');
+                 if (saved) {
+                   const orderList = JSON.parse(saved);
+                   if (Array.isArray(orderList)) {
+                     const orderMap = new Map(orderList.map((id, index) => [id, index]));
+                     finalTodos.sort((a, b) => {
+                       const idxA = orderMap.get(a.id) ?? Number.MAX_SAFE_INTEGER;
+                       const idxB = orderMap.get(b.id) ?? Number.MAX_SAFE_INTEGER;
+                       return idxA - idxB;
+                     });
+                   }
+                 }
+               } catch { /* ignore */ }
+            }
+            return finalTodos;
           });
           const endAt = typeof performance !== 'undefined' ? performance.now() : Date.now();
           console.log(`cache:core hydrate ${Math.round(endAt - startAt)} ms`);
@@ -175,7 +195,27 @@ export const useAppData = (
         const serverIds = new Set(rolledTodos.map(t => t.id));
         const keptTodos = tempAndNewTodos.filter(t => !serverIds.has(t.id));
         
-        return [...rolledTodos, ...keptTodos];
+        let finalTodos = [...rolledTodos, ...keptTodos];
+
+        // Apply saved order from localStorage
+        if (typeof window !== 'undefined') {
+           try {
+             const saved = localStorage.getItem('todo_order_v1');
+             if (saved) {
+               const orderList = JSON.parse(saved);
+               if (Array.isArray(orderList)) {
+                 const orderMap = new Map(orderList.map((id, index) => [id, index]));
+                 finalTodos.sort((a, b) => {
+                   const idxA = orderMap.get(a.id) ?? Number.MAX_SAFE_INTEGER;
+                   const idxB = orderMap.get(b.id) ?? Number.MAX_SAFE_INTEGER;
+                   return idxA - idxB;
+                 });
+               }
+             }
+           } catch { /* ignore */ }
+        }
+        
+        return finalTodos;
       });
 
       // Diary entries: merge server data with local cache
@@ -218,8 +258,24 @@ export const useAppData = (
     deletedEventIdsRef.current.add(eventId);
   }, []);
 
+
   const markEventsAsDeleted = useCallback((eventIds: string[]) => {
     eventIds.forEach(id => deletedEventIdsRef.current.add(id));
+  }, []);
+
+  const reorderWeekTodos = useCallback((_weekStart: string, newOrderedTodos: Todo[]) => {
+    setTodos(prev => {
+      const newIds = new Set(newOrderedTodos.map(t => t.id));
+      const otherTodos = prev.filter(t => !newIds.has(t.id));
+      const nextState = [...otherTodos, ...newOrderedTodos];
+      
+      // Save order to localStorage
+      if (typeof window !== 'undefined') {
+        const orderList = nextState.map(t => t.id);
+        localStorage.setItem('todo_order_v1', JSON.stringify(orderList));
+      }
+      return nextState;
+    });
   }, []);
 
   return {
@@ -230,6 +286,8 @@ export const useAppData = (
     diaryEntries, setDiaryEntries,
     loadData,
     markEventAsDeleted,
-    markEventsAsDeleted
+
+    markEventsAsDeleted,
+    reorderWeekTodos
   };
 };

@@ -29,12 +29,67 @@
 .todoListItems {
   display: flex;
   flex-wrap: wrap;
-  gap: 0.5rem;
+  gap: 0; /* Remove gap, use DropZone instead */
 }
 
 .todoItem {
   position: relative;
+  transition: transform 0.2s cubic-bezier(0.2, 0, 0, 1);
 }
+
+.todoItemDragging {
+  opacity: 0.3;
+}
+
+.dropZone {
+  width: 0.5rem;
+  height: auto;
+  min-height: 1.6rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+}
+
+.dropZone::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: -4px;
+  right: -4px;
+  z-index: 1;
+}
+
+.dropIndicator {
+  position: absolute;
+  width: 4px;
+  background-color: var(--color-primary);
+  border-radius: 2px;
+  height: 80%;
+  pointer-events: none;
+  z-index: 100;
+  box-shadow: 0 0 4px var(--color-primary-shadow);
+  animation: fadeIn 0.1s ease;
+}
+
+.dragGhostWrapper {
+  position: fixed;
+  pointer-events: none;
+  z-index: 9999;
+  transform: translate(-50%, -50%) scale(1.05);
+  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.2);
+  border-radius: 2rem;
+  /* background-color removed to use item's own background */
+  display: flex;
+  align-items: center;
+  padding: 0; 
+  width: max-content;
+  opacity: 0.5; /* 사용자 요청: 0.5 */
+}
+
+/* Remove override so it uses original item colors */
+/* .dragGhostWrapper .todoItemDisplay { ... } removed */
 
 /* Edit Mode Styles */
 .todoItemEditing {
@@ -133,19 +188,26 @@
   display: flex;
   align-items: center;
   gap: 0.5rem;
-  background-color: rgba(241, 241, 241, 0.8);
+  background-color: rgba(229, 231, 235, 0.8);
   border-radius: 2rem;
   padding: 0.3rem 0.4rem;
   min-height: 1.6rem;
   cursor: pointer; /* Click to edit */
+  box-sizing: border-box;
 }
 
 .todoItemDisplay:hover {
-  background-color: rgba(229, 231, 235, 0.8);
+  background-color: #c9f3d8;
+}
+.todoItemDisplay:hover .todoText {
+  color: #0a8638;
+}
+.todoItemDisplay:hover svg {
+  color: #0a8638;
 }
 
 .todoItemDisplayCompleted {
-  background-color: #f3f4f6;
+  background-color: rgba(229, 231, 235, 0.8);
   border: 1px solid transparent;
 }
 

@@ -39,6 +39,7 @@ interface DataContextType {
   toggleTodo: (todoId: string) => Promise<void>;
   updateTodo: (todoId: string, text: string, deadline?: string) => Promise<void>;
   deleteTodo: (todoId: string) => Promise<boolean>;
+  reorderTodos: (weekStart: string, newTodos: Todo[]) => void;
 
   // Actions - Diary
   fetchDiary: (date: string) => Promise<DiaryEntry | null>;
@@ -90,7 +91,8 @@ export const DataProvider = ({
     diaryEntries, setDiaryEntries,
     loadData,
     markEventAsDeleted,
-    markEventsAsDeleted
+    markEventsAsDeleted,
+    reorderWeekTodos
   } = useAppData(
     session,
     pastWeeks,
@@ -501,7 +503,7 @@ export const DataProvider = ({
     events, routines, routineCompletions, todos, diaryEntries,
     addEvent, deleteEvent, updateEvent, deleteEvents,
     addRoutine, deleteRoutine, updateRoutine, toggleRoutine,
-    addTodo, toggleTodo, updateTodo, deleteTodo,
+    addTodo, toggleTodo, updateTodo, deleteTodo, reorderTodos: reorderWeekTodos,
     fetchDiary, saveDiary, deleteDiary,
     recordAction, registerCategoryHandlers, canUndo, canRedo,
     loadData

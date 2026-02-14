@@ -1,15 +1,19 @@
 .weekCard {
   display: flex;
   flex-direction: column;
-  gap: 0.4rem;
+  gap: 0.8rem;
 }
 
 .weekGridCurrent {
-  border-width:2px !important;
-  border-color: #43b76d !important;
-  /* box-shadow: 0 0 20px rgba(0, 255, 4, 0.4) !important; */
+  /* border-width:2px !important; */
+  /* border-color: #43b76d !important; */
+  box-shadow: 0 0 40px rgba(0, 255, 4, 0.1) !important;
 }
-
+.weekGrid.weekGridCurrent {
+  /* Base: Gradient from soft white to pale peach */
+  /* background: linear-gradient(to bottom, rgba(255, 255, 255, 0.95), rgba(255, 245, 242, 0.4)); */
+  border: 1px solid #7ce09f;
+}
 .weekGridPrevNext {
   /* border-color: #d1d5db; */
 }

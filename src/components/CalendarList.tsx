@@ -48,6 +48,7 @@ export const CalendarList = memo(({
     toggleTodo,
     updateTodo,
     deleteTodo,
+    reorderTodos,
   } = useData();
 
   return (
@@ -73,6 +74,7 @@ export const CalendarList = memo(({
             onToggleTodo={toggleTodo}
             onUpdateTodo={updateTodo}
             onDeleteTodo={deleteTodo}
+            onReorderTodos={reorderTodos}
 
             onOpenDiary={onOpenDiary}
             diaryCompletions={diaryCompletionMap}

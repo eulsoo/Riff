@@ -72,6 +72,10 @@ export const MainLayout = ({
 
   const { recordAction, registerCategoryHandlers } = useData();
 
+  const [isSyncEnabled, setIsSyncEnabled] = useState(false);
+  // 앱 초기 로드 시 1회: 유령 캘린더 정리를 위한 메타데이터 검증
+  const hasMetadataCheckedRef = useRef(false);
+
   // --- CalDAV Sync Logic (Refactored using useWindowedSync) ---
   const onSync = useCallback(async (range: SyncRange, isManual: boolean) => {
     // 1. Check Settings & Metadata
@@ -113,25 +117,13 @@ export const MainLayout = ({
       const count = await syncSelectedCalendars(config, caldavUrls, null, forceFullSync, range);
 
       if (count !== 0 || isManual) {
-        console.log(`Sync complete. Reloading data...`);
+        if (isManual) console.log(`Sync complete. Reloading data...`);
         loadData(true);
       }
 
-      // 5. 서버 캘린더 목록과 비교해서 삭제된 캘린더 정리 (createdFromApp 및 일반 CalDAV 모두)
-      const hasCalDAVCalendars = calendarMetadata.some(c =>
-        !c.isLocal && !c.isSubscription && c.type !== 'subscription'
-      );
-
-      if (hasCalDAVCalendars) {
-        try {
-          const serverCalendars = await getCalendars(config);
-          const serverUrls = serverCalendars.map(c => c.url);
-          refreshMetadataWithServerList(serverUrls);
-        } catch (e) {
-          // 캘린더 목록 가져오기 실패해도 동기화는 정상 진행
-          console.warn('서버 캘린더 목록 확인 실패:', e);
-        }
-      }
+      // 5. 서버 캘린더 목록 확인 로직은 매번 Sync마다 수행하면 오버헤드 및 무한 리렌더링 위험이 있으므로,
+      // 별도의 주기적 확인이나 초기화 단계로 이동하는 것이 좋음. 현재는 제거.
+      // const hasCalDAVCalendars = ...
     } catch (error: any) {
       if (error?.message === 'Network is offline' || error?.code === 'OFFLINE') {
         console.log('Sync skipped (Offline)');
@@ -147,6 +139,7 @@ export const MainLayout = ({
     futureUnits: futureWeeks,
     unitDays: 7,
     baseDate: getWeekStartForDate(new Date(), weekOrder),
+    enabled: isSyncEnabled, // Only sync after metadata check
     onSync
   });
 
@@ -249,6 +242,62 @@ export const MainLayout = ({
     }
     loadAvatar();
   }, [session]);
+
+  // Handlers for AppHeader
+  // 앱 초기 로드 시 1회: 유령 캘린더 정리를 위한 메타데이터 검증
+  useEffect(() => {
+    // 캘린더 메타데이터가 로드되지 않았으면 대기
+    if (calendarMetadata.length === 0) return;
+
+    // 이미 체크했으면 Sync 활성화
+    if (hasMetadataCheckedRef.current) {
+      if (!isSyncEnabled) setIsSyncEnabled(true);
+      return;
+    }
+
+    // CalDAV 캘린더 확인
+    const hasCalDAV = calendarMetadata.some(c =>
+      !c.isLocal && !c.isSubscription && c.type !== 'subscription' && c.url.startsWith('http')
+    );
+
+    // CalDAV가 없으면 즉시 Sync 활성화
+    if (!hasCalDAV) {
+      setIsSyncEnabled(true);
+      hasMetadataCheckedRef.current = true;
+      return;
+    }
+
+    // CalDAV가 있으면 검증 후 활성화
+    const checkMetadata = async () => {
+      try {
+        const settings = await getCalDAVSyncSettings();
+        if (!settings) {
+          setIsSyncEnabled(true);
+          return;
+        }
+
+        const config: CalDAVConfig = {
+          serverUrl: settings.serverUrl,
+          username: settings.username,
+          password: settings.password,
+          settingId: settings.id
+        };
+        const serverCalendars = await getCalendars(config);
+        const serverUrls = serverCalendars.map(c => c.url);
+        // 여기서 유령 캘린더 정리됨
+        refreshMetadataWithServerList(serverUrls);
+      } catch (e) {
+        console.warn('[MainLayout] Metadata validation failed:', e);
+      } finally {
+        setIsSyncEnabled(true);
+      }
+    };
+
+    checkMetadata();
+    hasMetadataCheckedRef.current = true;
+  }, [calendarMetadata, refreshMetadataWithServerList, isSyncEnabled]);
+
+
 
   // Handlers for AppHeader
   const scrollToToday = useCallback(() => {

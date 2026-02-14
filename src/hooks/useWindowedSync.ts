@@ -46,11 +46,14 @@ export function useWindowedSync({
   onSync
 }: UseWindowedSyncOptions): UseWindowedSyncResult {
 
-  // Keep refs for latest values to avoid stale closures in setTimeout/setInterval
+  // Keep refs for latest values to avoid stale closures
   const stateRef = useRef({ pastUnits, futureUnits, baseDate });
+  const onSyncRef = useRef(onSync);
+
   useEffect(() => {
     stateRef.current = { pastUnits, futureUnits, baseDate };
-  }, [pastUnits, futureUnits, baseDate]);
+    onSyncRef.current = onSync;
+  }, [pastUnits, futureUnits, baseDate, onSync]);
 
   const lastSyncedPastUnitsRef = useRef(pastUnits);
   const lastSyncedFutureUnitsRef = useRef(futureUnits);
@@ -97,14 +100,16 @@ export function useWindowedSync({
     const range = { startDate, endDate };
 
     // 2. Execute Sync
-    onSync(range, isManual).then(() => {
-      // Update Refs on success
-      if (isManual) {
-        lastSyncedPastUnitsRef.current = Math.max(lastSyncedPastUnitsRef.current, currentPast);
-        lastSyncedFutureUnitsRef.current = Math.max(lastSyncedFutureUnitsRef.current, currentFuture);
-      }
-    });
-  }, [chunkSizeUnits, bufferUnits, onSync, getDateByOffset]);
+    if (onSyncRef.current) {
+        onSyncRef.current(range, isManual).then(() => {
+          // Update Refs on success
+          if (isManual) {
+            lastSyncedPastUnitsRef.current = Math.max(lastSyncedPastUnitsRef.current, currentPast);
+            lastSyncedFutureUnitsRef.current = Math.max(lastSyncedFutureUnitsRef.current, currentFuture);
+          }
+        });
+    }
+  }, [chunkSizeUnits, bufferUnits, getDateByOffset]);
 
   const trigger = useCallback(() => triggerSync(true), [triggerSync]);
 

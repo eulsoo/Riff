@@ -120,7 +120,9 @@ export const useCalendarMetadata = () => {
     let hasChanges = false;
     const updatedList = metaList.reduce((acc, cal) => {
       // 로컬 캘린더나 구독 캘린더는 건드리지 않음
-      if (cal.isLocal || cal.type === 'subscription' || cal.isSubscription) {
+      // 단, 로컬 캘린더라도 URL이 http/https이면 검증 대상에 포함 (잘못된 메타데이터 수정 위해) or converted ones
+      const isHttp = cal.url.startsWith('http');
+      if ((cal.isLocal && !isHttp) || cal.type === 'subscription' || cal.isSubscription) {
         acc.push(cal);
         return acc;
       }
@@ -158,9 +160,11 @@ export const useCalendarMetadata = () => {
       hasChanges = true;
       if (cal.createdFromApp) {
         // 1. 앱에서 만든 캘린더: 로컬 캘린더로 전환 (데이터 보존)
+        // URL도 로컬 형식으로 변경해야 함
         console.log(`캘린더 "${cal.displayName}"이(가) 서버에서 삭제됨 - 로컬 캘린더로 전환`);
         acc.push({ 
           ...cal, 
+          url: `local-restored-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
           createdFromApp: false,
           isLocal: true,
           type: 'local' as const,
