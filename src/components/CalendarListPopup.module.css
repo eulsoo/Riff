@@ -87,8 +87,8 @@
 .checkbox {
   appearance: none;
   -webkit-appearance: none;
-  width: 1.25rem;
-  height: 1.25rem;
+  width: 1rem;
+  height: 1rem;
   border: none;
   border-radius: 4px;
   background-color: var(--cal-color, #d1d5db);
@@ -235,6 +235,95 @@
   background-color: #fef2f2;
 }
 
+/* delete 키는 CSS module에서 직접 클래스로 사용 */
+.contextMenuItemDelete {
+  color: #ef4444;
+}
+
+.contextMenuItemDelete:hover {
+  background-color: #fef2f2;
+}
+
+/* ---- 색상 칩 행 ---- */
+.colorChipRow {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.colorChipRow::-webkit-scrollbar {
+  display: none;
+}
+
+.colorChip {
+  position: relative;
+  width: 16px;
+  height: 16px;
+  border-radius: 4px;
+  border: 1px solid rgba(0, 0, 0, 0.18);
+  cursor: pointer;
+  flex-shrink: 0;
+  padding: 0;
+  transition: transform 0.15s;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.colorChip:hover {
+  transform: scale(1.18);
+  box-shadow: 0 2px 6px rgba(0,0,0,0.22);
+}
+
+.colorChip:active {
+  transform: scale(0.95);
+}
+
+/* 현재 색상 칩 (슬롯 0): 흰 링 테두리로 식별 */
+.colorChipCurrent {
+  box-shadow: 0 0 0 2px white, 0 0 0 3px rgba(0, 0, 0, 0.3);
+  cursor: pointer;
+}
+
+.colorChipCurrent:hover {
+  transform: scale(1.12);
+}
+
+.colorChipCheck {
+  color: white;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1;
+  text-shadow: 0 1px 2px rgba(0,0,0,0.3);
+  pointer-events: none;
+}
+
+.colorChipMore {
+  width: 16px;
+  height: 16px;
+  border-radius: 4px;
+  border: 1.5px solid #d1d5db;
+  background: #f9fafb;
+  cursor: pointer;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #6b7280;
+  transition: background-color 0.15s, border-color 0.15s;
+  padding: 0;
+}
+
+.colorChipMore:hover {
+  background: #f3f4f6;
+  border-color: #9ca3af;
+  color: #374151;
+}
+
+
 .colorGrid {
   display: flex;
   gap: 0.5rem;
@@ -311,9 +400,129 @@
   color: var(--color-gray-400, #6b7280);
   cursor: pointer;
   transition: color 0.2s;
-  font-size: 1.2rem !important;
+  font-size: 1rem !important;
 }
 
 .actionIcon:hover {
   color: #374151;
+}
+
+/* Subscription Settings Popup */
+.subscriptionSettingsOverlay {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  animation: fadeIn 0.15s ease;
+}
+
+.subscriptionSettingsPopup {
+  background: white;
+  border-radius: 14px;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.15);
+  padding: 1.25rem;
+  min-width: 340px;
+  max-width: 420px;
+  width: 90vw;
+  animation: popIn 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes popIn {
+  from {
+    opacity: 0;
+    transform: scale(0.95);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+.subscriptionSettingsHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 1rem;
+}
+
+.subscriptionSettingsTitle {
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: #1f2937;
+}
+
+.subscriptionSettingsClose {
+  border: none;
+  background: none;
+  cursor: pointer;
+  color: #9ca3af;
+  padding: 2px;
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background-color 0.15s, color 0.15s;
+}
+
+.subscriptionSettingsClose:hover {
+  background-color: #f3f4f6;
+  color: #374151;
+}
+
+.subscriptionSettingsLabel {
+  font-size: 0.75rem;
+  font-weight: 500;
+  color: #6b7280;
+  margin-bottom: 0.35rem;
+  display: block;
+}
+
+.subscriptionUrlRow {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.subscriptionUrlInput {
+  flex: 1;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  padding: 0.5rem 0.65rem;
+  font-size: 0.8rem;
+  color: #374151;
+  background: #f9fafb;
+  outline: none;
+  min-width: 0;
+  transition: border-color 0.15s;
+}
+
+.subscriptionUrlInput:focus {
+  border-color: #3b82f6;
+  background: white;
+}
+
+.subscriptionCopyButton {
+  border: 1px solid #e5e7eb;
+  background: white;
+  border-radius: 8px;
+  padding: 0.45rem 0.55rem;
+  cursor: pointer;
+  color: #6b7280;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background-color 0.15s, color 0.15s, border-color 0.15s;
+  flex-shrink: 0;
+}
+
+.subscriptionCopyButton:hover {
+  background-color: #f3f4f6;
+  color: #374151;
+  border-color: #d1d5db;
+}
+
+.subscriptionCopyButton:active {
+  background-color: #e5e7eb;
 }

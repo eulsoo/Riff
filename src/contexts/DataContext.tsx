@@ -10,6 +10,7 @@ import {
   createRoutine, deleteRoutine as apiDeleteRoutine, updateRoutine as apiUpdateRoutine,
   toggleRoutineCompletion,
   createTodo, updateTodo as apiUpdateTodo, deleteTodo as apiDeleteTodo,
+  updateTodoPositions,
   fetchDiaryEntry, deleteDiaryEntry as apiDeleteDiaryEntry,
   upsertDiaryEntry
 } from '../services/api';
@@ -237,17 +238,51 @@ export const DataProvider = ({
     });
   }, [setRoutineCompletions]);
 
+  // ── 중앙 재정렬 + DB 저장 함수 ──
+  // 투두 리스트를 정렬 규칙에 따라 재배치하고 position을 DB에 저장
+  const resortAndPersist = useCallback((todoList: Todo[]): Todo[] => {
+    const completed = todoList.filter(t => t.completed);
+    const uncompleted = todoList.filter(t => !t.completed);
+
+    // 완료 그룹: position 순서 유지
+    completed.sort((a, b) => (a.position ?? Infinity) - (b.position ?? Infinity));
+
+    // 미완료 그룹: deadline ASC (없으면 맨 뒤)
+    uncompleted.sort((a, b) => {
+      if (!a.deadline && !b.deadline) return (a.position ?? 0) - (b.position ?? 0);
+      if (!a.deadline) return 1;
+      if (!b.deadline) return -1;
+      return a.deadline.localeCompare(b.deadline);
+    });
+
+    // position 재할당
+    const sorted = [...completed, ...uncompleted];
+    const withPositions = sorted.map((t, idx) => ({ ...t, position: idx }));
+
+    // DB에 position 저장 (비동기, 실패해도 UI 불변)
+    const positionUpdates = withPositions
+      .filter(t => !t.id.startsWith('temp-'))
+      .map(t => ({ id: t.id, position: t.position! }));
+    if (positionUpdates.length > 0) {
+      updateTodoPositions(positionUpdates);
+    }
+
+    return withPositions;
+  }, []);
+
   // --- Todos (with undo support) ---
   const addTodo = useCallback(async (weekStart: string, text: string, deadline?: string) => {
     const tempId = `temp-${Date.now()}`;
-    const tempTodo: Todo = { id: tempId, weekStart, text, completed: false, deadline };
-    setTodos(prev => [...prev, tempTodo]);
+    const maxPosition = todosRef.current.reduce((max, t) => Math.max(max, t.position ?? 0), 0);
+    const tempTodo: Todo = { id: tempId, weekStart, text, completed: false, deadline, position: maxPosition + 1 };
+
+    setTodos(prev => resortAndPersist([...prev, tempTodo]));
 
     try {
-      const newTodo = await createTodo({ weekStart, text, completed: false, deadline });
+      const newTodo = await createTodo({ weekStart, text, completed: false, deadline, position: maxPosition + 1 });
       if (newTodo) {
         const todoWithFlag = { ...newTodo, isNew: true };
-        setTodos(prev => prev.map(t => t.id === tempId ? todoWithFlag : t));
+        setTodos(prev => resortAndPersist(prev.map(t => t.id === tempId ? todoWithFlag : t)));
         recordAction({
           category: 'todo',
           type: 'CREATE',
@@ -263,17 +298,20 @@ export const DataProvider = ({
       console.error("Add Todo Exception", e);
       return null;
     }
-  }, [setTodos, recordAction]);
+  }, [setTodos, recordAction, resortAndPersist]);
 
   const toggleTodo = useCallback(async (todoId: string) => {
     const oldTodo = todosRef.current.find(t => t.id === todoId);
+
     setTodos(prev => {
       const todo = prev.find(t => t.id === todoId);
       if (!todo) return prev;
       const completed = !todo.completed;
       apiUpdateTodo(todoId, { completed });
-      return prev.map(t => t.id === todoId ? { ...t, completed } : t);
+      const updated = prev.map(t => t.id === todoId ? { ...t, completed } : t);
+      return resortAndPersist(updated);
     });
+
     if (oldTodo) {
       recordAction({
         category: 'todo',
@@ -283,7 +321,7 @@ export const DataProvider = ({
         description: `투두 토글: ${oldTodo.text}`,
       });
     }
-  }, [setTodos, recordAction]);
+  }, [setTodos, recordAction, resortAndPersist]);
 
   const updateTodo = useCallback(async (todoId: string, text: string, deadline?: string) => {
     const oldTodo = todosRef.current.find(t => t.id === todoId);
@@ -291,7 +329,8 @@ export const DataProvider = ({
     if (deadline !== undefined) updates.deadline = deadline;
     const updated = await apiUpdateTodo(todoId, updates);
     if (updated) {
-      setTodos(prev => prev.map(t => t.id === todoId ? updated : t));
+      // deadline 변경 시 재정렬 적용
+      setTodos(prev => resortAndPersist(prev.map(t => t.id === todoId ? updated : t)));
       if (oldTodo) {
         recordAction({
           category: 'todo',
@@ -302,7 +341,7 @@ export const DataProvider = ({
         });
       }
     }
-  }, [setTodos, recordAction]);
+  }, [setTodos, recordAction, resortAndPersist]);
 
   const deleteTodo = useCallback(async (todoId: string) => {
     const todoToDelete = todosRef.current.find(t => t.id === todoId);

@@ -1,7 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { CalendarMetadata, getCalendarMetadata, saveLocalCalendarMetadata, normalizeCalendarUrl, saveCalendarMetadata, upsertEvent } from '../services/api';
-import { fetchAndParseICS } from '../services/icsParser';
-
+import { CalendarMetadata, getCalendarMetadata, saveLocalCalendarMetadata, normalizeCalendarUrl, saveCalendarMetadata } from '../services/api';
 export const useCalendarMetadata = () => {
   const [calendarMetadata, setCalendarMetadata] = useState<CalendarMetadata[]>([]);
   const [visibleCalendarUrlSet, setVisibleCalendarUrlSet] = useState<Set<string>>(new Set());
@@ -35,48 +33,35 @@ export const useCalendarMetadata = () => {
     }
     
     if (!visible.has('local')) visible.add('local');
-    
-    // Check for South Korea Holidays (Apple iCloud)
-    const HOLIDAY_CAL_URL = 'https://calendars.icloud.com/holidays/kr_ko.ics/';
-    const normalizedHolidayUrl = normalizeCalendarUrl(HOLIDAY_CAL_URL);
-    const synced = localStorage.getItem('holiday_synced_v2');
 
-    if (normalizedHolidayUrl && (!visible.has(normalizedHolidayUrl) || !synced)) {
-        // Add metadata immediately if missing
-        if (!visible.has(normalizedHolidayUrl)) {
-            const holidayMeta: CalendarMetadata = {
-                url: HOLIDAY_CAL_URL, 
-                displayName: '대한민국 공휴일(Apple)',
-                color: '#EF4444',
-                isVisible: true,
-                isLocal: false,
-                type: 'subscription',
-                subscriptionUrl: HOLIDAY_CAL_URL
-            };
-            metaList.push(holidayMeta);
-            visible.add(normalizedHolidayUrl);
-            saveCalendarMetadata(metaList);
-        }
-        
-        // Fetch and sync events in background
-        const now = new Date();
-        const start = new Date(now.getFullYear() - 1, 0, 1);
-        const end = new Date(now.getFullYear() + 2, 11, 31);
-        
-        fetchAndParseICS(HOLIDAY_CAL_URL, start, end).then(events => {
-            console.log(`Fetched ${events.length} holiday events`);
-            if (events.length > 0) {
-                events.forEach(ev => {
-                    upsertEvent({
-                        ...ev,
-                        calendarUrl: normalizedHolidayUrl,
-                        source: 'caldav' 
-                    });
-                });
-                localStorage.setItem('holiday_synced_v2', 'true');
-            }
-        }).catch(err => console.error('Failed to sync holidays:', err));
+    // 첫 방문 시 Apple 한국 공휴일 구독 캘린더 기본 추가
+    const KOREA_HOLIDAYS_URL = 'https://calendars.apple.com/subscriptions/holidays/ko_KR.ics';
+    const holidayExists = metaList.some(c =>
+      c.url === KOREA_HOLIDAYS_URL ||
+      c.subscriptionUrl === KOREA_HOLIDAYS_URL ||
+      c.url.includes('ko_KR') ||
+      c.url.includes('holidays')
+    );
+    if (!holidayExists) {
+      const holidayCal: CalendarMetadata = {
+        url: KOREA_HOLIDAYS_URL,
+        displayName: '대한민국 공휴일',
+        color: '#ff3b30',
+        isVisible: true,
+        isLocal: false,
+        isSubscription: true,
+        type: 'subscription',
+        subscriptionUrl: KOREA_HOLIDAYS_URL,
+        readOnly: true,
+      };
+      metaList.push(holidayCal);
+      // subscription 메타데이터 저장 (local 제외)
+      saveCalendarMetadata(metaList.filter(c => !c.isLocal));
+      visible.add(KOREA_HOLIDAYS_URL);
     }
+
+    
+    // Hardcoded holiday calendar Logic Removed
 
     // Update state
     setCalendarMetadata(metaList);
@@ -189,10 +174,11 @@ export const useCalendarMetadata = () => {
   }, []);
 
   const toggleCalendarVisibility = useCallback((url: string) => {
+      const normalizedUrl = normalizeCalendarUrl(url) || url;
       setVisibleCalendarUrlSet(prev => {
           const next = new Set(prev);
-          if (next.has(url)) next.delete(url);
-          else next.add(url);
+          if (next.has(normalizedUrl)) next.delete(normalizedUrl);
+          else next.add(normalizedUrl);
           return next;
       });
   }, []);
@@ -217,7 +203,14 @@ export const useCalendarMetadata = () => {
   const updateLocalCalendar = useCallback((url: string, updates: Partial<CalendarMetadata>) => {
     setCalendarMetadata(prev => {
       const next = prev.map(c => c.url === url ? { ...c, ...updates } : c);
-      saveLocalCalendarMetadata(next);
+      // 로컬 캘린더는 로컬 스토리지에, 비로컬(iCloud/구독) 캘린더는 CalDAV 스토리지에 저장
+      const target = next.find(c => c.url === url);
+      if (target?.isLocal) {
+        saveLocalCalendarMetadata(next);
+      } else {
+        // iCloud CalDAV, 구독 캘린더 등 - CalDAV 메타데이터 스토리지에 저장
+        saveCalendarMetadata(next.filter(c => !c.isLocal));
+      }
       return next;
     });
   }, []);
@@ -254,6 +247,7 @@ export const useCalendarMetadata = () => {
 
   return {
     calendarMetadata,
+    setCalendarMetadata,
     visibleCalendarUrlSet,
     setVisibleCalendarUrlSet,
     toggleCalendarVisibility,

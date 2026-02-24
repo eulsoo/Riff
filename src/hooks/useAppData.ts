@@ -8,6 +8,7 @@ import {
   fetchEvents, fetchRoutines, fetchRoutineCompletions,
   fetchTodos, 
   updateTodo,
+  updateTodoPositions,
   fetchDiaryEntriesByRange
 } from '../services/api';
 import { getCacheKey, readCache, writeCache } from '../lib/cache';
@@ -55,6 +56,29 @@ export const useAppData = (
 
     return { startDate, endDate };
   }, [getWeekStartForDate, pastWeeks, futureWeeks, formatLocalDate]);
+
+  // 중앙 정렬 함수: 완료(먼저) → 미완료(나중, deadline ASC → 없으면 맨 뒤)
+  // 정렬 후 position 값 재할당
+  const sortTodosGrouped = useCallback((todoList: Todo[]): Todo[] => {
+    const completed = todoList.filter(t => t.completed);
+    const uncompleted = todoList.filter(t => !t.completed);
+
+    // 완료 그룹: position 순서 유지 (체크 순서 보존)
+    completed.sort((a, b) => (a.position ?? Infinity) - (b.position ?? Infinity));
+
+    // 미완료 그룹: deadline이 PRIMARY (position 무시)
+    uncompleted.sort((a, b) => {
+      // 둘 다 deadline 없으면 position으로 (추가된 순서)
+      if (!a.deadline && !b.deadline) return (a.position ?? 0) - (b.position ?? 0);
+      if (!a.deadline) return 1;  // deadline 없는 것 맨 뒤
+      if (!b.deadline) return -1;
+      return a.deadline.localeCompare(b.deadline);
+    });
+
+    // position 재할당
+    const sorted = [...completed, ...uncompleted];
+    return sorted.map((t, idx) => ({ ...t, position: idx }));
+  }, []);
 
   const rolloverTodosToCurrentWeek = useCallback(async (todosData: Todo[]) => {
     const currentTodoWeekStart = getCurrentTodoWeekStart();
@@ -130,23 +154,8 @@ export const useAppData = (
             
             let finalTodos = [...cachedTodos, ...localOnly];
             
-            // Apply saved order (Cache Hydration)
-            if (typeof window !== 'undefined') {
-               try {
-                 const saved = localStorage.getItem('todo_order_v1');
-                 if (saved) {
-                   const orderList = JSON.parse(saved);
-                   if (Array.isArray(orderList)) {
-                     const orderMap = new Map(orderList.map((id, index) => [id, index]));
-                     finalTodos.sort((a, b) => {
-                       const idxA = orderMap.get(a.id) ?? Number.MAX_SAFE_INTEGER;
-                       const idxB = orderMap.get(b.id) ?? Number.MAX_SAFE_INTEGER;
-                       return idxA - idxB;
-                     });
-                   }
-                 }
-               } catch { /* ignore */ }
-            }
+            // position 기반 그룹 정렬 적용
+            finalTodos = sortTodosGrouped(finalTodos);
             return finalTodos;
           });
           const endAt = typeof performance !== 'undefined' ? performance.now() : Date.now();
@@ -197,23 +206,8 @@ export const useAppData = (
         
         let finalTodos = [...rolledTodos, ...keptTodos];
 
-        // Apply saved order from localStorage
-        if (typeof window !== 'undefined') {
-           try {
-             const saved = localStorage.getItem('todo_order_v1');
-             if (saved) {
-               const orderList = JSON.parse(saved);
-               if (Array.isArray(orderList)) {
-                 const orderMap = new Map(orderList.map((id, index) => [id, index]));
-                 finalTodos.sort((a, b) => {
-                   const idxA = orderMap.get(a.id) ?? Number.MAX_SAFE_INTEGER;
-                   const idxB = orderMap.get(b.id) ?? Number.MAX_SAFE_INTEGER;
-                   return idxA - idxB;
-                 });
-               }
-             }
-           } catch { /* ignore */ }
-        }
+        // position 기반 그룹 정렬 적용
+        finalTodos = sortTodosGrouped(finalTodos);
         
         return finalTodos;
       });
@@ -264,18 +258,22 @@ export const useAppData = (
   }, []);
 
   const reorderWeekTodos = useCallback((_weekStart: string, newOrderedTodos: Todo[]) => {
+    // position 값 할당
+    const todosWithPositions = newOrderedTodos.map((t, idx) => ({ ...t, position: idx }));
+    
     setTodos(prev => {
-      const newIds = new Set(newOrderedTodos.map(t => t.id));
+      const newIds = new Set(todosWithPositions.map(t => t.id));
       const otherTodos = prev.filter(t => !newIds.has(t.id));
-      const nextState = [...otherTodos, ...newOrderedTodos];
-      
-      // Save order to localStorage
-      if (typeof window !== 'undefined') {
-        const orderList = nextState.map(t => t.id);
-        localStorage.setItem('todo_order_v1', JSON.stringify(orderList));
-      }
-      return nextState;
+      return [...otherTodos, ...todosWithPositions];
     });
+
+    // DB에 position 저장 (비동기)
+    const positionUpdates = todosWithPositions
+      .filter(t => !t.id.startsWith('temp-'))
+      .map(t => ({ id: t.id, position: t.position! }));
+    if (positionUpdates.length > 0) {
+      updateTodoPositions(positionUpdates);
+    }
   }, []);
 
   return {

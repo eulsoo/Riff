@@ -219,14 +219,9 @@ const invokeCalDavProxy = async <T>(
   }
 
   const doFetch = async () => {
-    // settingId가 있으면 password 필드를 제거하여, Edge Function이 DB 저장된 비밀번호를 복호화해서 사용하도록 유도
-    // 단, saveSettings 액션은 평문 비밀번호를 저장해야 하므로 제외
+    // 이미 백엔드 프록시에서 requestData.password가 있으면 우선 사용하도록 되어 있음
+    // 클라이언트에서 강제로 지우면, 유저가 새로 입력한 암호가 전달되지 않는 문제가 발생하므로 삭제 로직 제거
     const payload = { ...body };
-    if (payload.settingId && payload.password && payload.action !== 'saveSettings') {
-       // console.log("Invoke Proxy: settingId detected, removing password sent from client to use stored credentials.");
-       delete payload.password;
-    }
-
     const response = await fetch(`${supabaseUrl}/functions/v1/caldav-proxy`, {
       method: 'POST',
       headers: {
@@ -252,7 +247,16 @@ const invokeCalDavProxy = async <T>(
         // ignore
       }
       
-      const error = new Error(`Edge Function returned ${response.status}: ${detailedMessage.substring(0, 300)}`);
+      let errorMessage = detailedMessage.substring(0, 300);
+      
+      // 사용자에게 노출할 에러는 백엔드 수식어를 붙이지 않음
+      if (detailedMessage.includes('애플 계정 인증에 실패')) {
+         errorMessage = detailedMessage;
+      } else {
+         errorMessage = `서버 통신 오류 (${response.status}): ${errorMessage}`;
+      }
+
+      const error = new Error(errorMessage);
       (error as any).status = response.status;
       (error as any).body = errorText;
       throw error;
@@ -332,6 +336,7 @@ export async function fetchCalendarEvents(
   try {
     const startDateStr = startDate ? startDate.toISOString().split('T')[0] : undefined;
     const endDateStr = endDate ? endDate.toISOString().split('T')[0] : undefined;
+    const userTimezone = localStorage.getItem('appTimezone') || Intl.DateTimeFormat().resolvedOptions().timeZone;
     const data = await invokeCalDavProxy<Omit<Event, 'id'>[]>({
       serverUrl: config.serverUrl,
       username: config.username,
@@ -341,6 +346,7 @@ export async function fetchCalendarEvents(
       calendarUrl,
       startDate: startDateStr,
       endDate: endDateStr,
+      userTimezone,
     });
 
     if (!data || !Array.isArray(data)) {
@@ -380,6 +386,7 @@ export async function fetchSyncCollection(
   calendarUrl: string,
   syncToken: string
 ): Promise<SyncCollectionResult> {
+  const userTimezone = localStorage.getItem('appTimezone') || Intl.DateTimeFormat().resolvedOptions().timeZone;
   const data = await invokeCalDavProxy<{
     events?: Omit<Event, 'id'>[];
     syncToken?: string | null;
@@ -392,6 +399,7 @@ export async function fetchSyncCollection(
     action: 'syncCollection',
     calendarUrl,
     syncToken,
+    userTimezone,
   });
 
   return {
@@ -485,6 +493,8 @@ export async function syncSelectedCalendars(
 
         // CalDAV에서 가져온 이벤트 처리
         for (const event of eventsToProcess) {
+          // [NOTE] 타임존 처리는 Edge Function(parseICalDateTime)에서 올바르게 수행됨
+          // 이전에 있던 +1일 보정 워크어라운드는 제거 (근본 원인이 해결되었으므로)
           // UID가 있는 경우 UID로 중복 체크, 없으면 기존 방식 사용
           const eventWithUID = event as any;
           const uid = eventWithUID.uid;
@@ -504,8 +514,9 @@ export async function syncSelectedCalendars(
                   memo?: string | null;
                   startTime?: string | null;
                   endTime?: string | null;
+                  endDate?: string | null;
                   color?: string;
-                  etag?: string | null; // ETag 추가
+                  etag?: string | null;
                 } = {};
 
                 if (existing.title !== event.title) updates.title = event.title;
@@ -516,6 +527,12 @@ export async function syncSelectedCalendars(
                 }
                 if (normalizeTime(existing.endTime) !== normalizeTime(event.endTime)) {
                   updates.endTime = event.endTime ?? null;
+                }
+                // endDate 변경 감지 (여러 날 종일 일정)
+                const existingEndDate = (existing as any).endDate ?? null;
+                const newEndDate = (event as any).endDate ?? null;
+                if (existingEndDate !== newEndDate) {
+                  updates.endDate = newEndDate;
                 }
                 if (existing.color !== event.color) updates.color = event.color;
                 if ((existing.etag ?? null) !== (event.etag ?? null)) updates.etag = event.etag ?? null;
@@ -614,6 +631,20 @@ export async function syncSelectedCalendars(
         writeSyncTokens(config, syncTokens);
 
       } catch (error: any) {
+        // [Safety] 401 인증 에러(계정 잠김/암호 변경 등) 발생 시,
+        // 남은 캘린더들에 대해서도 불필요한 요청을 보내지 않도록 즉시 동기화를 중단합니다.
+        // 이를 통해 Edge Function 호출 비용과 트래픽(Egress) 낭비를 방지합니다.
+        const isAuthError =
+          error?.message?.includes('401') ||
+          error?.message?.includes('Unauthorized') ||
+          error?.status === 401 ||
+          (error?.body && error.body.includes('401'));
+
+        if (isAuthError) {
+           console.error(`[Critical] Auth Error on ${calendarUrl}. Aborting remaining syncs.`);
+           throw error; // 루프 종료 및 에러 전파
+        }
+
         if (error?.code === 'OFFLINE' || error?.message === 'Network is offline') {
              // Suppress log when offline
         } else {

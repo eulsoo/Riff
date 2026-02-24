@@ -43,7 +43,7 @@ function parseICalEvent(vevent: ICAL.Component): Omit<Event, 'id'> | null {
     if (!dtstart) return null;
     
     const startDate = dtstart.toJSDate();
-    const date = startDate.toISOString().split('T')[0];
+    const date = getLocalJSDateString(startDate);
     
     let startTime: string | undefined;
     let endTime: string | undefined;
@@ -75,6 +75,13 @@ function formatTime(date: Date): string {
   const hours = String(date.getHours()).padStart(2, '0');
   const minutes = String(date.getMinutes()).padStart(2, '0');
   return `${hours}:${minutes}`;
+}
+
+function getLocalJSDateString(date: Date): string {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
 }
 
 /**
@@ -112,19 +119,38 @@ export async function importICSFile(file: File): Promise<number> {
 /**
  * URL에서 ICS를 가져와서 지정된 기간 내의 이벤트를 파싱 (RRULE 지원)
  */
-export async function fetchAndParseICS(url: string, rangeStart: Date, rangeEnd: Date): Promise<Omit<Event, 'id'>[]> {
+export async function fetchAndParseICS(url: string, rangeStart: Date, rangeEnd: Date, defaultColor: string = '#8b5cf6'): Promise<{ events: Omit<Event, 'id'>[]; calendarName?: string }> {
   try {
-    // CORS 프록시 사용 (corsproxy.io)
-    // Note: corsproxy.io requires the URL to be partially encoded or just plain depending on special chars.
-    // Encoding usually safer.
-    const proxyUrl = 'https://corsproxy.io/?' + encodeURIComponent(url);
-    const text = await fetch(proxyUrl).then(r => {
-      if (!r.ok) throw new Error('Fetch failed: ' + r.status);
-      return r.text();
-    });
+    const proxies = [
+      (url: string) => `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`,
+      (url: string) => `https://api.codetabs.com/v1/proxy/?quest=${encodeURIComponent(url)}`,
+      (url: string) => `https://corsproxy.io/?${encodeURIComponent(url)}`
+    ];
+
+    let text = '';
+    let success = false;
+    
+    for (const proxyFn of proxies) {
+        try {
+            const proxyUrl = proxyFn(url);
+            const r = await fetch(proxyUrl);
+            if (r.ok) {
+                text = await r.text();
+                success = true;
+                break;
+            }
+        } catch (err) {
+            console.warn(`Proxy failed: ${proxyFn(url)}`, err);
+        }
+    }
+
+    if (!success || !text) {
+        throw new Error('All CORS proxies failed to fetch the ICS file.');
+    }
 
     const jcalData = ICAL.parse(text);
     const comp = new ICAL.Component(jcalData);
+    const calendarName = comp.getFirstPropertyValue('x-wr-calname') as string | null;
     const vevents = comp.getAllSubcomponents('vevent');
     
     const events: Omit<Event, 'id'>[] = [];
@@ -135,6 +161,8 @@ export async function fetchAndParseICS(url: string, rangeStart: Date, rangeEnd: 
       const description = event.description;
       const uid = event.uid;
       
+      const eventColor = vevent.getFirstPropertyValue('color') || defaultColor;
+
       if (event.isRecurring()) {
         const iterator = event.iterator();
         let next;
@@ -146,13 +174,49 @@ export async function fetchAndParseICS(url: string, rangeStart: Date, rangeEnd: 
             if (dt < rangeStart) continue;
             if (dt > rangeEnd) break;
             
+            const occ = event.getOccurrenceDetails(next);
+            const startJSDate = occ.startDate.toJSDate();
+            const dateStr = occ.startDate.isDate
+                ? `${occ.startDate.year}-${String(occ.startDate.month).padStart(2, '0')}-${String(occ.startDate.day).padStart(2, '0')}`
+                : getLocalJSDateString(startJSDate);
+
+            const endJSDate = occ.endDate.toJSDate();
+            
+            let startTime: string | undefined;
+            let endTime: string | undefined;
+
+            if (occ.startDate.isDate === false) {
+                startTime = formatTime(startJSDate);
+            }
+            if (occ.endDate && occ.endDate.isDate === false) {
+                endTime = formatTime(endJSDate);
+            }
+
+            let endDateStr: string | undefined;
+            if (occ.endDate) {
+                if (occ.endDate.isDate) {
+                    // 종일 일정: ical.js 컴포넌트 값을 직접 사용 (타임존 변환 방지)
+                    // DTEND는 exclusive이므로 -1일
+                    const endIcal = occ.endDate.clone();
+                    endIcal.day -= 1;
+                    endIcal.adjust(0, 0, 0, 0); // normalize
+                    endDateStr = `${endIcal.year}-${String(endIcal.month).padStart(2, '0')}-${String(endIcal.day).padStart(2, '0')}`;
+                    if (endDateStr === dateStr) endDateStr = undefined;
+                } else {
+                    endDateStr = getLocalJSDateString(endJSDate);
+                }
+            }
+
             events.push({
-                date: dt.toISOString().split('T')[0],
+                date: dateStr,
                 title: summary,
                 memo: description,
-                color: '#EF4444',
+                startTime,
+                endTime,
+                endDate: endDateStr,
+                color: eventColor as string,
                 calendarUrl: url,
-                caldavUid: uid ? `${uid}-${dt.getTime()}` : undefined // Recurrence ID substitute
+                caldavUid: uid ? `${uid}-${dt.getTime()}` : undefined
             } as any);
             
             count++;
@@ -161,21 +225,53 @@ export async function fetchAndParseICS(url: string, rangeStart: Date, rangeEnd: 
       } else {
         const dt = event.startDate.toJSDate();
         if (dt >= rangeStart && dt <= rangeEnd) {
+           const dateStr = event.startDate.isDate
+                ? `${event.startDate.year}-${String(event.startDate.month).padStart(2, '0')}-${String(event.startDate.day).padStart(2, '0')}`
+                : getLocalJSDateString(dt);
+           
+           let startTime: string | undefined;
+           let endTime: string | undefined;
+
+           if (event.startDate.isDate === false) {
+               startTime = formatTime(dt);
+           }
+           if (event.endDate && event.endDate.isDate === false) {
+               endTime = formatTime(event.endDate.toJSDate());
+           }
+
+            let endDateStr: string | undefined;
+            if (event.endDate) {
+                if (event.endDate.isDate) {
+                    // 종일 일정: ical.js 컴포넌트 값을 직접 사용 (타임존 변환 방지)
+                    // DTEND는 exclusive이므로 -1일
+                    const endIcal = event.endDate.clone();
+                    endIcal.day -= 1;
+                    endIcal.adjust(0, 0, 0, 0); // normalize
+                    endDateStr = `${endIcal.year}-${String(endIcal.month).padStart(2, '0')}-${String(endIcal.day).padStart(2, '0')}`;
+                    if (endDateStr === dateStr) endDateStr = undefined;
+                } else {
+                    endDateStr = getLocalJSDateString(event.endDate.toJSDate());
+                }
+            }
+           
            events.push({
-                date: dt.toISOString().split('T')[0],
+                date: dateStr,
                 title: summary,
                 memo: description,
-                color: '#EF4444',
+                startTime,
+                endTime,
+                endDate: endDateStr,
+                color: eventColor as string,
                 calendarUrl: url,
                 caldavUid: uid
            } as any);
         }
       }
     }
-    return events;
+    return { events, calendarName: calendarName || undefined };
   } catch (e) {
     console.error('Error fetching/parsing ICS:', e);
-    return [];
+    throw e;
   }
 }
 

@@ -122,6 +122,7 @@ interface Calendar {
 
 interface Event {
   date: string;
+  endDate?: string; // 여러 날에 걸치는 종일 일정의 종료일
   title: string;
   memo?: string;
   startTime?: string;
@@ -189,8 +190,12 @@ Deno.serve(async (req) => {
       action: requestData.action 
     });
 
-    const { action, calendarUrl, startDate, endDate, settingId } = requestData;
+    const { action, calendarUrl, startDate, endDate, settingId, userTimezone } = requestData;
     let { serverUrl, username, password } = requestData;
+
+    // 사용자 timezone offset 계산 (UTC 이벤트 변환 시 사용)
+    const userTzOffsetMinutes = userTimezone ? getOffsetMinutesForTimezone(userTimezone) : 9 * 60; // 기본 KST
+
 
     // 만약 settingId가 제공되었다면 DB에서 보안 설정 조회
     if (settingId) {
@@ -343,7 +348,7 @@ Deno.serve(async (req) => {
           );
         }
         console.log('이벤트 가져오기 시작');
-        result = await fetchCalendarEvents(serverUrl, username, password, calendarUrl, startDate, endDate);
+        result = await fetchCalendarEvents(serverUrl, username, password, calendarUrl, startDate, endDate, userTzOffsetMinutes);
         console.log('이벤트 가져오기 완료:', result.length);
       } else if (action === 'getSyncToken') {
         if (!calendarUrl) {
@@ -533,6 +538,9 @@ async function fetchCalendars(serverUrl: string, username: string, password: str
       const errorText = await response.text();
       console.error('Error Body:', errorText.substring(0, 500));
       const authHeader = response.headers.get('www-authenticate') || 'None';
+      if (response.status === 401) {
+         throw new Error('애플 계정 인증에 실패했습니다. 올바른 앱 전용 비밀번호(예: aaaa-bbbb-cccc-dddd)를 입력했는지 확인해주세요. (일반 Apple ID 암호를 사용하면 로그인할 수 없습니다)');
+      }
       throw new Error(`캘린더 서버 연결 실패: ${response.url} (HTTP ${response.status}), Auth-Header: ${authHeader}`);
     }
 
@@ -832,7 +840,8 @@ async function fetchCalendarEvents(
   password: string,
   calendarUrl: string,
   startDate?: string,
-  endDate?: string
+  endDate?: string,
+  userTzOffsetMinutes: number = 9 * 60
 ): Promise<Omit<Event, 'id'>[]> {
   console.log('fetchCalendarEvents 시작:', calendarUrl);
   
@@ -884,8 +893,8 @@ async function fetchCalendarEvents(
     }
 
     const xmlText = await response.text();
-    // 캘린더 색상을 기본값으로 전달
-    const events = parseEventsFromXML(xmlText, calendarColor || '#3b82f6');
+    // 캘린더 색상과 사용자 timezone을 함께 전달
+    const events = parseEventsFromXML(xmlText, calendarColor || '#3b82f6', userTzOffsetMinutes);
     console.log('파싱된 이벤트 수:', events.length);
     
     return events;
@@ -1183,12 +1192,12 @@ async function deleteEvent(
 }
 
 
-function parseEventsFromICalText(icalText: string, defaultColor: string): Omit<Event, 'id'>[] {
+function parseEventsFromICalText(icalText: string, defaultColor: string, userTzOffsetMinutes: number = 9 * 60): Omit<Event, 'id'>[] {
   const events: Omit<Event, 'id'>[] = [];
   const veventRegex = /BEGIN:VEVENT[\s\S]*?END:VEVENT/g;
   const matches = icalText.match(veventRegex) || [];
   for (const block of matches) {
-    const event = parseICalEvent(block, defaultColor);
+    const event = parseICalEvent(block, defaultColor, userTzOffsetMinutes);
     if (event) {
       events.push(event);
     }
@@ -1197,7 +1206,7 @@ function parseEventsFromICalText(icalText: string, defaultColor: string): Omit<E
 }
 
 // XML에서 이벤트 파싱
-function parseEventsFromXML(xmlText: string, defaultColor: string): Omit<Event, 'id'>[] {
+function parseEventsFromXML(xmlText: string, defaultColor: string, userTzOffsetMinutes: number = 9 * 60): Omit<Event, 'id'>[] {
   const events: Omit<Event, 'id'>[] = [];
   
   console.log('parseEventsFromXML 시작, XML 길이:', xmlText.length);
@@ -1237,7 +1246,7 @@ function parseEventsFromXML(xmlText: string, defaultColor: string): Omit<Event, 
       
       try {
         // parseEventsFromICalText 재사용 (배열 반환)
-        const parsedList = parseEventsFromICalText(icalData, defaultColor);
+        const parsedList = parseEventsFromICalText(icalData, defaultColor, userTzOffsetMinutes);
         for (const event of parsedList) {
           event.etag = etag; // ETag 주입
           events.push(event);
@@ -1252,94 +1261,216 @@ function parseEventsFromXML(xmlText: string, defaultColor: string): Omit<Event, 
   return events;
 }
 
-// iCal 데이터를 Event 형식으로 변환
-function parseICalEvent(icalData: string, defaultColor: string): Omit<Event, 'id'> | null {
+// IANA 타임존 → UTC 오프셋(분) 매핑
+// Edge Function 환경에서는 Intl.DateTimeFormat이 제한적이므로 주요 타임존을 하드코딩
+const TIMEZONE_OFFSETS: Record<string, number> = {
+  'Asia/Seoul': 540,        // UTC+9
+  'Asia/Tokyo': 540,        // UTC+9
+  'Asia/Shanghai': 480,     // UTC+8
+  'Asia/Hong_Kong': 480,    // UTC+8
+  'Asia/Taipei': 480,       // UTC+8
+  'Asia/Singapore': 480,    // UTC+8
+  'Asia/Kolkata': 330,      // UTC+5:30
+  'Asia/Calcutta': 330,     // UTC+5:30
+  'Europe/London': 0,       // UTC+0 (DST 미적용 - 간소화)
+  'Europe/Paris': 60,       // UTC+1
+  'Europe/Berlin': 60,      // UTC+1
+  'America/New_York': -300, // UTC-5
+  'America/Chicago': -360,  // UTC-6
+  'America/Denver': -420,   // UTC-7
+  'America/Los_Angeles': -480, // UTC-8
+  'US/Eastern': -300,
+  'US/Central': -360,
+  'US/Mountain': -420,
+  'US/Pacific': -480,
+  'UTC': 0,
+  'GMT': 0,
+};
+
+function getTimezoneOffsetMinutes(tzid: string): number | null {
+  // 정확한 매칭
+  if (tzid in TIMEZONE_OFFSETS) return TIMEZONE_OFFSETS[tzid];
+  // 대소문자 무시
+  const lower = tzid.toLowerCase();
+  for (const [key, val] of Object.entries(TIMEZONE_OFFSETS)) {
+    if (key.toLowerCase() === lower) return val;
+  }
+  return null;
+}
+
+// DTSTART/DTEND 전체 라인에서 파라미터(TZID, VALUE 등)와 값을 함께 추출
+interface ICalDateTimeParsed {
+  dateStr: string;      // YYYY-MM-DD
+  timeStr?: string;     // HH:MM (로컬 시간 기준)
+  isAllDay: boolean;
+  isUtc: boolean;
+  tzid?: string;
+}
+
+// 타임존 이름으로 UTC 오프셋(분)을 계산 (Intl API 사용 - Deno 환경에서 지원)
+function getOffsetMinutesForTimezone(tzName: string): number {
   try {
-    // 간단한 iCal 파싱 (실제로는 더 복잡한 파서가 필요)
-    // 여러 줄에 걸친 값도 처리 (줄바꿈 후 공백으로 계속되는 경우)
+    // 현재 시각 기준으로 해당 타임존의 오프셋을 계산
+    const now = new Date();
+    const formatter = new Intl.DateTimeFormat('en-US', {
+      timeZone: tzName,
+      year: 'numeric', month: '2-digit', day: '2-digit',
+      hour: '2-digit', minute: '2-digit', second: '2-digit',
+      hour12: false,
+    });
+    const parts = formatter.formatToParts(now);
+    const getPart = (type: string) => parseInt(parts.find(p => p.type === type)?.value || '0');
+    const localDate = new Date(Date.UTC(
+      getPart('year'), getPart('month') - 1, getPart('day'),
+      getPart('hour') % 24, getPart('minute'), getPart('second')
+    ));
+    return Math.round((localDate.getTime() - now.getTime()) / 60000);
+  } catch {
+    // 알 수 없는 타임존이면 TIMEZONE_OFFSETS 맵 fallback
+    return getTimezoneOffsetMinutes(tzName) ?? 9 * 60; // 최후 fallback: KST
+  }
+}
+
+function parseICalDateTime(fullLine: string, userTimezoneOffsetMinutes: number = 9 * 60): ICalDateTimeParsed | null {
+  // 전체 라인에서 파라미터와 값 분리
+  // 예: DTSTART;TZID=Asia/Seoul:20260226T190000
+  // 예: DTSTART;VALUE=DATE:20260226
+  // 예: DTSTART:20260226T100000Z
+  const colonIdx = fullLine.indexOf(':');
+  if (colonIdx === -1) return null;
+  
+  const params = fullLine.substring(0, colonIdx);     // "DTSTART;TZID=Asia/Seoul" 등
+  const value = fullLine.substring(colonIdx + 1).trim(); // "20260226T190000" etc
+
+  // VALUE=DATE 확인 (종일 일정)
+  const isAllDay = /VALUE=DATE(?:$|[^-])/i.test(params) || value.length === 8;
+
+  // TZID 추출
+  const tzidMatch = params.match(/TZID=([^;:]+)/i);
+  const tzid = tzidMatch ? tzidMatch[1] : undefined;
+
+  // UTC(Z 접미사) 여부
+  const isUtc = value.endsWith('Z');
+
+  if (isAllDay) {
+    // 종일 일정: 날짜 문자열을 그대로 사용 (타임존 변환 불필요)
+    const year = value.substring(0, 4);
+    const month = value.substring(4, 6);
+    const day = value.substring(6, 8);
+    return {
+      dateStr: `${year}-${month}-${day}`,
+      isAllDay: true,
+      isUtc: false,
+    };
+  }
+
+  // 시간 포함 일정
+  if (value.length < 15) return null;
+  
+  const year = parseInt(value.substring(0, 4));
+  const month = parseInt(value.substring(4, 6)) - 1;
+  const day = parseInt(value.substring(6, 8));
+  const hour = parseInt(value.substring(9, 11));
+  const minute = parseInt(value.substring(11, 13));
+
+  if (isUtc) {
+    // UTC 시간 → 사용자 설정 타임존으로 변환 (appTimezone 반영)
+    const utcDate = new Date(Date.UTC(year, month, day, hour, minute));
+    const localMs = utcDate.getTime() + userTimezoneOffsetMinutes * 60 * 1000;
+    const localDate = new Date(localMs);
+    
+    return {
+      dateStr: `${localDate.getUTCFullYear()}-${String(localDate.getUTCMonth() + 1).padStart(2, '0')}-${String(localDate.getUTCDate()).padStart(2, '0')}`,
+      timeStr: `${String(localDate.getUTCHours()).padStart(2, '0')}:${String(localDate.getUTCMinutes()).padStart(2, '0')}`,
+      isAllDay: false,
+      isUtc: true,
+    };
+  }
+
+  if (tzid) {
+    // 타임존이 지정된 경우: 해당 타임존의 로컬 시간으로 해석
+    // 이미 로컬 시간이므로, 날짜/시간 문자열을 그대로 사용
+    return {
+      dateStr: `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`,
+      timeStr: `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`,
+      isAllDay: false,
+      isUtc: false,
+      tzid,
+    };
+  }
+
+  // 타임존 정보가 없는 경우 (floating time) - 로컬 시간으로 간주
+  return {
+    dateStr: `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`,
+    timeStr: `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`,
+    isAllDay: false,
+    isUtc: false,
+  };
+}
+
+// iCal 데이터를 Event 형식으로 변환
+function parseICalEvent(icalData: string, defaultColor: string, userTzOffsetMinutes: number = 9 * 60): Omit<Event, 'id'> | null {
+  try {
     const uidMatch = icalData.match(/UID(?:;.*?)?:([^\r\n]+)/);
     const summaryMatch = icalData.match(/SUMMARY(?:;.*?)?:([^\r\n]+(?:\r?\n [^\r\n]+)*)/);
     const descriptionMatch = icalData.match(/DESCRIPTION(?:;.*?)?:([^\r\n]+(?:\r?\n [^\r\n]+)*)/);
-    const dtstartMatch = icalData.match(/DTSTART(?:;.*?)?:([^\r\n]+)/);
-    const dtendMatch = icalData.match(/DTEND(?:;.*?)?:([^\r\n]+)/);
     const colorMatch = icalData.match(/X-APPLE-CALENDAR-COLOR(?:;.*?)?:([^\r\n]+)/);
 
-    if (!dtstartMatch) {
+    // DTSTART/DTEND 전체 라인(파라미터 포함) 추출
+    const dtstartLineMatch = icalData.match(/(DTSTART(?:;[^\r\n:]+)?:[^\r\n]+)/);
+    const dtendLineMatch = icalData.match(/(DTEND(?:;[^\r\n:]+)?:[^\r\n]+)/);
+
+    if (!dtstartLineMatch) {
       console.log('DTSTART를 찾을 수 없음');
       return null;
     }
-    
-    const uid = uidMatch ? uidMatch[1].trim() : undefined;
 
-    // 여러 줄 값 처리 (줄바꿈 후 공백 제거)
+    const uid = uidMatch ? uidMatch[1].trim() : undefined;
     const summary = summaryMatch ? summaryMatch[1].replace(/\r?\n /g, '').trim() : '';
     const description = descriptionMatch ? descriptionMatch[1].replace(/\r?\n /g, '').trim() : '';
-    const dtstart = dtstartMatch[1].trim();
-    const dtend = dtendMatch ? dtendMatch[1].trim() : undefined;
-    // 개별 색상이 있으면 사용, 없으면 defaultColor (캘린더 색상) 사용
-    const color = colorMatch 
-      ? `#${colorMatch[1].trim().replace('#', '')}` 
+    const color = colorMatch
+      ? `#${colorMatch[1].trim().replace('#', '')}`
       : defaultColor;
-    
-    // 날짜 파싱
-    let startDate: Date;
-    let endDate: Date | undefined;
 
-    // ISO 형식 (YYYYMMDDTHHmmss 또는 YYYYMMDD)
-    if (dtstart.length === 8) {
-      // 날짜만
-      const year = parseInt(dtstart.substring(0, 4));
-      const month = parseInt(dtstart.substring(4, 6)) - 1;
-      const day = parseInt(dtstart.substring(6, 8));
-      startDate = new Date(Date.UTC(year, month, day));
-    } else if (dtstart.length >= 15) {
-      // 날짜 + 시간
-      const year = parseInt(dtstart.substring(0, 4));
-      const month = parseInt(dtstart.substring(4, 6)) - 1;
-      const day = parseInt(dtstart.substring(6, 8));
-      const hour = dtstart.length > 8 ? parseInt(dtstart.substring(9, 11) || '0') : 0;
-      const minute = dtstart.length > 10 ? parseInt(dtstart.substring(11, 13) || '0') : 0;
-      startDate = new Date(Date.UTC(year, month, day, hour, minute));
-    } else {
-      return null;
+    // 날짜/시간 파싱 (타임존 올바르게 처리)
+    const startParsed = parseICalDateTime(dtstartLineMatch[1], userTzOffsetMinutes);
+    if (!startParsed) return null;
+
+    let endParsed: ICalDateTimeParsed | null = null;
+    if (dtendLineMatch) {
+      endParsed = parseICalDateTime(dtendLineMatch[1], userTzOffsetMinutes);
     }
 
-    if (dtend) {
-      if (dtend.length === 8) {
-        const year = parseInt(dtend.substring(0, 4));
-        const month = parseInt(dtend.substring(4, 6)) - 1;
-        const day = parseInt(dtend.substring(6, 8));
-        endDate = new Date(Date.UTC(year, month, day));
-      } else if (dtend.length >= 15) {
-        const year = parseInt(dtend.substring(0, 4));
-        const month = parseInt(dtend.substring(4, 6)) - 1;
-        const day = parseInt(dtend.substring(6, 8));
-        const hour = dtend.length > 8 ? parseInt(dtend.substring(9, 11) || '0') : 0;
-        const minute = dtend.length > 10 ? parseInt(dtend.substring(11, 13) || '0') : 0;
-        endDate = new Date(Date.UTC(year, month, day, hour, minute));
+    // [DEBUG] 날짜 파싱 결과 로깅
+    console.log(`[parseICalEvent] "${summary}" | raw DTSTART: ${dtstartLineMatch[1]} → date:${startParsed.dateStr} time:${startParsed.timeStr || 'none'} allDay:${startParsed.isAllDay}`);
+
+    // 종일 일정의 DTEND 처리:
+    // iCal 표준에서 종일 일정의 DTEND는 "exclusive" (예: 3/1 종일 → DTEND=3/2)
+    // 여러 날에 걸친 이벤트가 아니면 endDate를 제거
+    let endDateStr: string | undefined;
+    if (startParsed.isAllDay && endParsed?.isAllDay) {
+      // DTEND가 DTSTART+1일이면 단일 종일 일정 → endDate 불필요
+      const sd = new Date(startParsed.dateStr + 'T00:00:00Z');
+      const ed = new Date(endParsed.dateStr + 'T00:00:00Z');
+      const diffDays = Math.round((ed.getTime() - sd.getTime()) / (86400 * 1000));
+      if (diffDays > 1) {
+        // 여러 날에 걸치는 일정: endDate는 마지막 날 (exclusive이므로 -1일)
+        ed.setUTCDate(ed.getUTCDate() - 1);
+        endDateStr = ed.toISOString().split('T')[0];
       }
-    }
-
-    const date = startDate.toISOString().split('T')[0];
-    let startTime: string | undefined;
-    let endTime: string | undefined;
-
-    if (dtstart.length > 8) {
-      startTime = `${String(startDate.getUTCHours()).padStart(2, '0')}:${String(startDate.getUTCMinutes()).padStart(2, '0')}`;
-    }
-    if (endDate && dtend && dtend.length > 8) {
-      endTime = `${String(endDate.getUTCHours()).padStart(2, '0')}:${String(endDate.getUTCMinutes()).padStart(2, '0')}`;
+      // diffDays <= 1이면 단일 종일 이벤트 → endDate 불필요
     }
 
     return {
-      date,
+      date: startParsed.dateStr,
       title: summary,
       memo: description || undefined,
-      startTime,
-      endTime,
+      startTime: startParsed.isAllDay ? undefined : startParsed.timeStr,
+      endTime: (endParsed && !endParsed.isAllDay) ? endParsed.timeStr : undefined,
       color,
       uid,
-    };
+      ...(endDateStr ? { endDate: endDateStr } : {}),
+    } as Omit<Event, 'id'>;
   } catch (error) {
     console.error('iCal 파싱 오류:', error);
     return null;

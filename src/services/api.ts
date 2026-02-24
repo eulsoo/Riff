@@ -26,6 +26,7 @@ export interface CalendarMetadata {
 
 // CalDAV 메타데이터 저장 (로컬 캘린더 제외)
 // createdFromApp 플래그는 기존 데이터에서 유지 (단, 새 데이터에 해당 캘린더가 있을 때만)
+// 구독 캘린더는 항상 보존 (CalDAV 동기화 시 구독 캘린더가 삭제되지 않도록)
 export const saveCalendarMetadata = (metadata: CalendarMetadata[]) => {
   if (typeof window === 'undefined') return;
   try {
@@ -47,11 +48,24 @@ export const saveCalendarMetadata = (metadata: CalendarMetadata[]) => {
         };
         return acc;
       }, {} as Record<string, CalendarMetadata>);
+
+    // 안전장치: 기존에 저장된 구독 캘린더는 새 데이터에 없어도 항상 보존
+    // (CalDAV 동기화 시 구독 캘린더가 실수로 삭제되는 현상 방지)
+    for (const [url, cal] of Object.entries(existingMap)) {
+      if (
+        !map[url] && // 새 데이터에 없을 때만
+        (cal.type === 'subscription' || cal.isSubscription === true || (cal.url.startsWith('http') && cal.url.endsWith('.ics')))
+      ) {
+        map[url] = cal; // 기존 구독 캘린더 보존
+      }
+    }
+
     window.localStorage.setItem(CALENDAR_METADATA_KEY, JSON.stringify(map));
   } catch (error) {
     console.error('Error saving calendar metadata:', error);
   }
 };
+
 
 export const saveLocalCalendarMetadata = (metadata: CalendarMetadata[]) => {
   if (typeof window === 'undefined') return;
@@ -820,6 +834,7 @@ export const fetchTodos = async () => {
   const { data, error } = await supabase
     .from('todos')
     .select('*')
+    .order('position', { ascending: true })
     .order('created_at', { ascending: true });
 
   if (error) {
@@ -921,6 +936,22 @@ export const deleteTodo = async (id: string) => {
     return false;
   }
   return true;
+};
+
+// Batch update todo positions (for drag-and-drop reordering)
+export const updateTodoPositions = async (todoPositions: { id: string; position: number }[]) => {
+  try {
+    // Use Promise.all for parallel updates
+    await Promise.all(
+      todoPositions.map(({ id, position }) =>
+        supabase.from('todos').update({ position }).eq('id', id)
+      )
+    );
+    return true;
+  } catch (error) {
+    console.error('Error updating todo positions:', error);
+    return false;
+  }
 };
 
 // Diary Entries

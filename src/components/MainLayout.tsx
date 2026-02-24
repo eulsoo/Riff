@@ -21,6 +21,7 @@ import styles from '../App.module.css';
 const AppModals = lazy(() => import('./AppModals').then(module => ({ default: module.AppModals })));
 const DiaryModal = lazy(() => import('./DiaryModal').then(module => ({ default: module.DiaryModal })));
 const TimeSettingsModal = lazy(() => import('./TimeSettingsModal').then(module => ({ default: module.TimeSettingsModal })));
+import { SubscribeModal } from './SubscribeModal';
 
 interface MainLayoutProps {
   session: Session;
@@ -59,6 +60,7 @@ export const MainLayout = ({
   const { hoveredDate } = useHover();
   const {
     calendarMetadata,
+    setCalendarMetadata,
     visibleCalendarUrlSet,
     setVisibleCalendarUrlSet,
     toggleCalendarVisibility,
@@ -134,7 +136,7 @@ export const MainLayout = ({
   }, [calendarMetadata, loadData, refreshMetadataWithServerList]);
 
   // Use the reusable hook for Infinite Scroll & Windowed Fetching
-  const { trigger: triggerSync } = useWindowedSync({
+  useWindowedSync({
     pastUnits: pastWeeks,
     futureUnits: futureWeeks,
     unitDays: 7,
@@ -143,10 +145,7 @@ export const MainLayout = ({
     onSync
   });
 
-  // Adapter for button clicks (Legacy support)
-  const syncCalendars = useCallback((manual = true) => {
-    if (manual) triggerSync();
-  }, [triggerSync]);
+
 
 
 
@@ -155,6 +154,7 @@ export const MainLayout = ({
 
   const [isProfileMenuOpen, setIsProfileMenuOpen] = useState(false);
   const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false);
+  const [isSubscribeModalOpen, setIsSubscribeModalOpen] = useState(false);
   const [isCalDAVModalOpen, setIsCalDAVModalOpen] = useState(false);
   const [calDAVModalMode, setCalDAVModalMode] = useState<'sync' | 'auth-only'>('sync');
   const [pendingSyncCalendar, setPendingSyncCalendar] = useState<CalendarMetadata | null>(null);
@@ -326,8 +326,17 @@ export const MainLayout = ({
       if (!e.calendarUrl) return true;
 
       // Check visibility
-      if (!e.calendarUrl) return true;
-      return visibleCalendarUrlSet.has(normalizeCalendarUrl(e.calendarUrl || ''));
+      return visibleCalendarUrlSet.has(normalizeCalendarUrl(e.calendarUrl!) || '');
+    }).map(e => {
+      // 캘린더 메타데이터의 색상을 이벤트에 실시간 반영
+      // (구독 캘린더 뿐 아니라 iCloud/로컬 캘린더 색상 변경도 즉시 적용)
+      if (e.calendarUrl) {
+        const cal = calendarMetadata.find(c => normalizeCalendarUrl(c.url) === normalizeCalendarUrl(e.calendarUrl));
+        if (cal?.color) {
+          return { ...e, color: cal.color };
+        }
+      }
+      return e;
     });
 
     // Draft Event Injection
@@ -347,7 +356,8 @@ export const MainLayout = ({
       return [...list, temp];
     }
     return list;
-  }, [events, visibleCalendarUrlSet, selectedEvent, draftEvent]);
+  }, [events, visibleCalendarUrlSet, selectedEvent, draftEvent, calendarMetadata]);
+
 
   // Use Memo for map creation
   const eventsByWeek = useMemo(() => {
@@ -691,6 +701,15 @@ export const MainLayout = ({
   const handleDeleteEventWrapper = useCallback(async (eventId: string, skipRecord = false) => {
     const eventToDelete = events.find(e => e.id === eventId);
 
+    // Check if it's a subscription event
+    if (eventToDelete?.calendarUrl) {
+      const calMeta = calendarMetadata.find(c => normalizeCalendarUrl(c.url) === normalizeCalendarUrl(eventToDelete.calendarUrl!));
+      if (calMeta && (calMeta.type === 'subscription' || calMeta.isSubscription || calMeta.url.includes('holidays') || calMeta.url.endsWith('.ics'))) {
+        setToast({ message: '구독한 캘린더의 일정은 변경/삭제할 수 없습니다.', type: 'error' });
+        return;
+      }
+    }
+
     // 1. Optimistic Delete: Remove from local DB and UI immediately
     const success = await deleteEvent(eventId);
     if (success) {
@@ -750,6 +769,15 @@ export const MainLayout = ({
   const handleUpdateEventWrapper = useCallback(async (eventId: string, updates: Partial<Event>, skipRecord = false) => {
     const oldEvent = events.find(e => e.id === eventId);
     if (!oldEvent) return;
+
+    // Check if it's a subscription event
+    if (oldEvent.calendarUrl) {
+      const calMeta = calendarMetadata.find(c => normalizeCalendarUrl(c.url) === normalizeCalendarUrl(oldEvent.calendarUrl!));
+      if (calMeta && (calMeta.type === 'subscription' || calMeta.isSubscription || calMeta.url.includes('holidays') || calMeta.url.endsWith('.ics'))) {
+        setToast({ message: '구독한 캘린더의 일정은 변경/삭제할 수 없습니다.', type: 'error' });
+        return;
+      }
+    }
 
     // 1. Optimistic Local Update
     await updateEvent(eventId, updates);
@@ -889,7 +917,7 @@ export const MainLayout = ({
     return events.filter(e => e.date === activeDiaryDate);
   }, [events, activeDiaryDate]);
 
-  const handleBackgroundClick = useCallback((e: React.MouseEvent) => {
+  const handleBackgroundClick = useCallback(() => {
     // If event bubbled up here, it means it wasn't handled by specific elements (like EventItem)
     // so we clear selection.
     if (selectedEventIds.length > 0) {
@@ -909,7 +937,7 @@ export const MainLayout = ({
       step: 'confirm', // Start with basic confirmation
       url,
       name: calendar.displayName || '캘린더',
-      isCalDAV: !calendar.isLocal && !calendar.readOnly && !calendar.isSubscription,
+      isCalDAV: !calendar.isLocal && !calendar.readOnly && !calendar.isSubscription && calendar.type !== 'subscription',
     });
   }, [calendarMetadata]);
 
@@ -1059,8 +1087,26 @@ export const MainLayout = ({
 
       if ((e.key === 'Delete' || e.key === 'Backspace') && selectedEventIds.length > 0) {
         e.preventDefault(); // 백스페이스로 페이지 뒤로가기 방지
-        // Use logic that handles CalDAV sync
-        Promise.all(selectedEventIds.map(id => handleDeleteEventWrapper(id)));
+
+        // Prevent deleting subscription events via keyboard
+        const validIdsToDelete = selectedEventIds.filter(id => {
+          const event = events.find(ev => ev.id === id);
+          if (event?.calendarUrl) {
+            const calMeta = calendarMetadata.find(c => normalizeCalendarUrl(c.url) === normalizeCalendarUrl(event.calendarUrl!));
+            if (calMeta && (calMeta.type === 'subscription' || calMeta.isSubscription || calMeta.url.includes('holidays') || calMeta.url.endsWith('.ics'))) {
+              return false;
+            }
+          }
+          return true;
+        });
+
+        if (validIdsToDelete.length < selectedEventIds.length) {
+          setToast({ message: '구독한 캘린더의 일정은 변경/삭제할 수 없습니다.', type: 'error' });
+        }
+
+        if (validIdsToDelete.length > 0) {
+          Promise.all(validIdsToDelete.map(id => handleDeleteEventWrapper(id)));
+        }
         clearSelection();
       }
 
@@ -1113,6 +1159,10 @@ export const MainLayout = ({
               setCalDAVModalMode('sync');
               setIsCalDAVModalOpen(true);
             }}
+            onOpenSubscribeModal={() => {
+              setIsSubscribeModalOpen(true);
+            }}
+            onShowToast={(message, type) => setToast({ message, type })}
           />
         )}
       </>
@@ -1214,6 +1264,8 @@ export const MainLayout = ({
               refreshMetadata(); // Fallback to simple refresh
             }
 
+            setToast({ message: '캘린더 동기화에 성공했습니다.', type: 'success' });
+
             if (pendingSyncCalendar) {
               const cal = pendingSyncCalendar;
               setPendingSyncCalendar(null);
@@ -1253,6 +1305,19 @@ export const MainLayout = ({
             onSaved={handleDiarySavedWrapper}
             onSave={upsertDiaryEntry} // Direct API call for modal to use
             onDelete={handleDiaryDeleteWrapper}
+          />
+        )}
+
+        {isSubscribeModalOpen && (
+          <SubscribeModal
+            onClose={() => setIsSubscribeModalOpen(false)}
+            onSubscribeSuccess={(message) => {
+              setToast({ message, type: 'success' });
+              loadData(true);
+            }}
+            calendarMetadata={calendarMetadata}
+            setCalendarMetadata={setCalendarMetadata}
+            setVisibleCalendarUrlSet={setVisibleCalendarUrlSet}
           />
         )}
       </Suspense>

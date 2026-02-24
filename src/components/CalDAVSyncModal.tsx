@@ -219,7 +219,7 @@ export function CalDAVSyncModal({ onClose, onSyncComplete, mode = 'sync', existi
     try {
       const config: CalDAVConfig = { serverUrl, username, password: password || undefined, settingId: settingId || undefined };
 
-      const metadataToSave = calendars
+      const newCalDAVMetadata = calendars
         .filter(cal => selectedCalendars.has(cal.url))
         .map(cal => ({
           url: cal.url,
@@ -229,6 +229,22 @@ export function CalDAVSyncModal({ onClose, onSyncComplete, mode = 'sync', existi
           isSubscription: cal.isSubscription,
           readOnly: cal.readOnly
         }));
+
+      // 기존 구독 캘린더 메타데이터를 보존하면서 CalDAV 캘린더 업데이트
+      // iCloud 동기화가 구독 캘린더를 덮어쓰지 않도록 구독 캘린더를 분리하여 유지
+      const existingSubscriptionCals = existingCalendars.filter(cal =>
+        cal.type === 'subscription' ||
+        cal.isSubscription === true ||
+        (cal.url.startsWith('http') && cal.url.endsWith('.ics'))
+      );
+
+      // 구독 캘린더를 새 CalDAV 목록에 합쳐서 저장 (중복 URL 방지)
+      const metadataToSave = [
+        ...newCalDAVMetadata,
+        ...existingSubscriptionCals.filter(sub =>
+          !newCalDAVMetadata.some(m => m.url === sub.url)
+        )
+      ];
       saveCalendarMetadata(metadataToSave);
 
       const lastSyncAt = existingSettings &&
@@ -386,7 +402,7 @@ export function CalDAVSyncModal({ onClose, onSyncComplete, mode = 'sync', existi
                   <>
                     <input
                       type="password"
-                      placeholder="앱 전용 비밀번호"
+                      placeholder="앱 전용 비밀번호 (예: xxxx-xxxx-xxxx-xxxx)"
                       value={password}
                       onChange={(e) => setPassword(e.target.value)}
                       className={styles.formInput}
@@ -409,7 +425,8 @@ export function CalDAVSyncModal({ onClose, onSyncComplete, mode = 'sync', existi
                   </>
                 )}
                 <p className={styles.helpText}>
-                  iCloud 사용 시: 설정 → Apple ID → 앱 비밀번호에서 생성
+                  ※ <strong>앱 전용 비밀번호</strong>를 입력해주세요. (Apple ID 암호 아님)<br />
+                  설정 → Apple ID → 로그인 및 보안 → 앱 수준 암호에서 생성
                 </p>
               </div>
               <button

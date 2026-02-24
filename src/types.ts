@@ -36,6 +36,7 @@ export interface Todo {
   text: string;
   completed: boolean;
   deadline?: string;
+  position?: number;
   isNew?: boolean;
 }
 

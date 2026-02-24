@@ -49,8 +49,11 @@ export function TodoList({
 
   // --- Drag Handlers ---
   const handleMouseDown = (e: React.MouseEvent, index: number) => {
-    // Only left click, and not if editing
+    // Only left click, not if editing
     if (e.button !== 0 || editingId) return;
+    // 미완료 + deadline 없는 아이템만 드래그 가능
+    const todo = todos[index];
+    if (!todo || todo.completed || todo.deadline) return;
 
     blockClickRef.current = false;
     dragStartPos.current = { x: e.clientX, y: e.clientY };
@@ -113,19 +116,21 @@ export function TodoList({
     const targetIndex = dropTargetIndexRef.current;
 
     if (sourceIndex !== null && targetIndex !== null) {
-      // If dropping on same item or immediate next (no change)
-      if (targetIndex !== sourceIndex && targetIndex !== sourceIndex + 1) {
+      // deadline 없는 미완료 그룹의 시작 인덱스 계산
+      const noDdlStart = todos.findIndex(t => !t.completed && !t.deadline);
+      const noDdlEnd = todos.length; // 맨 끝까지
+      // 드롭 위치를 해당 그룹 내로 제한
+      const clampedTarget = Math.max(noDdlStart, Math.min(targetIndex, noDdlEnd));
+
+      if (clampedTarget !== sourceIndex && clampedTarget !== sourceIndex + 1) {
         const newTodos = [...todos];
         const [movedItem] = newTodos.splice(sourceIndex, 1);
 
-        // Adjust target index based on removal
-        // If source was before target, removing source shifts indices down by 1
-        let finalTarget = targetIndex;
-        if (sourceIndex < targetIndex) {
+        let finalTarget = clampedTarget;
+        if (sourceIndex < clampedTarget) {
           finalTarget -= 1;
         }
 
-        // Safety check
         if (finalTarget >= 0 && finalTarget <= newTodos.length) {
           newTodos.splice(finalTarget, 0, movedItem);
 
@@ -306,7 +311,7 @@ export function TodoList({
 
             <div
               className={`${styles.todoItem} ${dragIndex === index ? styles.todoItemDragging : ''}`}
-              data-todo-index={index} // Still useful for drag start? Actually handleMouseDown uses index closure.
+              data-todo-index={index}
               onMouseDown={(e) => handleMouseDown(e, index)}
               onMouseMove={() => cancelLongPress()}
               onMouseLeave={() => cancelLongPress()}
