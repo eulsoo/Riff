@@ -1,4 +1,4 @@
-import { createContext, useContext, ReactNode, useCallback, useRef, useEffect } from 'react';
+import { createContext, useContext, ReactNode, useCallback, useRef, useEffect, useState } from 'react';
 import { Session } from '@supabase/supabase-js';
 import { useAppData } from '../hooks/useAppData';
 import { useUndoRedo, HistoryAction, ActionCategory } from '../hooks/useUndoRedo';
@@ -11,8 +11,7 @@ import {
   toggleRoutineCompletion,
   createTodo, updateTodo as apiUpdateTodo, deleteTodo as apiDeleteTodo,
   updateTodoPositions,
-  fetchDiaryEntry, deleteDiaryEntry as apiDeleteDiaryEntry,
-  upsertDiaryEntry
+  fetchDiaryEntry, deleteDiaryEntry as apiDeleteDiaryEntry
 } from '../services/api';
 
 interface DataContextType {
@@ -22,6 +21,7 @@ interface DataContextType {
   routineCompletions: import('../types').RoutineCompletion[];
   todos: Todo[];
   diaryEntries: Record<string, DiaryEntry>;
+  emotions: Record<string, string>;
 
   // Actions - Events
   addEvent: (event: Omit<Event, 'id'>) => Promise<Event | null>;
@@ -46,6 +46,9 @@ interface DataContextType {
   fetchDiary: (date: string) => Promise<DiaryEntry | null>;
   saveDiary: (entry: DiaryEntry) => Promise<void>;
   deleteDiary: (date: string) => Promise<boolean>;
+
+  // Actions - Emotions
+  setEmotion: (date: string, emotion: string) => void;
 
   // Undo/Redo
   recordAction: (action: HistoryAction) => void;
@@ -103,6 +106,33 @@ export const DataProvider = ({
     getCurrentTodoWeekStart,
     formatLocalDate
   );
+
+  const [emotions, setEmotions] = useState<Record<string, string>>({});
+
+  useEffect(() => {
+    // Load emotions from local storage on mount
+    const saved = window.localStorage.getItem('user_emotions');
+    if (saved) {
+      try {
+        setEmotions(JSON.parse(saved));
+      } catch (e) {
+        console.error('Failed to parse emotions from local storage');
+      }
+    }
+  }, []);
+
+  const setEmotionStr = useCallback((date: string, emotion: string) => {
+    setEmotions((prev: Record<string, string>) => {
+      const next = { ...prev };
+      if (emotion) {
+        next[date] = emotion;
+      } else {
+        delete next[date];
+      }
+      window.localStorage.setItem('user_emotions', JSON.stringify(next));
+      return next;
+    });
+  }, []);
 
   const { recordAction, registerCategoryHandlers, canUndo, canRedo } = useUndoRedo();
 
@@ -183,8 +213,7 @@ export const DataProvider = ({
     const routineToDelete = routinesRef.current.find(r => r.id === routineId);
     const success = await apiDeleteRoutine(routineId);
     if (success) {
-      setRoutines(prev => prev.filter(r => r.id !== routineId));
-      setRoutineCompletions(prev => prev.filter(rc => rc.routineId !== routineId));
+      setRoutines(prev => prev.map(r => r.id === routineId ? { ...r, deletedAt: new Date().toISOString() } : r));
       if (routineToDelete) {
         recordAction({
           category: 'routine',
@@ -326,7 +355,8 @@ export const DataProvider = ({
   const updateTodo = useCallback(async (todoId: string, text: string, deadline?: string) => {
     const oldTodo = todosRef.current.find(t => t.id === todoId);
     const updates: any = { text };
-    if (deadline !== undefined) updates.deadline = deadline;
+    // deadline이 undefined이면 null로 설정 (DB에서 삭제)
+    updates.deadline = deadline ?? null;
     const updated = await apiUpdateTodo(todoId, updates);
     if (updated) {
       // deadline 변경 시 재정렬 적용
@@ -370,15 +400,9 @@ export const DataProvider = ({
           await apiDeleteRoutine(action.routine.id);
           setRoutines(prev => prev.filter(r => r.id !== action.routine!.id));
         } else if (action.type === 'DELETE' && action.routine) {
-          const restored = await createRoutine({
-            name: action.routine.name,
-            icon: action.routine.icon,
-            color: action.routine.color,
-            days: action.routine.days,
-          });
+          const restored = await apiUpdateRoutine(action.routine.id, { deleted_at: null } as any);
           if (restored) {
-            setRoutines(prev => [...prev, restored]);
-            action.routine = { ...action.routine, id: restored.id };
+            setRoutines(prev => prev.map(r => r.id === action.routine!.id ? restored : r));
           }
         } else if (action.type === 'UPDATE' && action.prevRoutine) {
           const { id, ...prevData } = action.prevRoutine;
@@ -403,7 +427,7 @@ export const DataProvider = ({
           }
         } else if (action.type === 'DELETE' && action.routine) {
           await apiDeleteRoutine(action.routine.id);
-          setRoutines(prev => prev.filter(r => r.id !== action.routine!.id));
+          setRoutines(prev => prev.map(r => r.id === action.routine!.id ? { ...r, deletedAt: new Date().toISOString() } : r));
         } else if (action.type === 'UPDATE' && action.routine) {
           const { id, ...newData } = action.routine;
           const reApplied = await apiUpdateRoutine(id, newData);
@@ -503,8 +527,9 @@ export const DataProvider = ({
     if (diaryInFlightRef.current[date]) {
       return diaryInFlightRef.current[date];
     }
-    diaryInFlightRef.current[date] = fetchDiaryEntry(date);
-    const entry = await diaryInFlightRef.current[date];
+    const req = fetchDiaryEntry(date);
+    diaryInFlightRef.current[date] = req;
+    const entry = await req;
     delete diaryInFlightRef.current[date];
     if (entry) {
       setDiaryEntries(prev => ({ ...prev, [date]: entry }));
@@ -539,11 +564,11 @@ export const DataProvider = ({
 
 
   const value = {
-    events, routines, routineCompletions, todos, diaryEntries,
+    events, routines, routineCompletions, todos, diaryEntries, emotions,
     addEvent, deleteEvent, updateEvent, deleteEvents,
     addRoutine, deleteRoutine, updateRoutine, toggleRoutine,
     addTodo, toggleTodo, updateTodo, deleteTodo, reorderTodos: reorderWeekTodos,
-    fetchDiary, saveDiary, deleteDiary,
+    fetchDiary, saveDiary, deleteDiary, setEmotion: setEmotionStr,
     recordAction, registerCategoryHandlers, canUndo, canRedo,
     loadData
   };

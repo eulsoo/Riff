@@ -125,10 +125,8 @@ export function EventDetailModal({ event, onClose, onUpdate, onDelete }: EventDe
   };
 
   const handleDelete = () => {
-    if (confirm('이 일정을 삭제하시겠습니까?')) {
-      onDelete(event.id);
-      onClose();
-    }
+    onDelete(event.id);
+    onClose();
   };
 
   return (

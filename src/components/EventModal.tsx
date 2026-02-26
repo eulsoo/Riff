@@ -19,6 +19,7 @@ interface EventModalProps {
   initialEndTime?: string;
   event?: Event;
   calendars: CalendarMetadata[];
+  allCalendars?: CalendarMetadata[];
   position?: ModalPosition | null;
   onClose: () => void;
   onSave: (event: Omit<Event, 'id'>, keepOpen?: boolean) => Promise<void> | void;
@@ -147,7 +148,7 @@ function TimeInput({ value, onChange, highlightColor }: TimeInputProps) {
   );
 }
 
-export function EventModal({ date, initialTitle, initialStartTime, initialEndTime, event, calendars, position, onClose, onSave, onUpdate, onDraftUpdate }: EventModalProps) {
+export function EventModal({ date, initialTitle, initialStartTime, initialEndTime, event, calendars, allCalendars, position, onClose, onSave, onUpdate, onDelete, onDraftUpdate }: EventModalProps) {
   const [title, setTitle] = useState(event?.title || initialTitle || '');
   const [memo, setMemo] = useState(event?.memo || '');
   const [isAllDay, setIsAllDay] = useState(() => {
@@ -162,6 +163,13 @@ export function EventModal({ date, initialTitle, initialStartTime, initialEndTim
   const [currentStartDate, setCurrentStartDate] = useState(event?.date || date);
   const [currentEndDate, setCurrentEndDate] = useState(event?.endDate || event?.date || date);
   const [calendarTarget, setCalendarTarget] = useState<'start' | 'end' | null>(null);
+
+  const isSubscription = (() => {
+    if (!event || !event.calendarUrl) return false;
+    const cals = allCalendars || calendars;
+    const cal = cals.find(c => c.url === event.calendarUrl);
+    return cal?.isSubscription || cal?.type === 'subscription' || event.calendarUrl.endsWith('.ics');
+  })();
 
   const handleDateSelect = (dStr: string) => {
     if (calendarTarget === 'start') {
@@ -524,14 +532,35 @@ export function EventModal({ date, initialTitle, initialStartTime, initialEndTim
                   value={memo}
                   onChange={(e) => setMemo(e.target.value)}
                   placeholder="메모"
-                  rows={1}
+                  rows={2}
                   className={styles.memoTextarea}
                 />
               </div>
 
+              {event && (
+                <div className={styles.deleteMenuWrapper}>
+                  {isSubscription ? (
+                    <div className={`${styles.deleteMenuButton} ${styles.deleteMenuDisabled}`} title="구독한 캘린더의 일정은 변경이나 삭제할 수 없습니다.">
+                      <span className="material-symbols-rounded">delete</span>
+                      일정 삭제 불가 (읽기 전용)
+                    </div>
+                  ) : (
+                    <button
+                      type="button"
+                      className={styles.deleteMenuButton}
+                      onClick={() => {
+                        onDelete?.(event.id);
+                        onClose();
+                      }}
+                    >
+                      <span className="material-symbols-rounded">delete</span>
+                      일정 삭제
+                    </button>
+                  )}
+                </div>
+              )}
 
             </div>
-
 
           </>
         )}

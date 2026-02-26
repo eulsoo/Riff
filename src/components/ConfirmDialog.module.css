@@ -51,7 +51,7 @@
   font-size: 0.9rem;
   font-weight: 500;
   color: white;
-  background: var(--color-primary);
+  background: var(--color-blue-primary);
   border: none;
   border-radius: 8px;
   cursor: pointer;
@@ -59,7 +59,7 @@
 }
 
 .confirmButton:hover {
-  background: var(--color-primary-hover);
+  background: var(--color-blue-primary-hover);
 }
 
 

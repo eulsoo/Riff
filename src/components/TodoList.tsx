@@ -373,6 +373,19 @@ export function TodoList({
                         startDate={editDeadline || new Date().toISOString().split('T')[0]}
                         endDate={editDeadline || new Date().toISOString().split('T')[0]}
                         target="start"
+                        hasDeadline={!!editDeadline}
+                        onToggleDeadline={(enabled) => {
+                          if (!enabled) {
+                            setEditDeadline(undefined);
+                            // setShowDatePicker(false); 제거: 팝업 유지, 투명도만 낮아짐
+                          } else {
+                            const today = new Date();
+                            const yyyy = today.getFullYear();
+                            const mm = String(today.getMonth() + 1).padStart(2, '0');
+                            const dd = String(today.getDate()).padStart(2, '0');
+                            setEditDeadline(`${yyyy}-${mm}-${dd}`);
+                          }
+                        }}
                         onSelect={(date) => {
                           setEditDeadline(date);
                           setShowDatePicker(false);
@@ -495,6 +508,19 @@ export function TodoList({
                   startDate={newDeadline || new Date().toISOString().split('T')[0]}
                   endDate={newDeadline || new Date().toISOString().split('T')[0]}
                   target="start"
+                  hasDeadline={!!newDeadline}
+                  onToggleDeadline={(enabled) => {
+                    if (!enabled) {
+                      setNewDeadline(undefined);
+                      // setShowDatePicker(false); 제거: 팝업 유지, 투명도만 낮아짐
+                    } else {
+                      const today = new Date();
+                      const yyyy = today.getFullYear();
+                      const mm = String(today.getMonth() + 1).padStart(2, '0');
+                      const dd = String(today.getDate()).padStart(2, '0');
+                      setNewDeadline(`${yyyy}-${mm}-${dd}`);
+                    }
+                  }}
                   onSelect={(date) => {
                     setNewDeadline(date);
                     setShowDatePicker(false);

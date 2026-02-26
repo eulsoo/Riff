@@ -418,3 +418,33 @@
 .allDayToggleSwitch input:checked + .allDayToggleSlider:before {
   transform: translateX(16px);
 }
+
+/* Delete Menu Group */
+.deleteMenuWrapper {
+  margin-top: 0.2rem;
+  padding-top: 0.2rem;
+  display: flex;
+}
+
+.deleteMenuButton {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  width: 100%;
+  /* padding: 0.4rem 0.5rem; */
+  color: #ef4444; /* red */
+  background: transparent;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 500;
+}
+.deleteMenuButton > span {
+  font-size: 18px;
+}
+
+.deleteMenuDisabled {
+  color: #9ca3af;
+  cursor: not-allowed;
+}

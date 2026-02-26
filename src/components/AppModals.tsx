@@ -14,6 +14,7 @@ interface AppModalsProps {
   modalSessionId: number;
   routines: Routine[];
   calendars: CalendarMetadata[];
+  allCalendars?: CalendarMetadata[];
   popupPosition?: ModalPosition | null;
   isRoutineModalOpen: boolean;
   isCalDAVModalOpen: boolean;
@@ -43,6 +44,7 @@ export function AppModals({
   modalSessionId,
   routines,
   calendars,
+  allCalendars,
   popupPosition,
   isRoutineModalOpen,
   isCalDAVModalOpen,
@@ -75,6 +77,7 @@ export function AppModals({
           initialEndTime={draftEvent?.endTime}
           event={selectedEvent || undefined}
           calendars={calendars}
+          allCalendars={allCalendars}
           position={popupPosition}
           onClose={onCloseEventModal}
           onSave={onAddEvent}

@@ -7,9 +7,11 @@ interface MiniCalendarProps {
   target: 'start' | 'end';
   onSelect: (dateStr: string) => void;
   onClose: () => void;
+  hasDeadline?: boolean;
+  onToggleDeadline?: (enabled: boolean) => void;
 }
 
-export function MiniCalendar({ startDate, endDate, target, onSelect, onClose }: MiniCalendarProps) {
+export function MiniCalendar({ startDate, endDate, target, onSelect, onClose, hasDeadline = true, onToggleDeadline }: MiniCalendarProps) {
   // Initialize view based on current target date
   const [viewDate, setViewDate] = useState(() => {
     const initialDateStr = target === 'start' ? startDate : endDate;
@@ -75,56 +77,72 @@ export function MiniCalendar({ startDate, endDate, target, onSelect, onClose }: 
 
   return (
     <div className={styles.calendarPopup} ref={cardRef}>
-      {/* Header */}
-      <div className={styles.header}>
-        <div className={styles.selectGroup}>
-          <select value={year} onChange={handleYearChange} className={styles.systemSelect}>
-            {years.map(y => <option key={y} value={y}>{y}년</option>)}
-          </select>
-          <select value={month} onChange={handleMonthChange} className={styles.systemSelect}>
-            {months.map((m, i) => <option key={i} value={i}>{m}</option>)}
-          </select>
+      {/* 1행: 마감일 설정 토글 */}
+      {onToggleDeadline && (
+        <div className={styles.deadlineToggleRow}>
+          <span className={styles.deadlineToggleLabel}>마감일 설정</span>
+          <label className={styles.toggleSwitch}>
+            <input
+              type="checkbox"
+              checked={hasDeadline}
+              onChange={(e) => onToggleDeadline(e.target.checked)}
+            />
+            <span className={styles.toggleSlider}></span>
+          </label>
         </div>
-        <div className={styles.navControls}>
-          <button onClick={handlePrevMonth} className={styles.navButton}>
-            <span className="material-symbols-rounded" style={{ fontSize: '1.2rem' }}>chevron_left</span>
-          </button>
-          <button onClick={handleNextMonth} className={styles.navButton}>
-            <span className="material-symbols-rounded" style={{ fontSize: '1.2rem' }}>chevron_right</span>
-          </button>
+      )}
+
+      {/* 달력 영역: 스위치 OFF일 때 반투명하게 */}
+      <div className={`${styles.calendarContent} ${!hasDeadline ? styles.calendarContentDisabled : ''}`}>
+        <div className={styles.header}>
+          <div className={styles.selectGroup}>
+            <select value={year} onChange={handleYearChange} className={styles.systemSelect}>
+              {years.map(y => <option key={y} value={y}>{y}년</option>)}
+            </select>
+            <select value={month} onChange={handleMonthChange} className={styles.systemSelect}>
+              {months.map((m, i) => <option key={i} value={i}>{m}</option>)}
+            </select>
+          </div>
+          <div className={styles.navControls}>
+            <button onClick={handlePrevMonth} className={styles.navButton}>
+              <span className="material-symbols-rounded" style={{ fontSize: '1.2rem' }}>chevron_left</span>
+            </button>
+            <button onClick={handleNextMonth} className={styles.navButton}>
+              <span className="material-symbols-rounded" style={{ fontSize: '1.2rem' }}>chevron_right</span>
+            </button>
+          </div>
         </div>
-      </div>
 
-      {/* Grid */}
-      <div className={styles.grid}>
-        {['일', '월', '화', '수', '목', '금', '토'].map(d => (
-          <div key={d} className={styles.dayName}>{d}</div>
-        ))}
-        {calendarData.map((item, idx) => {
-          if (!item.day) return <div key={idx} />;
+        <div className={styles.grid}>
+          {['일', '월', '화', '수', '목', '금', '토'].map(d => (
+            <div key={d} className={styles.dayName}>{d}</div>
+          ))}
+          {calendarData.map((item, idx) => {
+            if (!item.day) return <div key={idx} />;
 
-          const isStart = item.dateStr === startDate;
-          const isEnd = item.dateStr === endDate;
-          const isSelected = isStart || isEnd;
-          const isInRange = startDate && endDate && item.dateStr > startDate && item.dateStr < endDate;
+            const isStart = item.dateStr === startDate;
+            const isEnd = item.dateStr === endDate;
+            const isSelected = isStart || isEnd;
+            const isInRange = startDate && endDate && item.dateStr > startDate && item.dateStr < endDate;
 
-          // Visual Classes
-          let classNames = styles.dayCell;
-          if (isSelected) classNames += ` ${styles.dayCellSelected}`;
-          if (isInRange) classNames += ` ${styles.dayCellInRange}`;
-          if (isStart && endDate && item.dateStr < endDate) classNames += ` ${styles.dayCellRangeStart}`;
-          if (isEnd && startDate && item.dateStr > startDate) classNames += ` ${styles.dayCellRangeEnd}`;
+            // Visual Classes
+            let classNames = styles.dayCell;
+            if (isSelected) classNames += ` ${styles.dayCellSelected}`;
+            if (isInRange) classNames += ` ${styles.dayCellInRange}`;
+            if (isStart && endDate && item.dateStr < endDate) classNames += ` ${styles.dayCellRangeStart}`;
+            if (isEnd && startDate && item.dateStr > startDate) classNames += ` ${styles.dayCellRangeEnd}`;
 
-          return (
-            <div
-              key={idx}
-              className={classNames}
-              onClick={() => onSelect(item.dateStr)}
-            >
-              {item.day}
-            </div>
-          );
-        })}
+            return (
+              <div
+                key={idx}
+                className={classNames}
+                onClick={() => onSelect(item.dateStr)}
+              >
+                {item.day}
+              </div>
+            );
+          })}
+        </div>
       </div>
     </div>
   );

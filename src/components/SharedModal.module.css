@@ -45,9 +45,6 @@
   align-items: center;
   justify-content: space-between;
   padding: 1rem 1.25rem 0.5rem;
-  background: rgba(255, 255, 255, 0.65);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
 }
 
 .modalHeaderSpacer {
@@ -181,7 +178,7 @@
 .primaryButton {
   width: 100%;
   padding: 0.7rem 1rem;
-  background-color: var(--color-primary);
+  background-color: var(--color-blue-primary);
   color: white;
   border: none;
   border-radius: 0.5rem;
@@ -196,7 +193,7 @@
 }
 
 .primaryButton:hover:not(:disabled) {
-  background-color: var(--color-primary-hover);
+  background-color: var(--color-blue-primary-hover);
 }
 
 .primaryButton:disabled {
@@ -208,7 +205,7 @@
 .accentButton {
   width: 100%;
   padding: 0.7rem 1rem;
-  background-color: var(--color-primary);
+  background-color: var(--color-blue-primary);
   color: white;
   border: none;
   border-radius: 0.5rem;
@@ -223,7 +220,7 @@
 }
 
 .accentButton:hover:not(:disabled) {
-  background-color: var(--color-primary-hover);
+  background-color: var(--color-blue-primary-hover);
 }
 
 .accentButton:disabled {

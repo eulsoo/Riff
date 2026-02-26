@@ -39,12 +39,41 @@
   background: rgba(255, 255, 255, 0.2);
   backdrop-filter: blur(3px);
   -webkit-backdrop-filter: blur(3px);
+  z-index: 10;
+}
+
+.toggleButton {
+  position: fixed;
+  left: 24px;
+  top: 28px;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  border: 1px solid rgba(224, 224, 224, 0.5);
+  background: rgba(255, 255, 255, 0.2);
+  backdrop-filter: blur(3px);
+  -webkit-backdrop-filter: blur(3px);
+  color: #374151;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  z-index: 40;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.05);
+}
+
+.toggleButton:hover {
+  background: rgba(255, 255, 255, 0.4);
 }
 
 .appHeaderTitle {
   font-size: 2rem;
   font-weight: 900;
-  color:var(--color-gray-700);
+  color:black;
+}
+.appHeaderTitle > span {
+  font-weight:800;
 }
 
 .appHeaderButton {
@@ -58,9 +87,11 @@
 }
 
 .appHeaderButtonToday {
-  color: var(--color-gray-600);
+  color: var(--color-green-primary-70);
   font-weight: bold;
   border-radius: 20px;
+  border: 1px solid var(--color-green-primary-20);
+  background-color: var(--color-green-primary-10);
 }
 
 
@@ -133,7 +164,7 @@
   width: 40px;
   height: 40px;
   border-radius: 50%;
-  border: 2px solid var(--color-primary);
+  border: 2px solid var(--color-green-primary);
   background: #f3f4f6;
   color: #374151;
   display: flex;
@@ -159,7 +190,6 @@
   min-width: 200px;
   display: flex;
   flex-direction: column;
-  gap: 0.5rem;
   padding: 1rem;
   border-radius: 16px;
   background: rgba(255, 255, 255, 0.65);
@@ -319,7 +349,7 @@
 }
 
 input:checked + .toggleSlider {
-  background-color: var(--color-primary);
+  background-color: var(--color-blue-primary);
 }
 
 input:checked + .toggleSlider:before {

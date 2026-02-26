@@ -536,10 +536,3 @@ function CalendarListPopupComponent({
 
 export const CalendarListPopup = memo(CalendarListPopupComponent);
 
-export function CalendarToggleButton({ onClick }: { onClick: () => void }) {
-  return (
-    <button onClick={onClick} className={styles.toggleButton} aria-label="캘린더 목록">
-      <span className="material-symbols-rounded" style={{ fontSize: '20px' }}>calendar_month</span>
-    </button>
-  );
-}

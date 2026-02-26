@@ -17,8 +17,15 @@ interface AppHeaderProps {
   onLogout: () => void;
   showRoutines: boolean;
   onToggleRoutines: () => void;
+  showDiary: boolean;
+  onToggleDiary: () => void;
+  showEmotion: boolean;
+  onToggleEmotion: () => void;
   showTodos: boolean;
   onToggleTodos: () => void;
+  isCalendarPopupOpen: boolean;
+  onToggleCalendarPopup: () => void;
+  calendarPopupNode?: React.ReactNode;
 }
 
 export function AppHeader({
@@ -37,15 +44,33 @@ export function AppHeader({
   onLogout,
   showRoutines,
   onToggleRoutines,
+  showDiary,
+  onToggleDiary,
+  showEmotion,
+  onToggleEmotion,
   showTodos,
   onToggleTodos,
+  isCalendarPopupOpen,
+  onToggleCalendarPopup,
+  calendarPopupNode,
 }: AppHeaderProps) {
   return (
     <div className={styles.appHeader}>
       <div className={styles.appHeaderContent}>
+        {!isCalendarPopupOpen && (
+          <button
+            onClick={onToggleCalendarPopup}
+            className={styles.toggleButton}
+            aria-label="캘린더 목록"
+          >
+            <span className="material-symbols-rounded" style={{ fontSize: '20px' }}>calendar_month</span>
+          </button>
+        )}
+        {calendarPopupNode}
+
         <div className={styles.appHeaderLeft}>
           <h1 className={styles.appHeaderTitle}>
-            {currentYear}년 {currentMonth}월
+            {currentYear}. {String(currentMonth).padStart(2, '0')}
           </h1>
           <button
             onClick={onScrollToToday}
@@ -99,6 +124,38 @@ export function AppHeader({
                       style={{ fontSize: '16px', color: '#9ca3af', cursor: 'pointer' }}
                       onClick={onOpenRoutine}
                     >arrow_forward_ios</span>
+                  </div>
+                </div>
+
+                {/* 일기 */}
+                <div className={styles.profileMenuItemGroup}>
+                  <span className={styles.profileMenuLabel}>일기</span>
+                  <div className={styles.profileMenuRightControls}>
+                    <label className={styles.toggleSwitch}>
+                      <input
+                        type="checkbox"
+                        checked={showDiary}
+                        onChange={onToggleDiary}
+                      />
+                      <span className={styles.toggleSlider}></span>
+                    </label>
+                    <span style={{ width: '16px' }} />
+                  </div>
+                </div>
+
+                {/* 오늘의 기분 */}
+                <div className={styles.profileMenuItemGroup}>
+                  <span className={styles.profileMenuLabel}>오늘의 기분</span>
+                  <div className={styles.profileMenuRightControls}>
+                    <label className={styles.toggleSwitch}>
+                      <input
+                        type="checkbox"
+                        checked={showEmotion}
+                        onChange={onToggleEmotion}
+                      />
+                      <span className={styles.toggleSlider}></span>
+                    </label>
+                    <span style={{ width: '16px' }} />
                   </div>
                 </div>
 

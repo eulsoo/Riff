@@ -5,7 +5,7 @@ import { supabase } from '../lib/supabase';
 import { useWindowedSync, SyncRange } from '../hooks/useWindowedSync';
 import { AppHeader } from './AppHeader';
 import { CalendarList } from './CalendarList';
-import { CalendarListPopup, CalendarToggleButton } from './CalendarListPopup';
+import { CalendarListPopup } from './CalendarListPopup';
 import { useData } from '../contexts/DataContext';
 import { useSelection, useHover } from '../contexts/SelectionContext';
 import { useCalendarMetadata } from '../hooks/useCalendarMetadata';
@@ -15,6 +15,7 @@ import { createCalDavEvent, updateCalDavEvent, deleteCalDavEvent, syncSelectedCa
 import { getWeekStartForDate, getTodoWeekStart, formatLocalDate } from '../utils/dateUtils';
 import { HistoryAction } from '../hooks/useUndoRedo';
 import { ModalPosition } from './EventModal';
+import { EmotionModal } from './EmotionModal';
 import { ConfirmDialog } from './ConfirmDialog';
 import styles from '../App.module.css';
 
@@ -46,10 +47,10 @@ export const MainLayout = ({
   currentMonth, setCurrentMonth
 }: MainLayoutProps) => {
   const {
-    events, routines, routineCompletions, todos, diaryEntries,
+    events, routines, routineCompletions, todos, diaryEntries, emotions,
     addEvent, updateEvent, deleteEvent,
     addRoutine, deleteRoutine, updateRoutine,
-    fetchDiary, saveDiary, deleteDiary,
+    fetchDiary, saveDiary, deleteDiary, setEmotion,
     loadData // Add loadData for auto-sync refresh
   } = useData();
 
@@ -179,7 +180,14 @@ export const MainLayout = ({
   const [popupPosition, setPopupPosition] = useState<ModalPosition | null>(null);
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
 
+  // Emotion Modal State
+  const [isEmotionModalOpen, setIsEmotionModalOpen] = useState(false);
+  const [emotionModalPosition, setEmotionModalPosition] = useState<ModalPosition | null>(null);
+  const [emotionModalDate, setEmotionModalDate] = useState<string | null>(null);
+
   const [showRoutines, setShowRoutines] = useState(true);
+  const [showDiary, setShowDiary] = useState(true);
+  const [showEmotion, setShowEmotion] = useState(true);
   const [showTodos, setShowTodos] = useState(true);
 
   // Confirm Dialog State
@@ -714,6 +722,7 @@ export const MainLayout = ({
     const success = await deleteEvent(eventId);
     if (success) {
       if (selectedEvent?.id === eventId) setSelectedEvent(null);
+      setToast({ message: '일정이 삭제되었습니다.', type: 'success' });
       // Assuming removeIdFromSelection is a function from SelectionContext
       // If not, it needs to be defined or removed.
       // For now, commenting out as it's not provided in the context.
@@ -908,6 +917,22 @@ export const MainLayout = ({
 
   const handleDraftUpdateWrapper = useCallback((updates: Partial<Event>) => {
     setDraftEvent(prev => prev ? { ...prev, ...updates } : updates);
+  }, []);
+
+  const handleOpenEmotion = useCallback((date: string, anchorEl: HTMLElement) => {
+    if (!containerRef.current) return;
+
+    // containerRef가 스크롤 영역이므로 그 내부 기준의 위치를 구해야 스크롤해도 팝업이 같이 움직임
+    const containerRect = containerRef.current.getBoundingClientRect();
+    const anchorRect = anchorEl.getBoundingClientRect();
+
+    // calculate top/left relative to container content
+    let top = anchorRect.top - containerRect.top + containerRef.current.scrollTop + 30;
+
+    // Position logic to avoid overflow or adjust nicely
+    setEmotionModalPosition({ top, left: anchorRect.left - containerRect.left + 10, align: 'left' });
+    setEmotionModalDate(date);
+    setIsEmotionModalOpen(true);
   }, []);
 
   const activeDiaryEntry = activeDiaryDate ? diaryEntries[activeDiaryDate] : undefined;
@@ -1143,31 +1168,31 @@ export const MainLayout = ({
   return (
     <div className={styles.appLayout}>
 
-      <>
-        {!isCalendarPopupOpen && <CalendarToggleButton onClick={() => setIsCalendarPopupOpen(true)} />}
-        {isCalendarPopupOpen && (
-          <CalendarListPopup
-            calendars={calendarMetadata}
-            visibleUrlSet={visibleCalendarUrlSet}
-            onToggle={toggleCalendarVisibility}
-            onClose={() => setIsCalendarPopupOpen(false)}
-            onAddLocalCalendar={addLocalCalendar}
-            onUpdateLocalCalendar={updateLocalCalendar}
-            onDeleteCalendar={handleDeleteCalendar}
-            onSyncToMac={handleSyncToMac}
-            onOpenCalDAVModal={() => {
-              setCalDAVModalMode('sync');
-              setIsCalDAVModalOpen(true);
-            }}
-            onOpenSubscribeModal={() => {
-              setIsSubscribeModalOpen(true);
-            }}
-            onShowToast={(message, type) => setToast({ message, type })}
-          />
-        )}
-      </>
-
       <AppHeader
+        isCalendarPopupOpen={isCalendarPopupOpen}
+        onToggleCalendarPopup={() => setIsCalendarPopupOpen(!isCalendarPopupOpen)}
+        calendarPopupNode={
+          isCalendarPopupOpen ? (
+            <CalendarListPopup
+              calendars={calendarMetadata}
+              visibleUrlSet={visibleCalendarUrlSet}
+              onToggle={toggleCalendarVisibility}
+              onClose={() => setIsCalendarPopupOpen(false)}
+              onAddLocalCalendar={addLocalCalendar}
+              onUpdateLocalCalendar={updateLocalCalendar}
+              onDeleteCalendar={handleDeleteCalendar}
+              onSyncToMac={handleSyncToMac}
+              onOpenCalDAVModal={() => {
+                setCalDAVModalMode('sync');
+                setIsCalDAVModalOpen(true);
+              }}
+              onOpenSubscribeModal={() => {
+                setIsSubscribeModalOpen(true);
+              }}
+              onShowToast={(message, type) => setToast({ message, type })}
+            />
+          ) : undefined
+        }
         currentYear={currentYear}
         currentMonth={currentMonth}
         avatarUrl={avatarUrl}
@@ -1186,6 +1211,10 @@ export const MainLayout = ({
         }}
         showRoutines={showRoutines}
         onToggleRoutines={() => setShowRoutines(p => !p)}
+        showDiary={showDiary}
+        onToggleDiary={() => setShowDiary(p => !p)}
+        showEmotion={showEmotion}
+        onToggleEmotion={() => setShowEmotion(p => !p)}
         showTodos={showTodos}
         onToggleTodos={() => setShowTodos(p => !p)}
         onOpenSettings={() => {
@@ -1217,11 +1246,14 @@ export const MainLayout = ({
           weekOrder={weekOrder}
           diaryCompletionMap={Object.keys(diaryEntries).reduce((acc, date) => ({ ...acc, [date]: true }), {})}
           showRoutines={showRoutines}
+          showDiary={showDiary}
+          showEmotion={showEmotion}
           showTodos={showTodos}
           onDateClick={handleDateClick}
           onEventDoubleClick={handleEventDoubleClick}
           onDeleteEvent={handleDeleteEventWrapper} // Pass wrapper for list-view deletion
           onOpenDiary={handleOpenDiary}
+          onOpenEmotion={handleOpenEmotion}
           topSentinelRef={topSentinelRef as React.RefObject<HTMLDivElement>}
           bottomSentinelRef={bottomSentinelRef as React.RefObject<HTMLDivElement>}
         />
@@ -1237,6 +1269,7 @@ export const MainLayout = ({
           modalSessionId={modalSessionId}
           routines={routines}
           calendars={calendarMetadata.filter(c => !c.isSubscription && !c.readOnly)}
+          allCalendars={calendarMetadata}
           isRoutineModalOpen={isRoutineModalOpen}
           isCalDAVModalOpen={isCalDAVModalOpen}
           isSettingsModalOpen={isSettingsModalOpen}
@@ -1383,6 +1416,23 @@ export const MainLayout = ({
         </div>,
         document.body
       )}
+      {/* --- Emotion Modal --- */}
+      {isEmotionModalOpen && emotionModalDate && (
+        <div style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', pointerEvents: 'none', zIndex: 10000 }}>
+          <div style={{ position: 'relative', width: '100%', height: '100%', pointerEvents: 'auto' }}>
+            <EmotionModal
+              date={emotionModalDate}
+              position={emotionModalPosition}
+              currentEmotion={emotions?.[emotionModalDate]}
+              onSelect={(emoji) => {
+                setEmotion(emotionModalDate, emoji);
+              }}
+              onClose={() => setIsEmotionModalOpen(false)}
+            />
+          </div>
+        </div>
+      )}
+
     </div>
   );
 };

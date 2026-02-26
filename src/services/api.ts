@@ -735,6 +735,7 @@ export const fetchRoutines = async () => {
   return (data || []).map((routine: any) => ({
     ...routine,
     createdAt: routine.created_at,
+    deletedAt: routine.deleted_at,
   }));
 };
 
@@ -758,7 +759,7 @@ export const createRoutine = async (routine: Omit<Routine, 'id'>) => {
 export const deleteRoutine = async (id: string) => {
   const { error } = await supabase
     .from('routines')
-    .delete()
+    .update({ deleted_at: new Date().toISOString() })
     .eq('id', id);
 
   if (error) {
@@ -892,6 +893,8 @@ export const updateTodo = async (id: string, updates: Partial<Todo>) => {
     delete payload.weekStart;
   }
   
+  // deadline이 undefined이면 payload에서 제거 (변경 안함)
+  // null이면 그대로 유지 (DB에서 삭제 의도)
   if (payload.deadline === undefined) {
     delete payload.deadline;
   }

@@ -3,6 +3,7 @@ import { EventItem } from './EventItem';
 import { Event, Routine, RoutineCompletion, Todo, WeekOrder } from '../types';
 import { RoutineIcon } from './RoutineIcon';
 import { TodoList } from './TodoList';
+import { useData } from '../contexts/DataContext';
 import { useHover } from '../contexts/SelectionContext';
 import { useAllDayEventLayout } from '../hooks/useAllDayEventLayout';
 import styles from './WeekCard.module.css';
@@ -25,9 +26,12 @@ interface WeekCardProps {
   onDeleteTodo: (todoId: string) => void;
   onReorderTodos: (weekStart: string, newTodos: Todo[]) => void;
   onOpenDiary: (date: string) => void;
+  onOpenEmotion?: (date: string, anchorEl: HTMLElement) => void;
   diaryCompletions: Record<string, boolean>;
   weekStatus: 'current' | 'prev' | 'next' | 'other';
   showRoutines: boolean;
+  showDiary: boolean;
+  showEmotion: boolean;
   showTodos: boolean;
 }
 
@@ -36,6 +40,14 @@ const DIARY_ROUTINE: Routine = {
   name: '일기쓰기',
   icon: 'note_alt',
   color: '#8b5cf6',
+  days: [],
+};
+
+const EMOTION_ROUTINE: Routine = {
+  id: 'emotion',
+  name: '오늘의 기분',
+  icon: 'add_reaction',
+  color: '#f59e0b',
   days: [],
 };
 
@@ -57,12 +69,16 @@ export const WeekCard = memo(function WeekCard({
   onDeleteTodo,
   onReorderTodos,
   onOpenDiary,
+  onOpenEmotion,
   diaryCompletions,
   weekStatus,
   showRoutines,
+  showDiary,
+  showEmotion,
   showTodos,
 }: WeekCardProps) {
   const { setHoveredDate } = useHover();
+  const { emotions, diaryEntries } = useData();
   // Performance Monitoring
 
   const days = Array.from({ length: 7 }, (_, i) => {
@@ -75,42 +91,6 @@ export const WeekCard = memo(function WeekCard({
   const { visibleAllDayEvents, multiDayEventKeys } = useAllDayEventLayout(events, weekStart);
 
 
-  const getWeekLabelInfo = () => {
-    const getWeekOfMonth = (targetDate: Date) => {
-      const year = targetDate.getFullYear();
-      const monthIndex = targetDate.getMonth();
-      const firstDayOfMonth = new Date(year, monthIndex, 1);
-      const firstWeekStart = new Date(firstDayOfMonth);
-      const firstDayOfWeek = firstDayOfMonth.getDay();
-      const daysToWeekStart = weekOrder === 'sun'
-        ? -firstDayOfWeek
-        : (firstDayOfWeek === 0 ? -6 : 1 - firstDayOfWeek);
-      firstWeekStart.setDate(firstDayOfMonth.getDate() + daysToWeekStart);
-
-      const diffTime = weekStart.getTime() - firstWeekStart.getTime();
-      const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
-      return Math.floor(diffDays / 7) + 1;
-    };
-
-    const monthEntries = new Map<string, Date>();
-    days.forEach(date => {
-      const key = `${date.getFullYear()}-${date.getMonth()}`;
-      if (!monthEntries.has(key)) {
-        monthEntries.set(key, date);
-      }
-    });
-
-    const parts = Array.from(monthEntries.values()).map(date => {
-      const month = date.getMonth() + 1;
-      const weekOfMonth = getWeekOfMonth(date);
-      return `${month}월 ${weekOfMonth}주차`;
-    });
-
-    return {
-      label: `${parts.join(' / ')}`,
-      isMultiMonth: parts.length > 1,
-    };
-  };
 
   const isToday = (date: Date) => {
     const today = new Date();
@@ -158,6 +138,25 @@ export const WeekCard = memo(function WeekCard({
       if (checkDate < createdDate) return false;
     }
 
+    // 3. Deletion check
+    if (routine.deletedAt) {
+      const deletedDate = new Date(routine.deletedAt);
+      const dYear = deletedDate.getFullYear();
+      const dMonth = String(deletedDate.getMonth() + 1).padStart(2, '0');
+      const dDay = String(deletedDate.getDate()).padStart(2, '0');
+      const deletedDateStr = `${dYear}-${dMonth}-${dDay}`;
+
+      deletedDate.setHours(0, 0, 0, 0);
+
+      if (checkDate > deletedDate) return false;
+      if (checkDate.getTime() === deletedDate.getTime()) {
+        const isCompletedOnDeletedDate = routineCompletions.some(
+          rc => rc.routineId === routine.id && rc.date === deletedDateStr && rc.completed
+        );
+        if (!isCompletedOnDeletedDate) return false;
+      }
+    }
+
     return true;
   };
 
@@ -175,7 +174,6 @@ export const WeekCard = memo(function WeekCard({
   // 주간 고유 ID 생성 (스크롤 복원용)
   const weekId = `${weekStart.getFullYear()}-${String(weekStart.getMonth() + 1).padStart(2, '0')}-${String(weekStart.getDate()).padStart(2, '0')}`;
 
-  const { label: weekLabel } = getWeekLabelInfo();
 
   return (
     <div className={styles.weekCard} data-week-id={weekId}>
@@ -194,6 +192,23 @@ export const WeekCard = memo(function WeekCard({
             : ['월', '화', '수', '목', '금', '토', '일'];
           const isWeekend = weekOrder === 'sun' ? (index === 0 || index === 6) : (index === 5 || index === 6);
 
+          const shouldShowEmotionRoutine = true;
+          const shouldShowDiaryRoutine = true;
+          const currentEmotion = emotions[dateStr];
+          const hasDiary = Boolean(diaryCompletions[dateStr]);
+          const currentDiaryEntry = diaryEntries[dateStr];
+
+          const sortedSpecialRoutines = [
+            { type: 'emotion' as const, completed: !!currentEmotion, show: shouldShowEmotionRoutine && showEmotion },
+            { type: 'diary' as const, completed: hasDiary, show: shouldShowDiaryRoutine && showDiary }
+          ]
+            .filter(r => r.show)
+            .sort((a, b) => {
+              if (a.completed && !b.completed) return -1;
+              if (!a.completed && b.completed) return 1;
+              return 0;
+            });
+
           return (
             <div
               key={`header-${dateStr}`}
@@ -201,15 +216,68 @@ export const WeekCard = memo(function WeekCard({
               onMouseEnter={() => setHoveredDate(dateStr)}
               onMouseLeave={() => setHoveredDate(null)}
             >
-              {index === 0 && (
-                <div className={styles.weekLabelContainer}>
-                  <span className={styles.weekLabelText}>{weekLabel}</span>
-                </div>
-              )}
-              {/* Spacer needed if not first day, or use flexbox effectively */}
-              {index !== 0 && <div style={{ flex: 1 }} />}
+              {/* Spacer removed, using flex in child */}
 
-              <div className={styles.dayMeta}>
+              <div className={styles.headerSpecials}>
+                {sortedSpecialRoutines.map(item => {
+                  if (item.type === 'emotion') {
+                    return (
+                      <div
+                        key="emotion"
+                        className={`${styles.headerMetaItem} ${currentEmotion ? styles.headerMetaItemCompleted : styles.headerMetaItemHidden}`}
+                      >
+                        <button
+                          onClick={(e) => onOpenEmotion?.(dateStr, e.currentTarget)}
+                          className={`${styles.emotionIconButton} ${currentEmotion ? styles.emotionIconCompleted : styles.emotionIconIncomplete}`}
+                          style={{ backgroundColor: 'transparent', color: currentEmotion ? '#f59e0b' : '#d1d5db' }}
+                          title={currentEmotion ? '오늘의 기분' : '기분 남기기'}
+                        >
+                          {!currentEmotion ? (
+                            <span className="material-symbols-rounded" style={{ fontSize: '20px', fontWeight: 500, fontVariationSettings: `'FILL' 0, 'wght' 500, 'GRAD' 0, 'opsz' 24` }}>
+                              {EMOTION_ROUTINE.icon}
+                            </span>
+                          ) : (
+                            <span style={{ fontSize: '20px', lineHeight: 1 }}>{currentEmotion}</span>
+                          )}
+                        </button>
+                      </div>
+                    );
+                  } else if (item.type === 'diary') {
+                    const diaryText = currentDiaryEntry?.title || currentDiaryEntry?.content || '';
+                    return (
+                      <div
+                        key="diary"
+                        className={`${styles.headerMetaItem} ${hasDiary ? styles.headerMetaItemCompleted : styles.headerMetaItemHidden}`}
+                        style={hasDiary ? { flex: 1, minWidth: 0 } : undefined}
+                      >
+                        {hasDiary ? (
+                          <div
+                            className={styles.headerDiaryText}
+                            title={diaryText || '일기'}
+                            onClick={() => onOpenDiary(dateStr)}
+                          >
+                            {diaryText || '일기'}
+                          </div>
+                        ) : (
+                          <button
+                            onClick={() => onOpenDiary(dateStr)}
+                            className={`${styles.emotionIconButton} ${styles.emotionIconIncomplete}`}
+                            style={{ backgroundColor: 'transparent', color: '#d1d5db' }}
+                            title="일기쓰기"
+                          >
+                            <span className="material-symbols-rounded" style={{ fontSize: '20px', fontWeight: 500, fontVariationSettings: `'FILL' 0, 'wght' 500, 'GRAD' 0, 'opsz' 24` }}>
+                              {DIARY_ROUTINE.icon}
+                            </span>
+                          </button>
+                        )}
+                      </div>
+                    );
+                  }
+                  return null;
+                })}
+              </div>
+
+              <div className={`${styles.dayMeta} ${today ? styles.dayMetaToday : ''}`}>
                 <span
                   className={`${styles.dayName} ${isWeekend ? styles.dayNameWeekend : styles.dayNameWeekday
                     }`}
@@ -263,99 +331,104 @@ export const WeekCard = memo(function WeekCard({
         )}
 
         {/* 2. AM Events Row (Row 3) */}
-        {days.map((date, index) => {
-          const year = date.getFullYear();
-          const month = String(date.getMonth() + 1).padStart(2, '0');
-          const day = String(date.getDate()).padStart(2, '0');
-          const dateStr = `${year}-${month}-${day}`;
-
-          const dayEvents = getEventsForDate(date);
-
-          // Split into two groups:
-          // 1. All-Day events (no startTime) - always at TOP
-          // 2. Timed AM events (startTime < 12:00) - at BOTTOM (near divider if spanning)
-          const allDayEvents = dayEvents.filter(e => !e.startTime);
-          const timedAmEvents = dayEvents.filter(e => {
-            if (!e.startTime) return false;
-            const startHour = parseInt(e.startTime.split(':')[0]);
-            return startHour < 12;
+        {(() => {
+          // Check if ANY day in the current week has an AM-PM spanning event
+          const hasAnySpanningEventInWeek = days.some(date => {
+            const dayEvents = getEventsForDate(date);
+            return dayEvents.some(event => {
+              if (event.startTime && event.endTime) {
+                return event.startTime < '12:00' && event.endTime > '12:00';
+              }
+              return false;
+            });
           });
 
-          // Sort timed events by start time
-          timedAmEvents.sort((a, b) => (a.startTime || '').localeCompare(b.startTime || ''));
+          return days.map((date, index) => {
+            const year = date.getFullYear();
+            const month = String(date.getMonth() + 1).padStart(2, '0');
+            const day = String(date.getDate()).padStart(2, '0');
+            const dateStr = `${year}-${month}-${day}`;
 
-          // Check if any timed event spans across 12:00
-          const hasSpanningEvents = timedAmEvents.some(event => {
-            if (event.startTime && event.endTime) {
-              return event.startTime < '12:00' && event.endTime > '12:00';
-            }
-            return false;
-          });
+            const dayEvents = getEventsForDate(date);
 
-          return (
-            <div
-              key={`am-${dateStr}`}
-              className={`${styles.amEvents} ${index === 6 ? styles.lastColumn : ''}`}
-              onDoubleClick={(e) => {
-                if ((e.target as HTMLElement).closest('[data-event-item]')) return;
-                onDateClick(dateStr, e.currentTarget, 'am');
-              }}
-              onMouseEnter={() => setHoveredDate(dateStr)}
-              onMouseLeave={() => setHoveredDate(null)}
-            >
-              {/* Group 1: All-Day Events - Always at TOP */}
-              {allDayEvents.length > 0 && (
-                <div className={styles.eventsList} style={{ justifyContent: 'flex-start' }}>
-                  {allDayEvents.map(event => (
-                    <EventItem
-                      key={event.id}
-                      event={event}
-                      onEventDoubleClick={onEventDoubleClick}
-                      onDeleteEvent={onDeleteEvent}
-                      variant="compact"
-                      className={styles.allday}
-                    />
-                  ))}
-                </div>
-              )}
+            // Split into two groups:
+            // 1. All-Day events (no startTime) - always at TOP
+            // 2. Timed AM events (startTime < 12:00) - at BOTTOM (near divider if ANY spanning event exists in this week)
+            const allDayEvents = dayEvents.filter(e => !e.startTime);
+            const timedAmEvents = dayEvents.filter(e => {
+              if (!e.startTime) return false;
+              const startHour = parseInt(e.startTime.split(':')[0]);
+              return startHour < 12;
+            });
 
-              {/* Group 2: Timed AM Events - At BOTTOM if spanning, otherwise after all-day */}
-              {timedAmEvents.length > 0 && (
-                <div
-                  className={styles.eventsList}
-                  style={{
-                    justifyContent: hasSpanningEvents ? 'flex-end' : 'flex-start',
-                    flex: hasSpanningEvents ? 1 : 'none'
-                  }}
-                >
-                  {timedAmEvents.map(event => {
-                    let timeDisplay: 'default' | 'start-only' | 'end-only' = 'default';
-                    if (event.startTime && event.endTime) {
-                      if (event.startTime < '12:00' && event.endTime > '12:00') {
-                        timeDisplay = 'start-only';
-                      }
-                    }
+            // Sort timed events by start time
+            timedAmEvents.sort((a, b) => (a.startTime || '').localeCompare(b.startTime || ''));
 
-                    return (
+            return (
+              <div
+                key={`am-${dateStr}`}
+                className={`${styles.amEvents} ${index === 6 ? styles.lastColumn : ''}`}
+                onDoubleClick={(e) => {
+                  if ((e.target as HTMLElement).closest('[data-event-item]')) return;
+                  onDateClick(dateStr, e.currentTarget, 'am');
+                }}
+                onMouseEnter={() => setHoveredDate(dateStr)}
+                onMouseLeave={() => setHoveredDate(null)}
+              >
+                {/* Group 1: All-Day Events - Always at TOP */}
+                {allDayEvents.length > 0 && (
+                  <div className={styles.eventsList} style={{ justifyContent: 'flex-start' }}>
+                    {allDayEvents.map(event => (
                       <EventItem
                         key={event.id}
                         event={event}
                         onEventDoubleClick={onEventDoubleClick}
                         onDeleteEvent={onDeleteEvent}
-                        timeDisplay={timeDisplay}
+                        variant="compact"
+                        className={styles.allday}
                       />
-                    );
-                  })}
-                </div>
-              )}
-            </div>
-          );
-        })}
+                    ))}
+                  </div>
+                )}
+
+                {/* Group 2: Timed AM Events - At BOTTOM if spanning exists in the week, otherwise after all-day */}
+                {timedAmEvents.length > 0 && (
+                  <div
+                    className={styles.eventsList}
+                    style={{
+                      justifyContent: hasAnySpanningEventInWeek ? 'flex-end' : 'flex-start',
+                      flex: hasAnySpanningEventInWeek ? 1 : 'none'
+                    }}
+                  >
+                    {timedAmEvents.map(event => {
+                      let timeDisplay: 'default' | 'start-only' | 'end-only' = 'default';
+                      if (event.startTime && event.endTime) {
+                        if (event.startTime < '12:00' && event.endTime > '12:00') {
+                          timeDisplay = 'start-only';
+                        }
+                      }
+
+                      return (
+                        <EventItem
+                          key={event.id}
+                          event={event}
+                          onEventDoubleClick={onEventDoubleClick}
+                          onDeleteEvent={onDeleteEvent}
+                          timeDisplay={timeDisplay}
+                        />
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            );
+          })
+        })()}
 
         {/* 3. Divider Line (Row 3) - Only if there are ANY events in this week */}
         {events.length > 0 && (
           <div className={styles.dividerLine}>
-            <span className={styles.dividerLabel}>오후 12:00</span>
+            <span className={styles.dividerLabel}>오후</span>
           </div>
         )}
 
@@ -438,49 +511,46 @@ export const WeekCard = memo(function WeekCard({
         })}
 
         {/* 5. Routine Row (Row 5 - Optional) */}
-        {showRoutines && days.map((date, index) => {
-          const routineDayIndex = weekOrder === 'sun' ? (index === 0 ? 6 : index - 1) : index;
-          const dayRoutines = getRoutinesForDay(routineDayIndex);
-          const visibleRoutines = dayRoutines.filter(r => shouldShowRoutine(r, date));
+        {(() => {
+          if (!showRoutines) return null;
 
-          const year = date.getFullYear();
-          const month = String(date.getMonth() + 1).padStart(2, '0');
-          const day = String(date.getDate()).padStart(2, '0');
-          const dateStr = `${year}-${month}-${day}`;
+          const hasAnyRoutinesInWeek = days.some((date, index) => {
+            const routineDayIndex = weekOrder === 'sun' ? (index === 0 ? 6 : index - 1) : index;
+            const dayRoutines = getRoutinesForDay(routineDayIndex);
+            return dayRoutines.some(r => shouldShowRoutine(r, date));
+          });
 
-          const shouldShowDiaryRoutine = true;
+          if (!hasAnyRoutinesInWeek) return null;
 
-          return (
-            <div key={`routine-${dateStr}`} className={`${styles.dayRoutineCell} ${index === 6 ? styles.lastColumn : ''}`}>
-              {visibleRoutines.map(routine => {
-                const completed = isRoutineCompleted(routine.id, dateStr);
-                return (
-                  <div key={routine.id} className={styles.dayRoutineItem}>
-                    <RoutineIcon
-                      routine={routine}
-                      completed={completed}
-                      enabled={true}
-                      onClick={() => onToggleRoutine(routine.id, dateStr)}
-                    />
-                  </div>
-                );
-              })}
-              {shouldShowDiaryRoutine && (
-                <div
-                  className={`${styles.dayRoutineItem} ${styles.dayRoutineDiary} ${diaryCompletions[dateStr] ? styles.dayRoutineDiaryCompleted : styles.dayRoutineDiaryHidden
-                    }`}
-                >
-                  <RoutineIcon
-                    routine={DIARY_ROUTINE}
-                    completed={Boolean(diaryCompletions[dateStr])}
-                    enabled={true}
-                    onClick={() => onOpenDiary(dateStr)}
-                  />
-                </div>
-              )}
-            </div>
-          );
-        })}
+          return days.map((date, index) => {
+            const routineDayIndex = weekOrder === 'sun' ? (index === 0 ? 6 : index - 1) : index;
+            const dayRoutines = getRoutinesForDay(routineDayIndex);
+            const visibleRoutines = dayRoutines.filter(r => shouldShowRoutine(r, date));
+
+            const year = date.getFullYear();
+            const month = String(date.getMonth() + 1).padStart(2, '0');
+            const day = String(date.getDate()).padStart(2, '0');
+            const dateStr = `${year}-${month}-${day}`;
+
+            return (
+              <div key={`routine-${dateStr}`} className={`${styles.dayRoutineCell} ${index === 6 ? styles.lastColumn : ''}`}>
+                {visibleRoutines.map(routine => {
+                  const completed = isRoutineCompleted(routine.id, dateStr);
+                  return (
+                    <div key={routine.id} className={styles.dayRoutineItem}>
+                      <RoutineIcon
+                        routine={routine}
+                        completed={completed}
+                        enabled={true}
+                        onClick={() => onToggleRoutine(routine.id, dateStr)}
+                      />
+                    </div>
+                  );
+                })}
+              </div>
+            );
+          });
+        })()}
       </div>
 
       {/* 투두 리스트 */}
@@ -493,7 +563,8 @@ export const WeekCard = memo(function WeekCard({
           onDelete={onDeleteTodo}
           onReorder={(newTodos) => onReorderTodos(todoWeekStart, newTodos)}
         />
-      )}
-    </div>
+      )
+      }
+    </div >
   );
 });

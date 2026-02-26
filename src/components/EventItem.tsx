@@ -81,6 +81,11 @@ export const EventItem = memo(function EventItem({
         </div>
       )}
       <div className={styles.eventTitle}>{event.title}</div>
+      {event.memo && (
+        <span className={`material-symbols-rounded ${styles.eventMemoIcon}`} style={{ fontSize: '14px' }}>
+          notes
+        </span>
+      )}
     </div>
   );
 });

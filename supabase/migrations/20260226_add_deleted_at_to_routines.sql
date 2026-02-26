@@ -1,0 +1,1 @@
+ALTER TABLE routines ADD COLUMN IF NOT EXISTS deleted_at TEXT;

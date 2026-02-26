@@ -64,12 +64,12 @@
 .dropIndicator {
   position: absolute;
   width: 4px;
-  background-color: var(--color-primary);
+  background-color: var(--color-blue-primary);
   border-radius: 2px;
   height: 80%;
   pointer-events: none;
   z-index: 100;
-  box-shadow: 0 0 4px var(--color-primary-shadow);
+  box-shadow: 0 0 4px var(--color-blue-primary-shadow);
   animation: fadeIn 0.1s ease;
 }
 
@@ -103,7 +103,7 @@
   padding: 0.1rem 0.2rem 0.1rem 0.75rem;
   /* box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06); */
   position: relative; /* For DatePicker positioning */
-  z-index: 10;
+  z-index: 9990; /* High enough to be over divider lines and calendar grid */
   box-sizing: border-box;
 }
 
@@ -172,7 +172,7 @@
   top: 100%;
   left: 0;
   margin-top: 0.5rem;
-  z-index: 50; /* Higher than item */
+  z-index: 9990; /* Above divider line (z-index:10) and all calendar elements */
 }
 
 .datePickerContainerTop {
@@ -288,8 +288,8 @@
 }
 
 .dDayBadgeUpcoming {
-  background-color: #dcfce7;
-  color: #16a34a;
+  background-color: var(--color-green-primary-10);
+  color: var(--color-green-primary-70);
 }
 
 .dDayBadgeCompleted {

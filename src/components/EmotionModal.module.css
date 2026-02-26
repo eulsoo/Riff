@@ -1,0 +1,49 @@
+.emotionPopup {
+  background: white;
+  border-radius: 12px;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15), 0 0 0 1px rgba(0, 0, 0, 0.05);
+  padding: 8px;
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  grid-template-rows: repeat(2, 1fr);
+  gap: 4px;
+  z-index: 10000;
+  transform: translateY(8px);
+}
+
+:global(.dark) .emotionPopup {
+  background: #1f2937;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(255, 255, 255, 0.1);
+}
+
+.emojiButton {
+  width: 36px;
+  height: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 20px;
+  border-radius: 8px;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.emojiButton:hover {
+  background: #f3f4f6;
+  transform: scale(1.1);
+}
+
+:global(.dark) .emojiButton:hover {
+  background: #374151;
+}
+
+.selected {
+  background: #e5e7eb;
+  transform: scale(1.1);
+}
+
+:global(.dark) .selected {
+  background: #4b5563;
+}

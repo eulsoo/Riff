@@ -27,6 +27,30 @@
   align-items: center;
 }
 
+.deadlineToggleRow {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.deadlineToggleLabel {
+  font-size: 0.85rem;
+  font-weight: 500;
+  color: #374151;
+}
+
+.calendarContent {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  transition: opacity 0.2s ease;
+}
+
+.calendarContentDisabled {
+  opacity: 0.3;
+  pointer-events: none;
+}
+
 .navControls {
   display: flex;
   gap: 0.25rem;
@@ -129,4 +153,51 @@
 .dayCellRangeEnd {
   border-top-right-radius: 50%;
   border-bottom-right-radius: 50%;
+}
+
+/* Toggle Switch */
+.toggleSwitch {
+  position: relative;
+  display: inline-block;
+  width: 32px;
+  height: 18px;
+  flex-shrink: 0;
+}
+
+.toggleSwitch input {
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+
+.toggleSlider {
+  position: absolute;
+  cursor: pointer;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: #ccc;
+  transition: .4s;
+  border-radius: 34px;
+}
+
+.toggleSlider:before {
+  position: absolute;
+  content: "";
+  height: 14px;
+  width: 14px;
+  left: 2px;
+  bottom: 2px;
+  background-color: white;
+  transition: .4s;
+  border-radius: 50%;
+}
+
+input:checked + .toggleSlider {
+  background-color: var(--color-blue-primary);
+}
+
+input:checked + .toggleSlider:before {
+  transform: translateX(14px);
 }

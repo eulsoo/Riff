@@ -13,11 +13,14 @@ interface CalendarListProps {
   weekOrder: WeekOrder;
   diaryCompletionMap: Record<string, boolean>;
   showRoutines: boolean;
+  showDiary: boolean;
+  showEmotion: boolean;
   showTodos: boolean;
   onDateClick: (date: string, anchorEl?: HTMLElement, timeSlot?: 'am' | 'pm') => void;
   onEventDoubleClick: (event: Event, anchorEl?: HTMLElement) => void;
   onDeleteEvent: (eventId: string) => void; // Added Prop
   onOpenDiary: (date: string) => void;
+  onOpenEmotion?: (date: string, anchorEl: HTMLElement) => void;
   topSentinelRef: React.RefObject<HTMLDivElement>;
   bottomSentinelRef: React.RefObject<HTMLDivElement>;
 }
@@ -33,11 +36,14 @@ export const CalendarList = memo(({
   weekOrder,
   diaryCompletionMap,
   showRoutines,
+  showDiary,
+  showEmotion,
   showTodos,
   onDateClick,
   onEventDoubleClick,
   onDeleteEvent, // Received from MainLayout
   onOpenDiary,
+  onOpenEmotion,
   topSentinelRef,
   bottomSentinelRef
 }: CalendarListProps) => {
@@ -77,9 +83,12 @@ export const CalendarList = memo(({
             onReorderTodos={reorderTodos}
 
             onOpenDiary={onOpenDiary}
+            onOpenEmotion={onOpenEmotion}
             diaryCompletions={diaryCompletionMap}
             weekStatus={weekStatus}
             showRoutines={showRoutines}
+            showDiary={showDiary}
+            showEmotion={showEmotion}
             showTodos={showTodos}
           />
         </div>

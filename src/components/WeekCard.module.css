@@ -12,16 +12,8 @@
 .weekGrid.weekGridCurrent {
   /* Base: Gradient from soft white to pale peach */
   /* background: linear-gradient(to bottom, rgba(255, 255, 255, 0.95), rgba(255, 245, 242, 0.4)); */
-  border: 1px solid #7ce09f;
+  border: 1px solid var(--color-green-primary) ;
 }
-.weekGridPrevNext {
-  /* border-color: #d1d5db; */
-}
-
-.weekGridOther {
-  /* border-color: #e5e7eb; */
-}
-
 .weekGrid {
   background-color: white;
   border-radius: 0.75rem;
@@ -33,17 +25,17 @@
   grid-template-columns: repeat(7, minmax(0, 1fr));
   /* Rows: [Header] [AM Events] [Divider] [PM Events] [Routine] */
   grid-auto-rows: min-content; 
-  overflow: hidden;
 }
 
 /* Header Cell (Row 1) */
 .dayHeader {
   grid-row: 1;
   display: flex;
+  height: 30px;
   justify-content: space-between;
   align-items: center;
   gap: 0.5rem;
-  padding: 0.5rem 0.5rem 0.2rem;
+  padding: 0.2rem 0.5rem 0.2rem;
   /* border-bottom: 1px solid #f3f4f6; */
   border-right: 1px solid #e5e7eb;
   min-width: 0;
@@ -117,7 +109,7 @@
 /* AM Events Cell (Row 3) */
 .amEvents {
   grid-row: 3;
-  min-height: 80px; /* Minimum height for empty cells */
+  min-height: 60px; /* Minimum height for empty cells */
   display: flex !important;
   flex-direction: column;
 }
@@ -128,7 +120,9 @@
   gap: 0.3rem;
   flex: 1; /* Make eventsList take full height of the cell */
 }
-
+.eventsList + .eventsList {
+  margin-top: 0.3rem;
+}
 /* Group for events spanning to PM, pushed to bottom */
 .spanningEventGroup {
   margin-top: auto;
@@ -175,7 +169,7 @@
 /* Routine Cell (Row 6 or last) */
 .dayRoutineCell {
   grid-row: 6;
-  padding: 0.5rem 0.75rem 0.8rem;
+  padding: 0.5rem 0.75rem 0.4rem;
   display: flex;
   flex-direction: row;
   flex-wrap: wrap;
@@ -191,24 +185,6 @@
   gap: 0.375rem;
   flex-shrink: 0;
 }
-
-.weekLabelContainer {
-  display: flex;
-  align-items: center;
-  flex: 1;
-}
-
-.weekLabelText {
-  position: absolute;
-  right: 40px;
-  transform: translateY(-30px);
-  font-size: 1rem;
-  font-weight: 600;
-  color: #b7b7b7;
-  letter-spacing: 0.05em;
-  white-space: nowrap;
-}
-
 
 
 .dayName {
@@ -235,10 +211,38 @@
   font-size: 1.1rem;
   font-weight: 700;
 }
-
+.dayMetaToday {
+  position: relative;
+  width: 50px;
+  height: 20px;
+  
+  /* background-color: var(--color-green-primary-10); */
+}
+.dayMetaToday::before {
+  content: "";
+  position: absolute;
+  top: 0px;
+  left: -2px;
+  width: 55px;
+  height: 25px;
+  background-color: var(--color-green-primary-70);
+  border-radius: 13px;
+  /* transform: rotate(-5deg); */
+}
+.dayMetaToday > .dayNameWeekday {
+  position: absolute;
+  z-index: 100;
+  top: 5px;
+  left:5px;
+  color: var(--color-white);
+}
 .dayNumberToday {
-  background-color: #2563eb;
-  color: white;
+  /* background-color: #2563eb; */
+  position: absolute;
+  z-index: 100;
+  top: 4px;
+  right:5px;
+  color: var(--color-white);
   font-weight: 700;
 }
 
@@ -283,29 +287,81 @@
   min-width: 0;
 }
 
-.dayRoutineDiary {
-  transition: opacity 0.2s ease-in-out;
+.headerSpecials {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  flex: 1;
+  min-width: 0;
+  margin-right: 10px;
 }
 
-.dayRoutineDiaryHidden {
-  opacity: 0;
-  pointer-events: none;
+.headerMetaItemHidden {
+  display: none;
+  min-width: 0;
 }
 
-.dayRoutineDiaryCompleted {
+.headerMetaItemCompleted {
+  display: flex;
+  align-items: center;
+}
+
+.dayHeader:hover .headerMetaItemHidden {
+  display: flex;
+  align-items: center;
+}
+
+.headerDiaryText {
+  font-size: 0.8rem;
+  color: #7c7c7c;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  cursor: pointer;
+}
+
+.headerDiaryText:hover {
+  text-decoration: underline;
+}
+
+.emotionIconButton {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  border: none;
+  background: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: transform 0.1s ease-in-out;
+}
+
+.emotionIconButton:hover {
+  transform: scale(1.1);
+}
+
+.emotionIconCompleted {
   opacity: 1;
-  pointer-events: auto;
 }
 
-.dayRoutineCell:hover .dayRoutineDiaryHidden {
+.emotionIconIncomplete {
   opacity: 1;
-  pointer-events: auto;
 }
 
 
 
-.amEvents .eventsList > :first-child {
+
+/* eventsList 안의 자식이 3개 이상일 때 그 첫 번째 자식에게만 마진 추가 */
+.amEvents .eventsList > :first-child:nth-last-child(n+2) {
   margin-top: 0.8rem;
+}
+
+/* pmEvents 안의 eventsList 안의 자식이 3개 이상일 때 마지막 자식에게 마진 추가 */
+.pmEvents .eventsList > :last-child:nth-child(n+3) {
+  margin-bottom: 0.8rem;
 }
 
 .eventItem {
@@ -353,6 +409,11 @@
   user-select: none;
   flex: 1; /* Take up remaining space */
   min-width: 0; /* Allow shrinking below content width for ellipsis to work */
+}
+
+.eventMemoIcon {
+  flex-shrink: 0;
+  opacity: 0.75;
 }
 
 .allday {

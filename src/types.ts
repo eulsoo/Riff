@@ -22,6 +22,7 @@ export interface Routine {
   color: string;
   days: number[]; // 0=월, 1=화, 2=수, 3=목, 4=금, 5=토, 6=일
   createdAt?: string;
+  deletedAt?: string;
 }
 
 export interface RoutineCompletion {
@@ -45,6 +46,11 @@ export interface DiaryEntry {
   title: string;
   content: string;
   updatedAt?: string;
+}
+
+export interface EmotionEntry {
+  date: string;
+  emotion: string; // The selected emoji
 }
 
 

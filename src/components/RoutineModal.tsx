@@ -12,12 +12,16 @@ interface RoutineModalProps {
 }
 
 const AVAILABLE_ICONS = [
-  'fitness_center', 'coffee', 'menu_book', 'music_note',
-  'favorite', 'medication', 'restaurant', 'dark_mode',
-  'light_mode', 'water_drop', 'nutrition', 'school',
-  'edit_note', 'work', 'home', 'group',
-  'call', 'mail', 'photo_camera', 'palette',
-  'directions_bike', 'flight', 'forest', 'auto_awesome', 'bolt',
+  'fitness_center', 'directions_run', 'pool', 'sports_tennis', 'sports_basketball', 'sports_soccer',
+  'self_improvement', 'sports_gymnastics', 'sports_martial_arts', 'directions_walk', 'snowboarding', 'downhill_skiing',
+  'directions_bike', 'hiking', 'sports_esports', 'palette', 'brush', 'music_note', 'headphones',
+  'movie', 'menu_book', 'local_library', 'school', 'edit_note',
+  'coffee', 'local_cafe', 'restaurant', 'cake', 'local_bar',
+  'favorite', 'self_care', 'medication', 'spa', 'bedtime', 'dark_mode', 'light_mode',
+  'water_drop', 'nutrition', 'park', 'forest', 'local_florist', 'pets',
+  'cleaning_services', 'local_laundry_service', 'shopping_cart', 'shopping_bag',
+  'home', 'work', 'flight', 'directions_car', 'group', 'call', 'mail', 'photo_camera',
+  'auto_awesome', 'bolt',
 ];
 
 const COLORS = [
@@ -107,6 +111,7 @@ export function RoutineModal({ routines, onClose, onAdd, onDelete, onUpdate }: R
   };
 
   const isFormStep = step === 'create' || step === 'edit';
+  const activeRoutines = routines.filter(r => !r.deletedAt);
 
   return (
     <div className={shared.modalOverlay}>
@@ -138,12 +143,12 @@ export function RoutineModal({ routines, onClose, onAdd, onDelete, onUpdate }: R
             <div>
               <div className={shared.formLabel}>등록된 루틴</div>
               <div className={styles.routinesList}>
-                {routines.length === 0 ? (
+                {activeRoutines.length === 0 ? (
                   <div className={shared.emptyState}>
                     등록된 루틴이 없습니다.
                   </div>
                 ) : (
-                  routines.map(routine => {
+                  activeRoutines.map(routine => {
                     const iconName = LEGACY_ICON_MAP[routine.icon] || routine.icon;
                     return (
                       <div key={routine.id} className={styles.routineItem}>

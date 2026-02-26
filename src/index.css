@@ -42,12 +42,22 @@
   --color-white: #ffffff;
   --color-black: #000000;
 
-  /* === Primary Color (앱 전체 주요 액션 컬러) === */
-  --color-primary: #3b82f6;
-  --color-primary-hover: #2563eb;
-  --color-primary-light: rgba(59, 130, 246, 0.08);
-  --color-primary-border: rgba(59, 130, 246, 0.2);
-  --color-primary-shadow: rgba(59, 130, 246, 0.25);
+
+  /* === Blue Primary Color === */
+  --color-blue-primary: #3b82f6;
+  --color-blue-primary-hover: #2563eb;
+  --color-blue-primary-light: rgba(59, 130, 246, 0.08);
+  --color-blue-primary-border: rgba(59, 130, 246, 0.2);
+  --color-blue-primary-shadow: rgba(59, 130, 246, 0.25);
+
+  /* === Green Primary Color === */
+  --color-green-primary-10: #ecfff5;
+  --color-green-primary-20: #d2fae0;
+  --color-green-primary: #80e2a2;
+  --color-green-primary-60: #34c968;
+  --color-green-primary-70: #16a34a;
+  --color-green-primary-80: #16a34a;
+  --color-green-primary-90: #16a34a;
 }
 
 html,

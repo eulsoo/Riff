@@ -131,7 +131,7 @@
 }
 
 .iconButtonSelected {
-  background-color: var(--color-primary);
+  background-color: var(--color-blue-primary);
   color: white;
   transform: scale(1.05);
 }
@@ -240,7 +240,7 @@
 }
 
 .dayButtonSelected {
-  background-color: var(--color-primary);
+  background-color: var(--color-blue-primary);
   color: white;
 }
 

@@ -46,8 +46,8 @@
 }
 
 .timezoneSelect:focus {
-  border-color: var(--color-primary);
-  box-shadow: 0 0 0 3px var(--color-primary-border);
+  border-color: var(--color-blue-primary);
+  box-shadow: 0 0 0 3px var(--color-blue-primary-border);
 }
 
 /* --- Toggle Switch (copied from App.module.css for self-contained use) --- */
@@ -89,7 +89,7 @@
 }
 
 .toggleSwitch input:checked + .toggleSlider {
-  background-color: var(--color-primary);
+  background-color: var(--color-blue-primary);
 }
 
 .toggleSwitch input:checked + .toggleSlider::before {
@@ -124,13 +124,13 @@
 }
 
 .weekOrderOptionSelected {
-  background: var(--color-primary-light);
-  color: var(--color-primary);
-  border-color: var(--color-primary-border);
+  background: var(--color-blue-primary-light);
+  color: var(--color-blue-primary);
+  border-color: var(--color-blue-primary-border);
 }
 
 .weekOrderOptionSelected:hover {
-  background: var(--color-primary-light);
+  background: var(--color-blue-primary-light);
 }
 
 .weekOrderRadio {

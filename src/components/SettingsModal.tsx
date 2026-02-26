@@ -61,6 +61,7 @@ export function SettingsModal({ onClose, initialAvatarUrl, initialWeekOrder, onS
     const dy = e.clientY - startPos.y;
     const candidate = { x: startOffset.x + dx, y: startOffset.y + dy };
     setOffset(clampOffset(candidate, scale, imgRef.current, imgSize));
+    setAvatarChanged(true);
   };
 
   const handleMouseUp = () => setDragging(false);
@@ -75,6 +76,7 @@ export function SettingsModal({ onClose, initialAvatarUrl, initialWeekOrder, onS
       setOffset((prevOffset) => clampOffset(prevOffset, clamped, imgRef.current, imgSize));
       return clamped;
     });
+    setAvatarChanged(true);
   };
 
   const computeBaseScale = () => {
@@ -128,18 +130,14 @@ export function SettingsModal({ onClose, initialAvatarUrl, initialWeekOrder, onS
       return;
     }
 
-    if (!imageSrc.startsWith('data:')) {
-      alert('이미지 처리에 실패했습니다. 다시 이미지를 선택해주세요.');
-      onSaved({ avatarUrl: initialAvatarUrl || null, weekOrder });
-      onClose();
-      return;
-    }
-
     const previewCanvas = document.createElement('canvas');
     previewCanvas.width = VIEW_SIZE;
     previewCanvas.height = VIEW_SIZE;
     const ctx = previewCanvas.getContext('2d');
     if (!ctx) return;
+
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(0, 0, VIEW_SIZE, VIEW_SIZE);
 
     const baseScale = computeBaseScale();
     const renderScale = baseScale * scale;
@@ -160,9 +158,13 @@ export function SettingsModal({ onClose, initialAvatarUrl, initialWeekOrder, onS
 
     let blob: Blob | null = null;
     try {
-      blob = await new Promise<Blob | null>((resolve) =>
-        finalCanvas.toBlob((b) => resolve(b), 'image/png')
-      );
+      blob = await new Promise<Blob | null>((resolve, reject) => {
+        try {
+          finalCanvas.toBlob((b) => resolve(b), 'image/png');
+        } catch (e) {
+          reject(e);
+        }
+      });
     } catch (error) {
       alert('이미지 처리 중 오류가 발생했습니다. 주간 순서만 저장됩니다.');
       onSaved({ avatarUrl: initialAvatarUrl || null, weekOrder });
@@ -219,6 +221,7 @@ export function SettingsModal({ onClose, initialAvatarUrl, initialWeekOrder, onS
                     ref={imgRef}
                     src={imageSrc}
                     alt="avatar"
+                    crossOrigin="anonymous"
                     style={{
                       transform: `translate(-50%, -50%) translate(${offset.x}px, ${offset.y}px) scale(${computeBaseScale() * scale})`,
                     }}
@@ -272,6 +275,7 @@ export function SettingsModal({ onClose, initialAvatarUrl, initialWeekOrder, onS
                         const next = Number(e.target.value);
                         setScale(next);
                         setOffset((prev) => clampOffset(prev, next, imgRef.current, imgSize));
+                        setAvatarChanged(true);
                       }}
                     />
                     <span className={styles.zoomLabel}>확대</span>
