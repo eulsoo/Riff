@@ -57,18 +57,20 @@ export function AppHeader({
   return (
     <div className={styles.appHeader}>
       <div className={styles.appHeaderContent}>
-        {!isCalendarPopupOpen && (
-          <button
-            onClick={onToggleCalendarPopup}
-            className={styles.toggleButton}
-            aria-label="캘린더 목록"
-          >
-            <span className="material-symbols-rounded" style={{ fontSize: '20px' }}>calendar_month</span>
-          </button>
-        )}
-        {calendarPopupNode}
-
         <div className={styles.appHeaderLeft}>
+          {!isCalendarPopupOpen && (
+            <button
+              onClick={onToggleCalendarPopup}
+              className={styles.toggleButton}
+              aria-label="캘린더 목록"
+            >
+              <span className="material-symbols-rounded" style={{ fontSize: '20px' }}>calendar_month</span>
+            </button>
+          )}
+          {calendarPopupNode}
+        </div>
+
+        <div className={styles.appHeaderCenter}>
           <h1 className={styles.appHeaderTitle}>
             {currentYear}. {String(currentMonth).padStart(2, '0')}
           </h1>
@@ -188,7 +190,7 @@ export function AppHeader({
             )}
           </div>
         </div>
-      </div>
-    </div>
+      </div >
+    </div >
   );
 }
