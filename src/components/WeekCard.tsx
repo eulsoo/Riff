@@ -1,4 +1,4 @@
-import { memo } from 'react';
+import { memo, useState } from 'react';
 import { EventItem } from './EventItem';
 import { Event, Routine, RoutineCompletion, Todo, WeekOrder } from '../types';
 import { RoutineIcon } from './RoutineIcon';
@@ -77,6 +77,7 @@ export const WeekCard = memo(function WeekCard({
   showEmotion,
   showTodos,
 }: WeekCardProps) {
+  const [isAddingEmptyTodo, setIsAddingEmptyTodo] = useState(false);
   const { setHoveredDate } = useHover();
   const { emotions, diaryEntries } = useData();
   // Performance Monitoring
@@ -554,17 +555,31 @@ export const WeekCard = memo(function WeekCard({
       </div>
 
       {/* 투두 리스트 */}
-      {showTodos && (
+      {showTodos && (todos.length > 0 || isAddingEmptyTodo) && (
         <TodoList
           todos={todos}
-          onAdd={(text, deadline) => onAddTodo(todoWeekStart, text, deadline)}
+          onAdd={(text, deadline) => {
+            onAddTodo(todoWeekStart, text, deadline);
+            setIsAddingEmptyTodo(false);
+          }}
           onToggle={onToggleTodo}
           onUpdate={onUpdateTodo}
           onDelete={onDeleteTodo}
           onReorder={(newTodos) => onReorderTodos(todoWeekStart, newTodos)}
+          forceAdding={isAddingEmptyTodo}
+          onAddingCanceled={() => setIsAddingEmptyTodo(false)}
         />
-      )
-      }
-    </div >
+      )}
+
+      {showTodos && todos.length === 0 && !isAddingEmptyTodo && (
+        <button
+          className={styles.emptyTodoOverlayBtn}
+          onClick={() => setIsAddingEmptyTodo(true)}
+        >
+          <span className={`material-symbols-rounded ${styles.emptyTodoIcon}`}>add</span>
+          할일
+        </button>
+      )}
+    </div>
   );
 });

@@ -8,14 +8,6 @@
   position: sticky;
   top: 0;
   z-index: 1000;
-  /* background: rgba(255, 255, 255, 0.2); */
-  /* backdrop-filter: blur(3px); */
-  /* -webkit-backdrop-filter: blur(3px); */
-}
-
-
-
-.appHeaderContent {
   max-width: 100%;
   margin: 0 auto;
   padding: 0.5rem 1.5rem;
@@ -24,11 +16,28 @@
   align-items: center;
 }
 
-.appHeaderLeft {
-  position: fixed;
-  left: 50%;
-  top: 20px;
-  transform: translateX(-50%);
+.appHeaderLeft .toggleButton {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  backdrop-filter: blur(3px);
+  -webkit-backdrop-filter: blur(3px);
+  color: var(--color-green-primary-70);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.05);
+  border: 1px solid var(--color-green-primary-20);
+  background-color: var(--color-green-primary-10);
+  transition: all 0.2s ease;
+}
+
+.toggleButton:hover {
+  transform: scale(1.1);
+}
+
+.appHeaderCenter {
   display: flex;
   align-items: center;
   gap: 0.75rem;
@@ -39,38 +48,18 @@
   background: rgba(255, 255, 255, 0.2);
   backdrop-filter: blur(3px);
   -webkit-backdrop-filter: blur(3px);
-  z-index: 10;
 }
-
-.toggleButton {
-  width: 40px;
-  height: 40px;
-  border-radius: 50%;
-  border: 1px solid rgba(224, 224, 224, 0.5);
-  background: rgba(255, 255, 255, 0.2);
-  backdrop-filter: blur(3px);
-  -webkit-backdrop-filter: blur(3px);
-  color: #374151;
+.appHeaderRight {
+  top: 28px;
   display: flex;
-  align-items: center;
-  justify-content: center;
-  cursor: pointer;
-  transition: all 0.2s ease;
-  z-index: 40;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.05);
-}
-
-.toggleButton:hover {
-  background: rgba(255, 255, 255, 0.4);
+  align-items: flex-end;
+  gap: 0.75rem;
 }
 
 .appHeaderTitle {
   font-size: 2rem;
   font-weight: 900;
   color:black;
-}
-.appHeaderTitle > span {
-  font-weight:800;
 }
 
 .appHeaderButton {
@@ -81,76 +70,16 @@
   transition: background-color 0.2s ease-in-out;
   border: none;
   cursor: pointer;
-}
-
-.appHeaderButtonToday {
   color: var(--color-green-primary-70);
   font-weight: bold;
   border-radius: 20px;
   border: 1px solid var(--color-green-primary-20);
   background-color: var(--color-green-primary-10);
+  transition: all 0.2s ease;
 }
 
-
-.appHeaderButtonRoutine {
-  background-color: #9333ea;
-  color: white;
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-}
-
-.appHeaderButtonRoutine:hover {
-  background-color: #7e22ce;
-}
-
-.appHeaderButtonCalendar {
-  background-color: #10b981;
-  color: white;
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-}
-
-.appHeaderButtonCalendar:hover {
-  background-color: #059669;
-}
-
-.appHeaderButtonICS {
-  background-color: #f59e0b;
-  color: white;
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-}
-
-.appHeaderButtonICS:hover {
-  background-color: #d97706;
-}
-
-.appHeaderButtonRoutineIcon {
-  width: 1rem;
-  height: 1rem;
-}
-
-.appHeaderButtonLogout {
-  color: #6b7280;
-  background: none;
-  font-weight: 500;
-}
-
-.appHeaderButtonLogout:hover {
-  color: #374151;
-}
-
-.appHeaderRight {
-  position: fixed;
-  right: 24px;
-  top: 28px;
-  display: flex;
-  align-items: flex-end;
-  gap: 0.75rem;
-  z-index: 10;
+.appHeaderButton:hover {
+  transform: scale(1.1);
 }
 
 .profileWrapper {
@@ -161,19 +90,24 @@
   width: 40px;
   height: 40px;
   border-radius: 50%;
-  border: 2px solid var(--color-green-primary);
-  background: #f3f4f6;
-  color: #374151;
+  border: 1px solid var(--color-green-primary-20);
+  
   display: flex;
   align-items: center;
   justify-content: center;
   font-weight: 700;
   cursor: pointer;
-  transition: background-color 0.2s ease;
+  transition: all 0.2s ease;
+  box-sizing: border-box;
+  background-color: var(--color-green-primary-10);
+  background-clip: content-box;
+  background-origin: content-box;
+  background-size: cover;
+  background-position: center;
 }
 
 .profileButton:hover {
-  background: #e5e7eb;
+  transform: scale(1.1);
 }
 
 .profileInitial {
@@ -199,39 +133,6 @@
   animation: fadeIn 0.1s ease-out;
 }
 
-.profileHeader {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding-bottom: 0.5rem;
-  border-bottom: 1px solid rgba(0, 0, 0, 0.05);
-  margin-bottom: 0.25rem;
-}
-
-.profileTitle {
-  font-size: 0.95rem;
-  font-weight: 600;
-  color: #1f2937;
-  margin: 0;
-}
-
-.profileCloseButton {
-  background: none;
-  border: none;
-  cursor: pointer;
-  color: #6b7280;
-  padding: 4px;
-  border-radius: 50%;
-  transition: all 0.2s;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.profileCloseButton:hover {
-  background-color: rgba(0, 0, 0, 0.05);
-  color: #1f2937;
-}
 
 @keyframes fadeIn {
   from {
@@ -288,24 +189,6 @@
   margin-left: auto;
 }
 
-.profileMenuToggleWrapper {
-  display: flex;
-  align-items: center;
-}
-
-.profileMenuItemWithIcon {
-  flex: 1;
-  border: none;
-  background: transparent;
-  text-align: left;
-  padding: 0.4rem 0;
-  color: #111827;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  font-size: 0.9rem;
-  cursor: pointer;
-}
 
 /* Toggle Switch Styles */
 .toggleSwitch {
@@ -353,11 +236,6 @@ input:checked + .toggleSlider:before {
   transform: translateX(14px);
 }
 
-.profileMenuIcon {
-  width: 1rem;
-  height: 1rem;
-  color: #6b7280;
-}
 
 .appContent {
   width: 100%;

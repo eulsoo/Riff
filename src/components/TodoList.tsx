@@ -1,4 +1,4 @@
-import { useState, useRef, Fragment } from 'react';
+import { useState, useRef, Fragment, useEffect } from 'react';
 import { Todo } from '../types';
 import styles from './TodoList.module.css';
 import { TodoCheckIcon } from './TodoCheckIcon';
@@ -11,6 +11,8 @@ interface TodoListProps {
   onUpdate: (todoId: string, text: string, deadline?: string) => void;
   onDelete: (todoId: string) => void;
   onReorder?: (newTodos: Todo[]) => void;
+  forceAdding?: boolean;
+  onAddingCanceled?: () => void;
 }
 
 export function TodoList({
@@ -20,9 +22,17 @@ export function TodoList({
   onUpdate,
   onDelete,
   onReorder,
+  forceAdding,
+  onAddingCanceled,
 }: TodoListProps) {
   // --- Todo States (Restored) ---
-  const [isAdding, setIsAdding] = useState(false);
+  const [isAdding, setIsAdding] = useState(forceAdding || false);
+
+  useEffect(() => {
+    if (forceAdding && !isAdding) {
+      setIsAdding(true);
+    }
+  }, [forceAdding, isAdding]);
   const [newTodoText, setNewTodoText] = useState('');
   const [newDeadline, setNewDeadline] = useState<string | undefined>(undefined);
 
@@ -198,6 +208,7 @@ export function TodoList({
       setNewDeadline(undefined);
       setIsAdding(false);
       setShowDatePicker(false);
+      onAddingCanceled?.();
     }
   };
 
@@ -230,6 +241,7 @@ export function TodoList({
     setIsAdding(false);
     setNewTodoText('');
     setNewDeadline(undefined);
+    onAddingCanceled?.();
   };
 
   // Dedicated delete handler for edit mode
@@ -238,6 +250,7 @@ export function TodoList({
       setIsAdding(false);
       setNewTodoText('');
       setNewDeadline(undefined);
+      onAddingCanceled?.();
     } else {
       onDelete(id);
       setEditingId(null); // Exit edit mode
@@ -463,7 +476,10 @@ export function TodoList({
               onChange={e => setNewTodoText(e.target.value)}
               onKeyDown={e => {
                 if (e.key === 'Enter') handleAdd();
-                if (e.key === 'Escape') setIsAdding(false);
+                if (e.key === 'Escape') {
+                  setIsAdding(false);
+                  onAddingCanceled?.();
+                }
               }}
               placeholder="할 일 입력..."
               className={styles.todoInput}
