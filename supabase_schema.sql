@@ -77,3 +77,14 @@ create unique index if not exists diary_entries_user_date_idx on diary_entries(u
 
 alter table diary_entries enable row level security;
 create policy "Allow public access for diary entries" on diary_entries for all using (true) with check (true);
+
+-- 7. User Tokens Table (For 3rd party refresh tokens, highly restricted to user)
+create table if not exists user_tokens (
+  user_id uuid primary key references auth.users(id) on delete cascade,
+  provider_refresh_token text not null,
+  updated_at timestamptz default now()
+);
+
+alter table user_tokens enable row level security;
+create policy "Users can manage their own tokens" on user_tokens for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
+

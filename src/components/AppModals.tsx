@@ -1,6 +1,7 @@
 import { Event, Routine, WeekOrder } from '../types';
 import { CalendarMetadata } from '../services/api';
 import { CalDAVSyncModal } from './CalDAVSyncModal';
+import { GoogleSyncModal } from './GoogleSyncModal';
 import { EventModal } from './EventModal';
 import { RoutineModal } from './RoutineModal';
 import { ModalPosition } from './EventModal';
@@ -34,6 +35,12 @@ interface AppModalsProps {
   onCloseSettings: () => void;
   onSettingsSaved: (data: { avatarUrl: string | null; weekOrder: WeekOrder }) => void;
   onDraftUpdate?: (updates: Partial<Event>) => void;
+  // Google
+  isGoogleSyncModalOpen: boolean;
+  onCloseGoogleSyncModal: () => void;
+  onGoogleSyncComplete: (selected: CalendarMetadata[]) => void;
+  onGoogleDisconnect: () => void;
+  googleCalendars: CalendarMetadata[];
 }
 
 export function AppModals({
@@ -65,6 +72,11 @@ export function AppModals({
   onSettingsSaved,
   onDraftUpdate,
   calDAVMode = 'sync',
+  isGoogleSyncModalOpen,
+  onCloseGoogleSyncModal,
+  onGoogleSyncComplete,
+  onGoogleDisconnect,
+  googleCalendars,
 }: AppModalsProps & { calDAVMode?: 'sync' | 'auth-only' }) {
   return (
     <>
@@ -103,6 +115,15 @@ export function AppModals({
           onSyncComplete={onSyncComplete}
           mode={calDAVMode}
           existingCalendars={calendars}
+        />
+      )}
+
+      {isGoogleSyncModalOpen && (
+        <GoogleSyncModal
+          onClose={onCloseGoogleSyncModal}
+          onSyncComplete={onGoogleSyncComplete}
+          onDisconnect={onGoogleDisconnect}
+          existingGoogleCalendars={googleCalendars}
         />
       )}
 

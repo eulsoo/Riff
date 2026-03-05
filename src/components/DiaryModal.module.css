@@ -1,7 +1,7 @@
 .overlay {
   position: fixed;
   inset: 0;
-  background: rgba(255, 255, 255, 0.98);
+  background: rgba(255, 255, 255, 1);
   z-index: 1000;
   display: block;
 }
@@ -22,7 +22,7 @@
   padding: 1rem;
   display: flex;
   flex-direction: column;
-  gap: 1rem;
+  gap: 0.7rem;
   height: 100%;
   overflow: hidden;
 }
@@ -31,6 +31,7 @@
   margin-left: 200px;
   height: 100vh;
   overflow-y: auto;
+  scroll-padding-bottom: 100px;
 }
 
 .container {
@@ -38,7 +39,7 @@
   position: relative;
   display: flex;
   flex-direction: column;
-  padding: 2.5rem 3rem;
+  padding: 2.5rem 3rem 150px 3rem;
   gap: 1.5rem;
   max-width: 800px;
   margin: 0 auto;
@@ -101,11 +102,14 @@
   padding: 0;
   min-height: 40vh;
   overflow: visible;
+  position: relative;
 }
 
 .contentInput[data-empty="true"]::before {
   content: attr(data-placeholder);
   color: #d8d8d8;
+  position: absolute;
+  pointer-events: none;
 }
 
 .contentInput :global(.diaryParagraph) {
@@ -137,16 +141,49 @@
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.12);
 }
 
-.deleteIcon {
-  /* width: 1.25rem; */
-  /* height: 1.25rem; */
-}
 
 .dayHeader {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 0.5rem;
+}
+
+.emotionContainer {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+}
+
+.emotionButton {
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  transition: transform 0.1s ease-in-out;
+}
+
+.emotionButton:hover {
+  transform: scale(1.1);
+}
+
+.emotionDisplay {
+  font-size: 28px;
+  line-height: 1;
+}
+
+.emotionIconEmpty {
+  font-size: 20px;
+  font-weight: 500;
+  font-variation-settings: 'FILL' 0, 'wght' 500, 'GRAD' 0, 'opsz' 24;
+  color: #d1d5db;
 }
 
 .dayHeaderLeft {
@@ -168,7 +205,7 @@
 
 .dayMeta {
   display: flex;
-  align-items: center;
+  align-items: baseline;
   gap: 0.35rem;
   flex-shrink: 0;
 }
@@ -190,10 +227,8 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 1.5rem;
-  height: 1.5rem;
   border-radius: 9999px;
-  font-size: 0.9rem;
+  font-size: 1.8rem;
   font-weight: 700;
 }
 
@@ -204,7 +239,7 @@
 
 .dayNumberWeekday {
   color: #111827;
-  background: #e5e7eb;
+  /* background: #e5e7eb; */
 }
 
 .dayEvents {
@@ -219,28 +254,76 @@
 }
 
 .eventItem {
-  padding: 0.4rem 0.5rem;
-  background: #ffffff;
-  border-radius: 0.4rem;
-  border-left: 3px solid transparent;
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  width: 100%;
+  padding: 0.375rem 0.5rem;
+  border-radius: 0.25rem;
+  font-size: 0.75rem;
+  font-weight: 500;
 }
 
 .eventTime {
-  font-size: 0.65rem;
-  color: #9ca3af;
-  margin-bottom: 0.15rem;
+  font-size: 0.625rem;
+  opacity: 0.75;
+  white-space: nowrap;
 }
 
 .eventTitle {
   font-size: 0.75rem;
-  color: #111827;
-  white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  white-space: nowrap;
+  line-height: 1.25;
 }
 
 .emptyEvents {
   font-size: 0.75rem;
   color: #9ca3af;
+}
+
+.dividerLine {
+  height: 0;
+  border-top: 1px dashed #d1d5db;
+  margin: 1rem 0;
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 10;
+}
+
+.dividerLabel {
+  background-color: #f3f4f6;
+  padding: 0 0.5rem;
+  font-size: 0.7rem;
+  line-height: 1;
+  color: #9ca3af;
+  font-weight: 500;
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+}
+
+.dayRoutines {
+  /* margin-bottom: 1rem; */
+  padding-top: 1rem;
+  border-top: 1px solid #d7d7d7;
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+
+.routineItemRow {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.routineName {
+  font-size: 0.9rem;
+  color: #374151;
+  font-weight: 500;
+  line-height: 1.2;
 }

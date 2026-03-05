@@ -79,22 +79,32 @@ export const useCalendarMetadata = () => {
   }, []);
 
   // 서버 캘린더 목록과 비교하여 createdFromApp 플래그 정리
-  // 서버에 더 이상 없는 캘린더의 createdFromApp 플래그 제거
-  const refreshMetadataWithServerList = useCallback((serverCalendarUrls: string[]) => {
+  // 반환값: Map<oldCalDAVUrl, newLocalUrl> — 로컬로 전환된 캘린더의 URL 변경 매핑
+  // serverCalendarsOrUrls: { url, displayName? }[] 또는 string[]
+  const refreshMetadataWithServerList = useCallback((
+    serverCalendarsOrUrls: { url: string; displayName?: string }[] | string[]
+  ): Map<string, string> => {
+    const urlRemap = new Map<string, string>();
+
+    // string[] 호환
+    const serverCalendars: { url: string; displayName?: string }[] =
+      serverCalendarsOrUrls.length > 0 && typeof serverCalendarsOrUrls[0] === 'string'
+        ? (serverCalendarsOrUrls as string[]).map(url => ({ url }))
+        : (serverCalendarsOrUrls as { url: string; displayName?: string }[]);
+
     const metaMap = getCalendarMetadata();
     const metaList = Object.values(metaMap);
     
-    // 서버 URL 정규화 (pathname 기준)
+    // 서버 URL 정규화 + 이름 매핑
     const serverPathMap = new Map<string, string>(); // pathname -> fullUrl
-    serverCalendarUrls.forEach(url => {
+    const serverNameMap = new Map<string, string>(); // pathname -> displayName
+    serverCalendars.forEach(({ url, displayName }) => {
         try {
-            // URL 객체 생성 시도
             const urlObj = new URL(url);
-            // pathname 끝의 슬래시 제거 및 디코딩
             const cleanPath = decodeURIComponent(urlObj.pathname).replace(/\/+$/, '');
             serverPathMap.set(cleanPath, url);
+            if (displayName) serverNameMap.set(cleanPath, displayName);
         } catch (e) {
-            // URL 파싱 실패 시 원본 사용 (정규화만)
             const norm = normalizeCalendarUrl(url);
             if (norm) serverPathMap.set(norm, url);
         }
@@ -104,21 +114,44 @@ export const useCalendarMetadata = () => {
 
     let hasChanges = false;
     const updatedList = metaList.reduce((acc, cal) => {
-      // 로컬 캘린더나 구독 캘린더는 건드리지 않음
-      // 단, 로컬 캘린더라도 URL이 http/https이면 검증 대상에 포함 (잘못된 메타데이터 수정 위해) or converted ones
       const isHttp = cal.url.startsWith('http');
+
+      // originalCalDAVUrl이 있는 로컬 캘린더 = 이전에 unsync된 캘린더
+      // 원래 CalDAV URL이 서버에서도 삭제됐는지 추가 확인
+      if (cal.isLocal && cal.originalCalDAVUrl && cal.createdFromApp) {
+        let origExists = false;
+        try {
+          const origUrlObj = new URL(cal.originalCalDAVUrl);
+          const origPath = decodeURIComponent(origUrlObj.pathname).replace(/\/+$/, '');
+          origExists = serverPathMap.has(origPath);
+        } catch {
+          const norm = normalizeCalendarUrl(cal.originalCalDAVUrl);
+          origExists = norm ? Array.from(serverPathMap.values()).some(u => normalizeCalendarUrl(u) === norm) : false;
+        }
+
+        if (!origExists) {
+          // 서버에서도 삭제됨 → sync_disabled + iCloud 아이콘 제거, 완전히 로컬로
+          console.log(`캘린더 "${cal.displayName}" - Mac에서도 삭제 확인 → 완전히 로컬로 전환`);
+          hasChanges = true;
+          acc.push({ ...cal, createdFromApp: false, originalCalDAVUrl: undefined });
+        } else {
+          // Mac에 아직 존재 → sync_disabled + iCloud 유지
+          acc.push(cal);
+        }
+        return acc;
+      }
+
+      // 일반 로컬/구독 캘린더는 건드리지 않음
       if ((cal.isLocal && !isHttp) || cal.type === 'subscription' || cal.isSubscription) {
         acc.push(cal);
         return acc;
       }
 
-      // CalDAV 캘린더 확인
       let exists = false;
       const normUrl = normalizeCalendarUrl(cal.url) || '';
       
       try {
           const calUrlObj = new URL(cal.url);
-          // pathname 끝의 슬래시 제거 및 디코딩
           const calCleanPath = decodeURIComponent(calUrlObj.pathname).replace(/\/+$/, '');
           exists = serverPathMap.has(calCleanPath);
           console.log(`[Metadata Check] Checking "${cal.displayName}":`, { 
@@ -128,49 +161,63 @@ export const useCalendarMetadata = () => {
               createdFromApp: cal.createdFromApp
           });
       } catch (e) {
-          // URL 파싱 실패 시 단순 비교 fallback
            exists = Array.from(serverPathMap.values()).some(serverUrl => 
               normalizeCalendarUrl(serverUrl) === normUrl
            );
            console.log(`[Metadata Check] Checking "${cal.displayName}" (fallback):`, { url: cal.url, existsInServer: exists });
       }
 
-      // 서버에 존재하는 경우 유지
       if (exists) {
+        // 서버에 존재: iCloud에서 이름을 바관 경우 Riff에도 반영
+        // (단, createdFromApp 캘린더는 Riff에서 이름시키므로 덮어쓰지 않음)
+        if (!cal.createdFromApp) {
+          try {
+            const calUrlObj2 = new URL(cal.url);
+            const calPath2 = decodeURIComponent(calUrlObj2.pathname).replace(/\/+$/, '');
+            const serverName = serverNameMap.get(calPath2);
+            if (serverName && serverName !== cal.displayName) {
+              hasChanges = true;
+              acc.push({ ...cal, displayName: serverName });
+              return acc;
+            }
+          } catch { /* fallback: 이름 갱신 실패시 원본 유지 */ }
+        }
         acc.push(cal);
         return acc;
       }
 
-      // 서버에 없는 경우 처리
       hasChanges = true;
       if (cal.createdFromApp) {
-        // 1. 앱에서 만든 캘린더: 로컬 캘린더로 전환 (데이터 보존)
-        // URL도 로컬 형식으로 변경해야 함
-        console.log(`캘린더 "${cal.displayName}"이(가) 서버에서 삭제됨 - 로컬 캘린더로 전환`);
+        const newLocalUrl = `local-restored-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+        console.log(`캘린더 "${cal.displayName}"이(가) 서버에서 삭제됨 - 로컬 캘린더로 전환 (${cal.url} → ${newLocalUrl})`);
+        // 이벤트 re-link를 위해 URL 매핑 기록
+        urlRemap.set(cal.url, newLocalUrl);
+        // 정규화된 URL도 등록 (DB에 어떤 형태로 저장됐는지 불확실)
+        const norm = normalizeCalendarUrl(cal.url);
+        if (norm && norm !== cal.url) urlRemap.set(norm, newLocalUrl);
+
         acc.push({ 
           ...cal, 
-          url: `local-restored-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+          url: newLocalUrl,
           createdFromApp: false,
           isLocal: true,
           type: 'local' as const,
           color: cal.color
         });
       } else {
-        // 2. 일반 iCloud 캘린더: 목록에서 제거 (동기화 반영)
         console.log(`캘린더 "${cal.displayName}"이(가) 서버에서 삭제됨 - 목록에서 제거`);
-        // acc.push(cal)을 하지 않음으로써 제거됨
       }
       
       return acc;
     }, [] as CalendarMetadata[]);
     
     if (hasChanges) {
-      // 변경사항 저장
       saveCalendarMetadata(updatedList);
       saveLocalCalendarMetadata(updatedList);
     }
     
     setCalendarMetadata(updatedList);
+    return urlRemap;
   }, []);
 
   const toggleCalendarVisibility = useCallback((url: string) => {
@@ -230,6 +277,38 @@ export const useCalendarMetadata = () => {
     });
   }, []);
 
+  // CalDAV 캘린더 → 로컬 캘린더로 역변환 (동기화 해제 시)
+  // createdFromApp: true + originalCalDAVUrl 을 유지해서
+  //   - sync_disabled + iCloud 아이콘 표시
+  //   - 나중에 서버 비교로 Mac에서도 삭제됐는지 감지 가능
+  const convertCalDAVToLocal = useCallback((oldUrl: string): string => {
+    const newLocalUrl = `local-unsynced-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+    setCalendarMetadata(prev => {
+      const target = prev.find(c => c.url === oldUrl);
+      if (!target) return prev;
+      const converted: CalendarMetadata = {
+        ...target,
+        url: newLocalUrl,
+        isLocal: true,
+        type: 'local' as const,
+        createdFromApp: true,
+        originalCalDAVUrl: normalizeCalendarUrl(oldUrl) || oldUrl, // 서버 삭제 감지용
+      };
+      const next = prev.map(c => c.url === oldUrl ? converted : c);
+      saveLocalCalendarMetadata(next);
+      saveCalendarMetadata(next.filter(c => !c.isLocal));
+      return next;
+    });
+    setVisibleCalendarUrlSet(prev => {
+      const next = new Set(prev);
+      next.delete(oldUrl);
+      next.delete(normalizeCalendarUrl(oldUrl) || oldUrl);
+      next.add(newLocalUrl);
+      return next;
+    });
+    return newLocalUrl;
+  }, []);
+
   const deleteCalendar = useCallback((url: string) => {
     setCalendarMetadata(prev => {
       const next = prev.filter(c => c.url !== url);
@@ -254,6 +333,7 @@ export const useCalendarMetadata = () => {
     addLocalCalendar,
     updateLocalCalendar,
     convertLocalToCalDAV,
+    convertCalDAVToLocal,
     deleteCalendar,
     refreshMetadata,
     refreshMetadataWithServerList,

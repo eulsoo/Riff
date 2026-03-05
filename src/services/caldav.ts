@@ -102,6 +102,23 @@ export async function deleteRemoteCalendar(
   });
 }
 
+// 원격 CalDAV 캘린더 이름 변경 (PROPPATCH)
+export async function renameRemoteCalendar(
+  config: CalDAVConfig,
+  calendarUrl: string,
+  newName: string
+): Promise<{ success: boolean }> {
+  return await invokeCalDavProxy<{ success: boolean }>({
+    serverUrl: config.serverUrl,
+    username: config.username,
+    password: config.password,
+    action: 'renameCalendar' as any,
+    calendarUrl,
+    newCalendarName: newName,
+    settingId: config.settingId
+  });
+}
+
 import { eventExists, eventExistsByUID, deleteRemovedEvents, updateEventUID, updateEventByUID, fetchEventByUID, findEventByDetails, upsertEvent } from './api';
 import { supabase, supabaseAnonKey } from '../lib/supabase';
 

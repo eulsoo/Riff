@@ -4,7 +4,8 @@ import { Event, Routine, RoutineCompletion, Todo, WeekOrder } from '../types';
 import { RoutineIcon } from './RoutineIcon';
 import { TodoList } from './TodoList';
 import { useData } from '../contexts/DataContext';
-import { useHover } from '../contexts/SelectionContext';
+import { useHover, useSelection } from '../contexts/SelectionContext';
+import { useDrag, addDays } from '../contexts/DragContext';
 import { useAllDayEventLayout } from '../hooks/useAllDayEventLayout';
 import styles from './WeekCard.module.css';
 
@@ -16,7 +17,7 @@ interface WeekCardProps {
   routineCompletions: RoutineCompletion[];
   todos: Todo[];
   weekOrder: WeekOrder;
-  onDateClick: (date: string, anchorEl?: HTMLElement, timeSlot?: 'am' | 'pm') => void;
+  onDateClick: (date: string, anchorEl?: HTMLElement, timeSlot?: 'am' | 'pm' | 'allday') => void;
   onEventDoubleClick: (event: Event, anchorEl?: HTMLElement) => void;
   onDeleteEvent: (eventId: string) => void;
   onToggleRoutine: (routineId: string, date: string) => void;
@@ -37,18 +38,30 @@ interface WeekCardProps {
 
 const DIARY_ROUTINE: Routine = {
   id: 'diary',
-  name: '일기쓰기',
-  icon: 'note_alt',
+  name: '글쓰기',
+  icon: 'edit',
   color: '#8b5cf6',
   days: [],
 };
 
 const EMOTION_ROUTINE: Routine = {
   id: 'emotion',
-  name: '오늘의 기분',
-  icon: 'add_reaction',
+  name: '감정남기기',
+  icon: 'sentiment_calm',
   color: '#f59e0b',
   days: [],
+};
+
+const getFirstLine = (html: string) => {
+  if (!html) return '';
+  const textWithNewlines = html.replace(/<br\s*\/?>/gi, '\n')
+    .replace(/<\/p>/gi, '\n')
+    .replace(/<\/div>/gi, '\n')
+    .replace(/<[^>]*>/g, '');
+  const lines = textWithNewlines.split('\n')
+    .map(line => line.replace(/&nbsp;/g, ' ').trim())
+    .filter(Boolean);
+  return lines[0] || '';
 };
 
 export const WeekCard = memo(function WeekCard({
@@ -79,7 +92,16 @@ export const WeekCard = memo(function WeekCard({
 }: WeekCardProps) {
   const [isAddingEmptyTodo, setIsAddingEmptyTodo] = useState(false);
   const { setHoveredDate } = useHover();
+  const { activeDate, setActiveDate, setActiveTimeSlot } = useSelection();
+  const { dragState, dragOverDate, setDragOverDate, dragStateRef } = useDrag();
   const { emotions, diaryEntries } = useData();
+
+  // 구독/읽기전용 이벤트 여부 판별 (드래그 차단에 사용)
+  const isEventReadOnly = (event: Event): boolean => {
+    if (!event.calendarUrl) return false;
+    const url = event.calendarUrl;
+    return url.endsWith('.ics') || url.includes('holidays') || url.includes('subscription');
+  };
   // Performance Monitoring
 
   const days = Array.from({ length: 7 }, (_, i) => {
@@ -231,7 +253,7 @@ export const WeekCard = memo(function WeekCard({
                           onClick={(e) => onOpenEmotion?.(dateStr, e.currentTarget)}
                           className={`${styles.emotionIconButton} ${currentEmotion ? styles.emotionIconCompleted : styles.emotionIconIncomplete}`}
                           style={{ backgroundColor: 'transparent', color: currentEmotion ? '#f59e0b' : '#d1d5db' }}
-                          title={currentEmotion ? '오늘의 기분' : '기분 남기기'}
+                          title={currentEmotion ? '기분 남기기' : '기분 남기기'}
                         >
                           {!currentEmotion ? (
                             <span className="material-symbols-rounded" style={{ fontSize: '20px', fontWeight: 500, fontVariationSettings: `'FILL' 0, 'wght' 500, 'GRAD' 0, 'opsz' 24` }}>
@@ -244,7 +266,7 @@ export const WeekCard = memo(function WeekCard({
                       </div>
                     );
                   } else if (item.type === 'diary') {
-                    const diaryText = currentDiaryEntry?.title || currentDiaryEntry?.content || '';
+                    const diaryText = currentDiaryEntry?.title || getFirstLine(currentDiaryEntry?.content || '') || '';
                     return (
                       <div
                         key="diary"
@@ -254,17 +276,16 @@ export const WeekCard = memo(function WeekCard({
                         {hasDiary ? (
                           <div
                             className={styles.headerDiaryText}
-                            title={diaryText || '일기'}
                             onClick={() => onOpenDiary(dateStr)}
                           >
-                            {diaryText || '일기'}
+                            {diaryText || '글쓰기'}
                           </div>
                         ) : (
                           <button
                             onClick={() => onOpenDiary(dateStr)}
                             className={`${styles.emotionIconButton} ${styles.emotionIconIncomplete}`}
                             style={{ backgroundColor: 'transparent', color: '#d1d5db' }}
-                            title="일기쓰기"
+                            title="글쓰기"
                           >
                             <span className="material-symbols-rounded" style={{ fontSize: '20px', fontWeight: 500, fontVariationSettings: `'FILL' 0, 'wght' 500, 'GRAD' 0, 'opsz' 24` }}>
                               {DIARY_ROUTINE.icon}
@@ -278,10 +299,25 @@ export const WeekCard = memo(function WeekCard({
                 })}
               </div>
 
-              <div className={`${styles.dayMeta} ${today ? styles.dayMetaToday : ''}`}>
+              <div
+                className={`${styles.dayMeta} ${today ? styles.dayMetaToday : ''}`}
+                data-date-allday={dateStr}
+                style={{ cursor: 'pointer' }}
+                onClick={(e) => {
+                  if ((e.target as HTMLElement).closest('[data-event-item]')) return;
+                  if (activeDate === dateStr) {
+                    setActiveDate(null);
+                    setActiveTimeSlot(null);
+                  } else {
+                    setActiveDate(dateStr);
+                    setActiveTimeSlot('allday');
+                  }
+                }}
+              >
                 <span
                   className={`${styles.dayName} ${isWeekend ? styles.dayNameWeekend : styles.dayNameWeekday
-                    }`}
+                    } ${dateStr === activeDate && !today ? styles.dayNameSelected : ''
+                    } ${dateStr === activeDate && today ? styles.dayNameSelectedToday : ''}`}
                 >
                   {dayNames[index]}
                 </span>
@@ -291,7 +327,8 @@ export const WeekCard = memo(function WeekCard({
                     : isWeekend
                       ? styles.dayNumberWeekend
                       : styles.dayNumberWeekday
-                    }`}
+                    } ${dateStr === activeDate && !today ? styles.dayNumberSelected : ''
+                    } ${dateStr === activeDate && today ? styles.dayNumberSelectedToday : ''}`}
                 >
                   {date.getDate()}
                 </div>
@@ -303,33 +340,86 @@ export const WeekCard = memo(function WeekCard({
 
 
         {/* 1.5 All-Day Events Row (Row 2) */}
-        {visibleAllDayEvents.length > 0 && (
-          <div className={styles.allDayRow} style={{ gridRow: 2 }}>
-            <div className={styles.allDayRowBackground}>
-              {Array.from({ length: 7 }).map((_, i) => (
-                <div key={i} className={styles.allDayRowCol} />
-              ))}
-            </div>
-            {visibleAllDayEvents.map(ve => (
-              <div
-                key={`${ve.id}-allDay-${ve.startIdx}`}
-                className={`${styles.allDayItemContainer}${ve.span === 1 ? ` ${styles.allday}` : ''}`}
-                style={{
-                  gridColumnStart: ve.startIdx + 1,
-                  gridColumnEnd: ve.startIdx + 1 + ve.span,
-                  gridRow: ve.track + 1,
-                }}
-              >
-                <EventItem
-                  event={ve.event}
-                  variant="compact"
-                  onEventDoubleClick={onEventDoubleClick}
-                  onDeleteEvent={onDeleteEvent}
-                />
+        {(() => {
+          // 드래그 중인 다중일(하루종일) 이벤트의 미리보기 계산
+          let dragPreviewStartIdx = -1;
+          let dragPreviewSpan = 0;
+
+          if (dragState && !dragState.draggingEvent.startTime && dragOverDate) {
+            const overIdx = days.findIndex(d => {
+              const y = d.getFullYear();
+              const m = String(d.getMonth() + 1).padStart(2, '0');
+              const dd = String(d.getDate()).padStart(2, '0');
+              return `${y}-${m}-${dd}` === dragOverDate;
+            });
+            if (overIdx >= 0) {
+              dragPreviewStartIdx = overIdx;
+              // 원본 기간(durationDays+1칸) 그대로, 주간 끝에서 잘림
+              dragPreviewSpan = Math.min(dragState.durationDays + 1, 7 - overIdx);
+            }
+          }
+
+          const hasContent = visibleAllDayEvents.length > 0 || dragPreviewStartIdx >= 0;
+          if (!hasContent) return null;
+
+          return (
+            <div className={styles.allDayRow} style={{ gridRow: 2 }}>
+              <div className={styles.allDayRowBackground}>
+                {Array.from({ length: 7 }).map((_, i) => (
+                  <div key={i} className={styles.allDayRowCol} />
+                ))}
               </div>
-            ))}
-          </div>
-        )}
+
+              {/* 실제 다중일/하루종일 이벤트 */}
+              {visibleAllDayEvents.map(ve => (
+                <div
+                  key={`${ve.id}-allDay-${ve.startIdx}`}
+                  className={`${styles.allDayItemContainer}${ve.span === 1 ? ` ${styles.allday}` : ''}`}
+                  style={{
+                    gridColumnStart: ve.startIdx + 1,
+                    gridColumnEnd: ve.startIdx + 1 + ve.span,
+                    gridRow: ve.track + 1,
+                  }}
+                >
+                  <EventItem
+                    event={ve.event}
+                    variant="compact"
+                    onEventDoubleClick={onEventDoubleClick}
+                    onDeleteEvent={onDeleteEvent}
+                    isDragging={dragState?.draggingEvent.id === ve.event.id}
+                    isReadOnly={isEventReadOnly(ve.event)}
+                  />
+                </div>
+              ))}
+
+              {/* 다중일 이벤트 드래그 미리보기 (원본 기간 너비) */}
+              {dragPreviewStartIdx >= 0 && dragState && (
+                <div
+                  className={styles.allDayItemContainer}
+                  style={{
+                    gridColumnStart: dragPreviewStartIdx + 1,
+                    gridColumnEnd: dragPreviewStartIdx + 1 + dragPreviewSpan,
+                    gridRow: 1,
+                    pointerEvents: 'none',
+                    opacity: 0.75,
+                  }}
+                >
+                  <EventItem
+                    event={{
+                      ...dragState.draggingEvent,
+                      date: dragOverDate!,
+                      endDate: addDays(dragOverDate!, dragState.durationDays),
+                    }}
+                    variant="compact"
+                    onEventDoubleClick={() => { }}
+                    onDeleteEvent={() => { }}
+                    isDragPreview={true}
+                  />
+                </div>
+              )}
+            </div>
+          );
+        })()}
 
         {/* 2. AM Events Row (Row 3) */}
         {(() => {
@@ -368,16 +458,30 @@ export const WeekCard = memo(function WeekCard({
             return (
               <div
                 key={`am-${dateStr}`}
+                data-date-am={dateStr}
                 className={`${styles.amEvents} ${index === 6 ? styles.lastColumn : ''}`}
+                onClick={(e) => {
+                  if ((e.target as HTMLElement).closest('[data-event-item]')) return;
+                  if (activeDate === dateStr) {
+                    setActiveDate(null);
+                    setActiveTimeSlot(null);
+                  } else {
+                    setActiveDate(dateStr);
+                    setActiveTimeSlot('am');
+                  }
+                }}
                 onDoubleClick={(e) => {
                   if ((e.target as HTMLElement).closest('[data-event-item]')) return;
                   onDateClick(dateStr, e.currentTarget, 'am');
                 }}
-                onMouseEnter={() => setHoveredDate(dateStr)}
+                onMouseEnter={() => {
+                  setHoveredDate(dateStr);
+                  if (dragStateRef.current) setDragOverDate(dateStr);
+                }}
                 onMouseLeave={() => setHoveredDate(null)}
               >
                 {/* Group 1: All-Day Events - Always at TOP */}
-                {allDayEvents.length > 0 && (
+                {(allDayEvents.length > 0 || (dragState && dragOverDate === dateStr && !dragState.draggingEvent.startTime)) && (
                   <div className={styles.eventsList} style={{ justifyContent: 'flex-start' }}>
                     {allDayEvents.map(event => (
                       <EventItem
@@ -387,6 +491,8 @@ export const WeekCard = memo(function WeekCard({
                         onDeleteEvent={onDeleteEvent}
                         variant="compact"
                         className={styles.allday}
+                        isDragging={dragState?.draggingEvent.id === event.id}
+                        isReadOnly={isEventReadOnly(event)}
                       />
                     ))}
                   </div>
@@ -416,11 +522,38 @@ export const WeekCard = memo(function WeekCard({
                           onEventDoubleClick={onEventDoubleClick}
                           onDeleteEvent={onDeleteEvent}
                           timeDisplay={timeDisplay}
+                          isDragging={dragState?.draggingEvent.id === event.id}
+                          isReadOnly={isEventReadOnly(event)}
                         />
                       );
                     })}
                   </div>
                 )}
+
+                {/* 드래그 미리보기: dragOverDate가 이 날짜이고 원본이 am 이벤트일 때 */}
+                {dragState && dragOverDate === dateStr && (() => {
+                  const orig = dragState.draggingEvent;
+                  if (!orig.startTime) return null; // 하루종일 이벤트는 별도 처리
+                  const startHour = parseInt(orig.startTime.split(':')[0]);
+                  if (startHour < 12) {
+                    const isSpanning = orig.endTime && orig.endTime > '12:00';
+                    const previewEvent = { ...orig, date: dateStr, endDate: addDays(dateStr, dragState.durationDays) };
+                    return (
+                      <div className={styles.eventsList} style={{ justifyContent: hasAnySpanningEventInWeek ? 'flex-end' : 'flex-start' }}>
+                        <EventItem
+                          key="drag-preview-am"
+                          event={previewEvent}
+                          onEventDoubleClick={() => { }}
+                          onDeleteEvent={() => { }}
+                          // 오전~오후 걸친 이벤트는 AM 뷰에서 시작 시간만 표시
+                          timeDisplay={isSpanning ? 'start-only' : 'default'}
+                          isDragPreview={true}
+                        />
+                      </div>
+                    );
+                  }
+                  return null;
+                })()}
               </div>
             );
           })
@@ -476,12 +609,26 @@ export const WeekCard = memo(function WeekCard({
           return (
             <div
               key={`pm-${dateStr}`}
+              data-date-pm={dateStr}
               className={`${styles.pmEvents} ${index === 6 ? styles.lastColumn : ''}`}
+              onClick={(e) => {
+                if ((e.target as HTMLElement).closest('[data-event-item]')) return;
+                if (activeDate === dateStr) {
+                  setActiveDate(null);
+                  setActiveTimeSlot(null);
+                } else {
+                  setActiveDate(dateStr);
+                  setActiveTimeSlot('pm');
+                }
+              }}
               onDoubleClick={(e) => {
                 if ((e.target as HTMLElement).closest('[data-event-item]')) return;
                 onDateClick(dateStr, e.currentTarget, 'pm');
               }}
-              onMouseEnter={() => setHoveredDate(dateStr)}
+              onMouseEnter={() => {
+                setHoveredDate(dateStr);
+                if (dragStateRef.current) setDragOverDate(dateStr);
+              }}
               onMouseLeave={() => setHoveredDate(null)}
             >
               <div className={styles.eventsList}>
@@ -494,6 +641,7 @@ export const WeekCard = memo(function WeekCard({
                     onDeleteEvent={onDeleteEvent}
                     timeDisplay="end-only"
                     hideDeleteButton={true}
+                    isReadOnly={isEventReadOnly(event)}
                   />
                 ))}
 
@@ -504,8 +652,35 @@ export const WeekCard = memo(function WeekCard({
                     event={event}
                     onEventDoubleClick={onEventDoubleClick}
                     onDeleteEvent={onDeleteEvent}
+                    isDragging={dragState?.draggingEvent.id === event.id}
+                    isReadOnly={isEventReadOnly(event)}
                   />
                 ))}
+
+                {/* 드래그 미리보기: pm 이벤트 또는 오전~오후 걸친 이벤트가 이 날짜로 진입할 때 */}
+                {dragState && dragOverDate === dateStr && (() => {
+                  const orig = dragState.draggingEvent;
+                  if (!orig.startTime) return null; // 하루종일은 allDayRow에서 처리
+                  const startHour = parseInt(orig.startTime.split(':')[0]);
+                  const isSpanning = startHour < 12 && orig.endTime && orig.endTime > '12:00';
+                  const isPm = startHour >= 12;
+
+                  if (isPm || isSpanning) {
+                    const previewEvent = { ...orig, date: dateStr, endDate: addDays(dateStr, dragState.durationDays) };
+                    return (
+                      <EventItem
+                        key="drag-preview-pm"
+                        event={previewEvent}
+                        onEventDoubleClick={() => { }}
+                        onDeleteEvent={() => { }}
+                        // 오전~오후 걸친 이벤트는 PM 뷰에서 시간 끝만 표시
+                        timeDisplay={isSpanning ? 'end-only' : 'default'}
+                        isDragPreview={true}
+                      />
+                    );
+                  }
+                  return null;
+                })()}
               </div>
             </div>
           );
@@ -576,8 +751,7 @@ export const WeekCard = memo(function WeekCard({
           className={styles.emptyTodoOverlayBtn}
           onClick={() => setIsAddingEmptyTodo(true)}
         >
-          <span className={`material-symbols-rounded ${styles.emptyTodoIcon}`}>add</span>
-          할일
+          <span className={`material-symbols-rounded ${styles.emptyTodoIcon}`}>check_circle</span>
         </button>
       )}
     </div>

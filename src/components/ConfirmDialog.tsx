@@ -1,15 +1,16 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, ReactNode } from 'react';
 import styles from './ConfirmDialog.module.css';
 
 interface ConfirmDialogProps {
   isOpen: boolean;
   title?: string;
-  message: string;
+  message?: string;
   confirmText?: string;
   cancelText?: string;
   onConfirm: () => void;
   onCancel?: () => void;
   onClose?: () => void;
+  children?: ReactNode;
 }
 
 export function ConfirmDialog({
@@ -21,6 +22,7 @@ export function ConfirmDialog({
   onConfirm,
   onCancel,
   onClose,
+  children,
 }: ConfirmDialogProps) {
   const dialogRef = useRef<HTMLDivElement>(null);
 
@@ -51,10 +53,11 @@ export function ConfirmDialog({
   if (!isOpen) return null;
 
   return (
-    <div className={styles.overlay}>
+    <div id="confirm-dialog-container" className={styles.overlay}>
       <div ref={dialogRef} className={styles.dialog}>
         {title && <h3 className={styles.title}>{title}</h3>}
-        <p className={styles.message} style={{ whiteSpace: 'pre-wrap' }}>{message}</p>
+        {message && <p className={styles.message} style={{ whiteSpace: 'pre-wrap' }}>{message}</p>}
+        {children}
         <div className={styles.buttonContainer}>
           {onCancel && (
             <button

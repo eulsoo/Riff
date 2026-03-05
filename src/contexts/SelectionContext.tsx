@@ -11,6 +11,10 @@ interface SelectionContextType {
   selectedIdsSet: Set<string>;
   clipboardEvent: Event | null;
   setClipboardEvent: (event: Event | null) => void;
+  activeDate: string | null;
+  setActiveDate: (date: string | null) => void;
+  activeTimeSlot: 'am' | 'pm' | 'allday' | null;
+  setActiveTimeSlot: (slot: 'am' | 'pm' | 'allday' | null) => void;
 }
 
 // 호버 컨텍스트 (자주 변경됨, 별도 분리)
@@ -25,6 +29,8 @@ const HoverContext = createContext<HoverContextType | undefined>(undefined);
 export const SelectionProvider = ({ children }: { children: ReactNode }) => {
   const [selectedEventIds, setSelectedEventIds] = useState<string[]>([]);
   const [clipboardEvent, setClipboardEvent] = useState<Event | null>(null);
+  const [activeDate, setActiveDate] = useState<string | null>(null);
+  const [activeTimeSlot, setActiveTimeSlot] = useState<'am' | 'pm' | 'allday' | null>(null);
 
   const toggleSelection = useCallback((id: string, multi: boolean) => {
     setSelectedEventIds(prev => {
@@ -60,7 +66,11 @@ export const SelectionProvider = ({ children }: { children: ReactNode }) => {
     selectedIdsSet,
     clipboardEvent,
     setClipboardEvent,
-  }), [selectedEventIds, toggleSelection, clearSelection, setSelectedIds, removeIdFromSelection, selectedIdsSet, clipboardEvent]);
+    activeDate,
+    setActiveDate,
+    activeTimeSlot,
+    setActiveTimeSlot,
+  }), [selectedEventIds, toggleSelection, clearSelection, setSelectedIds, removeIdFromSelection, selectedIdsSet, clipboardEvent, activeDate, activeTimeSlot]);
 
   return (
     <SelectionContext.Provider value={value}>

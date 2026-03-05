@@ -98,7 +98,7 @@ interface CalDAVRequest {
   serverUrl: string;
   username: string;
   password: string;
-  action: 'listCalendars' | 'fetchEvents' | 'getSyncToken' | 'syncCollection' | 'createEvent' | 'updateEvent' | 'deleteEvent' | 'saveSettings' | 'loadSettings' | 'createCalendar' | 'deleteCalendar';
+  action: 'listCalendars' | 'fetchEvents' | 'getSyncToken' | 'syncCollection' | 'createEvent' | 'updateEvent' | 'deleteEvent' | 'saveSettings' | 'loadSettings' | 'createCalendar' | 'deleteCalendar' | 'renameCalendar';
   calendarUrl?: string;
   startDate?: string;
   endDate?: string;
@@ -109,6 +109,7 @@ interface CalDAVRequest {
   settingId?: string; // DB 저장된 설정 ID
   calendarName?: string;     // For createCalendar
   calendarColor?: string;    // For createCalendar
+  newCalendarName?: string;  // For renameCalendar
 }
 
 interface Calendar {
@@ -442,6 +443,39 @@ Deno.serve(async (req) => {
         
         result = { success: true };
         console.log('deleteCalendar 완료');
+      } else if (action === 'renameCalendar') {
+        if (!calendarUrl || !requestData.newCalendarName) {
+          return new Response(
+            JSON.stringify({ error: 'calendarUrl, newCalendarName이 필요합니다.' }),
+            { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+          );
+        }
+        console.log('renameCalendar 시작:', calendarUrl, '->', requestData.newCalendarName);
+        const cleanUsername = username.trim();
+        const cleanPassword = password.trim();
+        const proppatchBody = `<?xml version="1.0" encoding="UTF-8"?>
+<propertyupdate xmlns="DAV:">
+  <set>
+    <prop>
+      <displayname>${requestData.newCalendarName}</displayname>
+    </prop>
+  </set>
+</propertyupdate>`;
+        const renameResponse = await fetchWithRedirect(calendarUrl, {
+          method: 'PROPPATCH',
+          headers: {
+            'Content-Type': 'application/xml; charset=utf-8',
+            'Authorization': `Basic ${base64Encode(`${cleanUsername}:${cleanPassword}`)}`,
+            'User-Agent': 'iOS/17.0 (21A329) accountsd/1.0',
+          },
+          body: proppatchBody,
+        });
+        if (!renameResponse.ok && renameResponse.status !== 207) {
+          const errText = await renameResponse.text();
+          throw new Error(`캘린더 이름 변경 실패: ${renameResponse.status} ${errText.substring(0, 200)}`);
+        }
+        result = { success: true };
+        console.log('renameCalendar 완료');
       } else {
         return new Response(
           JSON.stringify({ error: '지원하지 않는 액션입니다.' }),

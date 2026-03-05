@@ -23,6 +23,12 @@ export function Login() {
         // account_email을 제외하여 KOE205 에러 방지
         scope: 'profile_nickname,profile_image',
       };
+    } else if (provider === 'google') {
+      // 캘린더 읽기/쓰기 권한 및 백그라운드 사용을 위한 offline 옵션 추가
+      queryParams = {
+        access_type: 'offline',
+        prompt: 'consent',
+      };
     }
 
     const { error } = await supabase.auth.signInWithOAuth({
@@ -30,6 +36,8 @@ export function Login() {
       options: {
         redirectTo: window.location.origin,
         queryParams,
+        // 구글 로그인 시 캘린더 범위를 요청
+        scopes: provider === 'google' ? 'https://www.googleapis.com/auth/calendar' : undefined,
       },
     });
 

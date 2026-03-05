@@ -33,6 +33,7 @@
 }
 
 .todoItem {
+  margin: 0.2rem 0;
   position: relative;
   transition: transform 0.2s cubic-bezier(0.2, 0, 0, 1);
 }

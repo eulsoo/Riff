@@ -10,7 +10,7 @@ export interface Event {
   color: string;
   calendarUrl?: string;
   caldavUid?: string;
-  source?: 'manual' | 'caldav';
+  source?: 'manual' | 'caldav' | 'google';
   isLocal?: boolean;
   etag?: string;
 }

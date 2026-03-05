@@ -1,13 +1,17 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, useCallback } from 'react';
 import type { KeyboardEvent as ReactKeyboardEvent } from 'react';
 
-import { DiaryEntry, Event, WeekOrder } from '../types';
+import { DiaryEntry, Event, WeekOrder, Routine } from '../types';
+import { EmotionModal, ModalPosition } from './EmotionModal';
+import { ConfirmDialog } from './ConfirmDialog';
+import { RoutineIcon } from './RoutineIcon';
+import { useData } from '../contexts/DataContext';
 import styles from './DiaryModal.module.css';
 
 interface DiaryModalProps {
   date: string;
   events: Event[];
-
+  currentEmotion?: string;
   weekOrder: WeekOrder;
   initialEntry?: DiaryEntry;
   onClose: () => void;
@@ -19,7 +23,7 @@ interface DiaryModalProps {
 export function DiaryModal({
   date,
   events,
-
+  currentEmotion,
   weekOrder,
   initialEntry,
   onClose,
@@ -27,6 +31,8 @@ export function DiaryModal({
   onSave,
   onDelete,
 }: DiaryModalProps) {
+  const { setEmotion, routines, routineCompletions, toggleRoutine } = useData();
+
   const [title, setTitle] = useState(initialEntry?.title ?? '');
   const [content, setContent] = useState(initialEntry?.content ?? '');
   const [isSaving, setIsSaving] = useState(false);
@@ -38,6 +44,11 @@ export function DiaryModal({
   const suppressNextSaveRef = useRef(false);
   const lastSyncedRef = useRef({ date: '', title: '', content: '' });
   const contentRef = useRef<HTMLDivElement | null>(null);
+
+  const [isEmotionModalOpen, setIsEmotionModalOpen] = useState(false);
+  const [emotionModalPosition, setEmotionModalPosition] = useState<ModalPosition | null>(null);
+
+  const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
 
   // --- Draft backup helpers ---
   const DRAFT_KEY = `diaryDraft:${date}`;
@@ -75,11 +86,11 @@ export function DiaryModal({
       .join('');
   };
 
-  const getPlainText = (value: string) =>
+  const getPlainText = useCallback((value: string) =>
     value
       .replace(/<[^>]*>/g, '')
       .replace(/&nbsp;/g, ' ')
-      .trim();
+      .trim(), []);
 
   // Track whether this is the initial mount for this date
   const isInitialMountRef = useRef(true);
@@ -215,16 +226,27 @@ export function DiaryModal({
     };
   }, [date, title, content, onSave, onSaved]);
 
+  const handleClose = useCallback(() => {
+    const isTitleEmpty = title.trim().length === 0;
+    const isBodyEmpty = getPlainText(content).length === 0;
+
+    if (isTitleEmpty && isBodyEmpty && hasSavedRef.current) {
+      onDelete(date);
+    } else {
+      onClose();
+    }
+  }, [date, title, content, onDelete, onClose, getPlainText]);
+
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
-        onClose();
+        handleClose();
       }
     };
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [onClose]);
+  }, [handleClose]);
 
   const ensureParagraphStructure = () => {
     const root = contentRef.current;
@@ -364,7 +386,7 @@ export function DiaryModal({
   const dayName = dayNames[weekOrder === 'sun' ? dayIndex : (dayIndex === 0 ? 6 : dayIndex - 1)];
   const isWeekend = dayIndex === 0 || dayIndex === 6;
 
-  const formatEventTime = (startTime?: string, endTime?: string) => {
+  const formatEventTime = (startTime?: string, endTime?: string, displayType: 'default' | 'start-only' | 'end-only' = 'default') => {
     const formatTime = (time: string) => {
       const [hours, minutes] = time.split(':');
       const hour = parseInt(hours, 10);
@@ -374,6 +396,8 @@ export function DiaryModal({
     };
 
     if (startTime && endTime) {
+      if (displayType === 'start-only') return formatTime(startTime);
+      if (displayType === 'end-only') return `~ ${formatTime(endTime)}`;
       return `${formatTime(startTime)} - ${formatTime(endTime)}`;
     } else if (startTime) {
       return formatTime(startTime);
@@ -383,12 +407,125 @@ export function DiaryModal({
     return '';
   };
 
+  const renderEvent = (event: Event, timeDisplay: 'default' | 'start-only' | 'end-only' = 'default', keySuffix: string = '') => {
+    const baseColor = event.color.length > 7 ? event.color.substring(0, 7) : event.color;
+    const backgroundColor = baseColor + '20';
+    const textColor = baseColor;
+    return (
+      <div
+        key={`${event.id}${keySuffix}`}
+        className={styles.eventItem}
+        style={{ backgroundColor, color: textColor }}
+      >
+        {(event.startTime || event.endTime) && (
+          <div className={styles.eventTime}>
+            {formatEventTime(event.startTime, event.endTime, timeDisplay)}
+          </div>
+        )}
+        <div className={styles.eventTitle}>{event.title}</div>
+      </div>
+    );
+  };
+
+  const allDayEvents = events.filter(e => !e.startTime);
+  const timedAmEvents = events.filter(e => {
+    if (!e.startTime) return false;
+    const startHour = parseInt(e.startTime.split(':')[0], 10);
+    return startHour < 12;
+  });
+
+  const normalPmEvents: Event[] = [];
+  const spanningPmEvents: Event[] = [];
+
+  events.forEach(event => {
+    if (!event.startTime) return;
+    const startHour = parseInt(event.startTime.split(':')[0], 10);
+    if (startHour >= 12) {
+      normalPmEvents.push(event);
+    } else if (event.endTime && event.endTime > '12:00') {
+      spanningPmEvents.push(event);
+    }
+  });
+
+  const sortByStartTime = (a: Event, b: Event) => (a.startTime || '').localeCompare(b.startTime || '');
+  const sortByEndTime = (a: Event, b: Event) => {
+    const endA = a.endTime || a.startTime || '';
+    const endB = b.endTime || b.startTime || '';
+    return endA.localeCompare(endB);
+  };
+
+  timedAmEvents.sort(sortByStartTime);
+  normalPmEvents.sort(sortByEndTime);
+  spanningPmEvents.sort(sortByEndTime);
+
+  const isRoutineCompleted = (routineId: string, queryDate: string) => {
+    const completion = routineCompletions.find(
+      rc => rc.routineId === routineId && rc.date === queryDate
+    );
+    return completion?.completed || false;
+  };
+
+  const shouldShowRoutine = (routine: Routine, dateToMap: Date) => {
+    const checkDate = new Date(dateToMap);
+    checkDate.setHours(0, 0, 0, 0);
+
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    if (checkDate > today) return false;
+
+    if (routine.createdAt) {
+      const createdDate = new Date(routine.createdAt);
+      createdDate.setHours(0, 0, 0, 0);
+      if (checkDate < createdDate) return false;
+    }
+
+    if (routine.deletedAt) {
+      const deletedDate = new Date(routine.deletedAt);
+      const dYear = deletedDate.getFullYear();
+      const dMonth = String(deletedDate.getMonth() + 1).padStart(2, '0');
+      const dDay = String(deletedDate.getDate()).padStart(2, '0');
+      const deletedDateStr = `${dYear}-${dMonth}-${dDay}`;
+
+      deletedDate.setHours(0, 0, 0, 0);
+
+      if (checkDate > deletedDate) return false;
+      if (checkDate.getTime() === deletedDate.getTime()) {
+        const isCompletedOnDeletedDate = routineCompletions.some(
+          rc => rc.routineId === routine.id && rc.date === deletedDateStr && rc.completed
+        );
+        if (!isCompletedOnDeletedDate) return false;
+      }
+    }
+
+    return true;
+  };
+
+  const routineDayIndex = weekOrder === 'sun' ? dayIndex : (dayIndex === 0 ? 6 : dayIndex - 1);
+  const dayRoutines = routines.filter(r => r.days.includes(routineDayIndex));
+  const visibleRoutines = dayRoutines.filter(r => shouldShowRoutine(r, dateObj));
+
   return (
     <div className={styles.overlay}>
       <aside className={styles.sidebar}>
         <div className={styles.sidebarContent}>
           <div className={styles.dayHeader}>
-
+            <div className={styles.emotionContainer}>
+              <button
+                className={styles.emotionButton}
+                onClick={(e) => {
+                  const rect = e.currentTarget.getBoundingClientRect();
+                  setEmotionModalPosition({ top: rect.bottom + 10, left: rect.left });
+                  setIsEmotionModalOpen(true);
+                }}
+              >
+                {currentEmotion ? (
+                  <span className={styles.emotionDisplay}>{currentEmotion}</span>
+                ) : (
+                  <span className={`material-symbols-rounded ${styles.emotionIconEmpty}`}>sentiment_calm</span>
+                )}
+              </button>
+            </div>
             <div className={styles.dayMeta}>
               <span className={`${styles.dayName} ${isWeekend ? styles.dayNameWeekend : styles.dayNameWeekday}`}>
                 {dayName}
@@ -398,25 +535,46 @@ export function DiaryModal({
               </span>
             </div>
           </div>
+          {visibleRoutines.length > 0 && (
+            <div className={styles.dayRoutines}>
+              {visibleRoutines.map(routine => {
+                const completed = isRoutineCompleted(routine.id, date);
+                return (
+                  <div key={routine.id} className={styles.routineItemRow}>
+                    <RoutineIcon
+                      routine={routine}
+                      completed={completed}
+                      enabled={true}
+                      onClick={() => toggleRoutine(routine.id, date)}
+                    />
+                    <span className={styles.routineName}>{routine.name}</span>
+                  </div>
+                );
+              })}
+            </div>
+          )}
           <div className={styles.dayEvents}>
             {events.length === 0 ? (
               <div className={styles.emptyEvents}>일정 없음</div>
             ) : (
               <div className={styles.eventsList}>
-                {events.map(event => (
-                  <div
-                    key={event.id}
-                    className={styles.eventItem}
-                    style={{ borderLeftColor: event.color }}
-                  >
-                    {(event.startTime || event.endTime) && (
-                      <div className={styles.eventTime}>
-                        {formatEventTime(event.startTime, event.endTime)}
-                      </div>
-                    )}
-                    <div className={styles.eventTitle}>{event.title}</div>
+                {/* 1. All-Day & AM Events */}
+                {allDayEvents.map(event => renderEvent(event))}
+                {timedAmEvents.map(event => {
+                  const isSpanning = event.startTime && event.startTime < '12:00' && event.endTime && event.endTime > '12:00';
+                  return renderEvent(event, isSpanning ? 'start-only' : 'default');
+                })}
+
+                {/* 2. Divider Line */}
+                {events.length > 0 && (
+                  <div className={styles.dividerLine}>
+                    <span className={styles.dividerLabel}>오후</span>
                   </div>
-                ))}
+                )}
+
+                {/* 3. PM Events */}
+                {spanningPmEvents.map(event => renderEvent(event, 'end-only', '-pm'))}
+                {normalPmEvents.map(event => renderEvent(event))}
               </div>
             )}
           </div>
@@ -425,7 +583,7 @@ export function DiaryModal({
 
       <div className={styles.main}>
         <div className={styles.container}>
-          <button className={styles.closeButton} onClick={onClose} aria-label="닫기">
+          <button className={styles.closeButton} onClick={handleClose} aria-label="닫기">
             <span className={`material-symbols-rounded ${styles.closeIcon}`}>close</span>
           </button>
           <div className={styles.header}>
@@ -438,6 +596,7 @@ export function DiaryModal({
             placeholder="제목"
             value={title}
             onChange={(event) => setTitle(event.target.value)}
+            autoFocus
           />
           <div
             ref={contentRef}
@@ -450,15 +609,46 @@ export function DiaryModal({
             onKeyDown={handleContentKeyDown}
           />
         </div>
-        <button
-          type="button"
-          className={styles.deleteButton}
-          onClick={() => onDelete(date)}
-          aria-label="일기 삭제"
-        >
-          <span className={`material-symbols-rounded ${styles.deleteIcon}`}>delete</span>
-        </button>
+        {(!isContentEmpty || title.trim().length > 0) && (
+          <button
+            type="button"
+            className={styles.deleteButton}
+            onClick={() => setIsDeleteDialogOpen(true)}
+            aria-label="일기 삭제"
+          >
+            <span className={`material-symbols-rounded ${styles.deleteIcon}`}>delete</span>
+          </button>
+        )}
       </div>
+
+      {isEmotionModalOpen && (
+        <div style={{ position: 'fixed', inset: 0, pointerEvents: 'none', zIndex: 10000 }}>
+          <div style={{ position: 'relative', width: '100%', height: '100%', pointerEvents: 'auto' }}>
+            <EmotionModal
+              date={date}
+              position={emotionModalPosition}
+              currentEmotion={currentEmotion}
+              onSelect={(emoji) => {
+                setEmotion(date, emoji);
+              }}
+              onClose={() => setIsEmotionModalOpen(false)}
+            />
+          </div>
+        </div>
+      )}
+
+      <ConfirmDialog
+        isOpen={isDeleteDialogOpen}
+        title="일기 삭제"
+        message="작성한 일기를 정말로 삭제하시겠습니까?"
+        confirmText="삭제"
+        cancelText="취소"
+        onConfirm={() => {
+          setIsDeleteDialogOpen(false);
+          onDelete(date);
+        }}
+        onCancel={() => setIsDeleteDialogOpen(false)}
+      />
     </div>
   );
 }

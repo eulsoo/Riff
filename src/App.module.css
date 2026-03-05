@@ -22,14 +22,14 @@
   border-radius: 50%;
   backdrop-filter: blur(3px);
   -webkit-backdrop-filter: blur(3px);
-  color: var(--color-green-primary-70);
+  color: var(--color-white);
   display: flex;
   align-items: center;
   justify-content: center;
   cursor: pointer;
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.05);
-  border: 1px solid var(--color-green-primary-20);
-  background-color: var(--color-green-primary-10);
+  border: none;
+  background-color: var(--color-green-primary-60);
   transition: all 0.2s ease;
 }
 
@@ -40,7 +40,7 @@
 .appHeaderCenter {
   display: flex;
   align-items: center;
-  gap: 0.75rem;
+  gap: 0.4rem;
   padding: 0.2rem 0.9rem 0.2rem 1.3rem;
   border: 1px solid rgb(224, 224, 224, 0.5);
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.05);
@@ -63,9 +63,9 @@
 }
 
 .appHeaderButton {
-  padding: 0.5rem 1rem;
+  padding: 0.4rem 1rem;
   border-radius: 0.5rem;
-  font-size: 0.875rem;
+  font-size: 1rem;
   font-weight: 500;
   transition: background-color 0.2s ease-in-out;
   border: none;
@@ -81,7 +81,30 @@
 .appHeaderButton:hover {
   transform: scale(1.1);
 }
+.appHeaderAddSchedule {
+  display:flex;
+  align-items: center;
+  justify-content: center;
+  border:none;
+  width:36px;
+  height:36px;
+  border-radius: 50%;
+  font-size: 1rem;
+  font-weight: 500;
+  transition: background-color 0.2s ease-in-out;
+  border: none;
+  cursor: pointer;
+  color: var(--color-green-primary-70);
+  font-weight: bold;
+  border-radius: 20px;
+  border: 1px solid var(--color-green-primary-20);
+  background-color: var(--color-green-primary-10);
+  transition: all 0.2s ease;
+}
 
+.appHeaderAddSchedule:hover {
+  transform: scale(1.1);
+}
 .profileWrapper {
   position: relative;
 }
@@ -117,11 +140,11 @@
 .profileMenu {
   position: absolute;
   right: 0;
-  top: calc(100% + 8px);
-  min-width: 200px;
+  top: 0;
+  min-width: 220px;
   display: flex;
   flex-direction: column;
-  padding: 1rem;
+  padding: 1rem 0.3rem 1rem 1rem;
   border-radius: 16px;
   background: rgba(255, 255, 255, 0.65);
   backdrop-filter: blur(12px);
@@ -151,13 +174,16 @@
   text-align: left;
   padding: 0.5rem 0.75rem;
   border-radius: 0.4rem;
-  color: #111827;
   display: flex;
   align-items: center;
   gap: 0.5rem;
   font-size: 0.9rem;
   cursor: pointer;
   transition: background-color 0.15s ease;
+}
+.profileMenu :global(.material-symbols-rounded) {
+  font-size: 1.1rem !important;
+  color: var(--color-green-primary-70);
 }
 
 .profileMenuItem:hover {
@@ -170,6 +196,7 @@
   padding: 0.5rem 0.75rem;
   border-radius: 0.4rem;
   cursor: default;
+  gap: 0.5rem;
 }
 
 .profileMenuItemGroup:hover {
@@ -179,13 +206,13 @@
 .profileMenuLabel {
   flex: 1;
   font-size: 0.9rem;
-  color: #111827;
+  color: #414141;
 }
 
 .profileMenuRightControls {
   display: flex;
   align-items: center;
-  gap: 0.5rem;
+  gap: 1rem;
   margin-left: auto;
 }
 

@@ -9,6 +9,7 @@ interface AppHeaderProps {
   profileMenuRef: RefObject<HTMLDivElement | null>;
   isProfileMenuOpen: boolean;
   onScrollToToday: () => void;
+  onAddSchedule?: () => void;
   onToggleProfileMenu: () => void;
   onOpenRoutine: () => void;
 
@@ -36,6 +37,7 @@ export function AppHeader({
   profileMenuRef,
   isProfileMenuOpen,
   onScrollToToday,
+  onAddSchedule,
   onToggleProfileMenu,
   onOpenRoutine,
 
@@ -79,30 +81,33 @@ export function AppHeader({
         >
           오늘
         </button>
+        <button
+          onClick={onAddSchedule}
+          className={`${styles.appHeaderAddSchedule}`}
+        >
+          <span className="material-symbols-rounded">add</span>
+        </button>
       </div>
 
       <div className={styles.appHeaderRight}>
         <div className={styles.profileWrapper} ref={profileMenuRef}>
-          {/* 썸네일: 메뉴가 열려있지 않을 때만 표시 */}
-          {!isProfileMenuOpen && (
-            <button
-              onClick={onToggleProfileMenu}
-              className={styles.profileButton}
-              aria-haspopup="menu"
-              aria-expanded={isProfileMenuOpen}
-              style={
-                avatarUrl
-                  ? { backgroundImage: `url(${avatarUrl})` }
-                  : undefined
-              }
-            >
-              {!avatarUrl && (
-                <span className={styles.profileInitial}>
-                  {userInitial}
-                </span>
-              )}
-            </button>
-          )}
+          {/* 썸네일: 메뉴가 열려있을 때는 보이지 않지만 자리(부피)는 차지하게 함 */}
+          <button
+            onClick={onToggleProfileMenu}
+            className={styles.profileButton}
+            aria-haspopup="menu"
+            aria-expanded={isProfileMenuOpen}
+            style={{
+              visibility: isProfileMenuOpen ? 'hidden' : 'visible',
+              ...(avatarUrl ? { backgroundImage: `url(${avatarUrl})` } : {})
+            }}
+          >
+            {!avatarUrl && (
+              <span className={styles.profileInitial}>
+                {userInitial}
+              </span>
+            )}
+          </button>
           {isProfileMenuOpen && (
             <div className={styles.profileMenu} role="menu">
               {/* Header (Title + Close) Removed */}
@@ -110,6 +115,7 @@ export function AppHeader({
 
               {/* 루틴 관리 */}
               <div className={styles.profileMenuItemGroup}>
+                <span className="material-symbols-rounded">routine</span>
                 <span className={styles.profileMenuLabel}>루틴</span>
                 <div className={styles.profileMenuRightControls}>
                   <label className={styles.toggleSwitch}>
@@ -128,9 +134,10 @@ export function AppHeader({
                 </div>
               </div>
 
-              {/* 일기 */}
+              {/* 글쓰기 */}
               <div className={styles.profileMenuItemGroup}>
-                <span className={styles.profileMenuLabel}>일기</span>
+                <span className="material-symbols-rounded" style={{ fontVariationSettings: "'FILL' 0" }} >edit</span>
+                <span className={styles.profileMenuLabel}>글쓰기</span>
                 <div className={styles.profileMenuRightControls}>
                   <label className={styles.toggleSwitch}>
                     <input
@@ -146,7 +153,8 @@ export function AppHeader({
 
               {/* 오늘의 기분 */}
               <div className={styles.profileMenuItemGroup}>
-                <span className={styles.profileMenuLabel}>오늘의 기분</span>
+                <span className="material-symbols-rounded" style={{ fontVariationSettings: "'FILL' 0" }} >sentiment_calm</span>
+                <span className={styles.profileMenuLabel}>감정</span>
                 <div className={styles.profileMenuRightControls}>
                   <label className={styles.toggleSwitch}>
                     <input
@@ -162,6 +170,7 @@ export function AppHeader({
 
               {/* 투두 리스트 */}
               <div className={styles.profileMenuItemGroup}>
+                <span className="material-symbols-rounded" style={{ fontVariationSettings: "'FILL' 0" }} >check_circle</span>
                 <span className={styles.profileMenuLabel}>할일</span>
                 <div className={styles.profileMenuRightControls}>
                   <label className={styles.toggleSwitch}>
@@ -177,13 +186,26 @@ export function AppHeader({
               </div>
 
               <button className={styles.profileMenuItem} onClick={onOpenSettings}>
-                프로필
+                <span className="material-symbols-rounded">account_circle</span>
+                <span className={styles.profileMenuLabel}>프로필</span>
+                <span
+                  className="material-symbols-rounded"
+                  style={{ fontSize: '16px', color: '#9ca3af', cursor: 'pointer', marginLeft: 'auto' }}
+                  onClick={onOpenSettings}
+                >arrow_forward_ios</span>
               </button>
               <button className={styles.profileMenuItem} onClick={onOpenTimeSettings}>
-                시간
+                <span className="material-symbols-rounded" style={{ fontVariationSettings: "'FILL' 0" }} >location_on</span>
+                <span className={styles.profileMenuLabel}>타임존</span>
+                <span
+                  className="material-symbols-rounded"
+                  style={{ fontSize: '16px', color: '#9ca3af', cursor: 'pointer', marginLeft: 'auto' }}
+                  onClick={onOpenTimeSettings}
+                >arrow_forward_ios</span>
               </button>
               <button className={styles.profileMenuItem} onClick={onLogout}>
-                로그아웃
+                <span className="material-symbols-rounded" style={{ fontVariationSettings: "'FILL' 0" }} >door_open</span>
+                <span className={styles.profileMenuLabel}>로그아웃</span>
               </button>
             </div>
           )}

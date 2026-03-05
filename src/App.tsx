@@ -1,10 +1,12 @@
 import { useState, useEffect, useCallback } from 'react';
 import { Session } from '@supabase/supabase-js';
 import { supabase } from './lib/supabase';
+import { saveGoogleRefreshToken } from './services/api';
 import { Login } from './components/Login';
 import { MainLayout } from './components/MainLayout';
 import { DataProvider } from './contexts/DataContext';
 import { SelectionProvider, HoverProvider } from './contexts/SelectionContext';
+import { DragProvider } from './contexts/DragContext';
 import { WeekOrder } from './types';
 import { getWeekStartForDate, getTodoWeekStart, formatLocalDate } from './utils/dateUtils';
 import styles from './App.module.css';
@@ -36,6 +38,9 @@ export default function App() {
       // unmounting the entire app tree and losing unsaved work.
       if (session) {
         setSession(session);
+        if (_event === 'SIGNED_IN' && session.provider_token && session.provider_refresh_token) {
+          saveGoogleRefreshToken(session.provider_refresh_token).catch(console.error);
+        }
       } else if (_event === 'SIGNED_OUT') {
         // Only clear session on explicit sign-out
         setSession(null);
@@ -60,29 +65,31 @@ export default function App() {
       ) : (
         <SelectionProvider>
           <HoverProvider>
-            <DataProvider
-              session={session}
-              weekOrder={weekOrder}
-              pastWeeks={pastWeeks}
-              futureWeeks={futureWeeks}
-              getWeekStartForDate={handleGetWeekStartForDate}
-              getCurrentTodoWeekStart={handleGetCurrentTodoWeekStart}
-              formatLocalDate={formatLocalDate}
-            >
-              <MainLayout
+            <DragProvider>
+              <DataProvider
                 session={session}
                 weekOrder={weekOrder}
-                setWeekOrder={setWeekOrder}
                 pastWeeks={pastWeeks}
-                setPastWeeks={setPastWeeks}
                 futureWeeks={futureWeeks}
-                setFutureWeeks={setFutureWeeks}
-                currentYear={currentYear}
-                setCurrentYear={setCurrentYear}
-                currentMonth={currentMonth}
-                setCurrentMonth={setCurrentMonth}
-              />
-            </DataProvider>
+                getWeekStartForDate={handleGetWeekStartForDate}
+                getCurrentTodoWeekStart={handleGetCurrentTodoWeekStart}
+                formatLocalDate={formatLocalDate}
+              >
+                <MainLayout
+                  session={session}
+                  weekOrder={weekOrder}
+                  setWeekOrder={setWeekOrder}
+                  pastWeeks={pastWeeks}
+                  setPastWeeks={setPastWeeks}
+                  futureWeeks={futureWeeks}
+                  setFutureWeeks={setFutureWeeks}
+                  currentYear={currentYear}
+                  setCurrentYear={setCurrentYear}
+                  currentMonth={currentMonth}
+                  setCurrentMonth={setCurrentMonth}
+                />
+              </DataProvider>
+            </DragProvider>
           </HoverProvider>
         </SelectionProvider>
       )}

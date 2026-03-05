@@ -209,6 +209,9 @@ export function EventModal({ date, initialTitle, initialStartTime, initialEndTim
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
+  // 삭제 버튼 클릭 시 저장(onSave) 동작을 건너뛰기 위한 플래그
+  const isDeletingRef = useRef(false);
+
   // --- Smart Auto-Save Logic ---
   const saveTimerRef = useRef<NodeJS.Timeout | null>(null);
 
@@ -346,6 +349,11 @@ export function EventModal({ date, initialTitle, initialStartTime, initialEndTim
 
       // Force Save on Close Logic
       const s = latestStateRef.current;
+
+      // 만약 일정 삭제 버튼을 눌러서 닫히는 중이라면 자동 저장을 무시함
+      if (isDeletingRef.current) {
+        return; // handleOutsideClick은 동작하지 않고 onClose 처리됨
+      }
 
       // 입력값이 있고, 새 일정인 경우 저장 시도
       if (!s.event) {
@@ -537,28 +545,33 @@ export function EventModal({ date, initialTitle, initialStartTime, initialEndTim
                 />
               </div>
 
-              {event && (
-                <div className={styles.deleteMenuWrapper}>
-                  {isSubscription ? (
-                    <div className={`${styles.deleteMenuButton} ${styles.deleteMenuDisabled}`} title="구독한 캘린더의 일정은 변경이나 삭제할 수 없습니다.">
-                      <span className="material-symbols-rounded">delete</span>
-                      일정 삭제 불가 (읽기 전용)
-                    </div>
-                  ) : (
-                    <button
-                      type="button"
-                      className={styles.deleteMenuButton}
-                      onClick={() => {
+              <div className={styles.deleteMenuWrapper}>
+                {isSubscription ? (
+                  <div className={`${styles.deleteMenuButton} ${styles.deleteMenuDisabled}`} title="구독한 캘린더의 일정은 변경이나 삭제할 수 없습니다.">
+                    <span className="material-symbols-rounded">delete</span>
+                    일정 삭제 불가 (읽기 전용)
+                  </div>
+                ) : (
+                  <button
+                    type="button"
+                    className={styles.deleteMenuButton}
+                    onMouseDown={() => {
+                      // 마우스가 눌리는 즉시 플래그 설정하여 handleOutsideClick의 onSave를 방지
+                      isDeletingRef.current = true;
+                    }}
+                    onClick={() => {
+                      if (event) {
                         onDelete?.(event.id);
-                        onClose();
-                      }}
-                    >
-                      <span className="material-symbols-rounded">delete</span>
-                      일정 삭제
-                    </button>
-                  )}
-                </div>
-              )}
+                      }
+                      // 새 일정인 경우이거나, 삭제 후이거나 모달을 닫고 Draft를 초기화하는 용도로 사용
+                      onClose();
+                    }}
+                  >
+                    <span className="material-symbols-rounded">delete</span>
+                    일정 삭제
+                  </button>
+                )}
+              </div>
 
             </div>
 

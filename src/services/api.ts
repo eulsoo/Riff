@@ -16,12 +16,14 @@ export interface CalendarMetadata {
   color: string;
   isLocal?: boolean;
   isVisible?: boolean;
-  type?: 'local' | 'subscription' | 'caldav';
+  type?: 'local' | 'subscription' | 'caldav' | 'google';
   subscriptionUrl?: string;
   isShared?: boolean;
   isSubscription?: boolean;
   readOnly?: boolean;
   createdFromApp?: boolean; // 앱에서 생성되어 외부로 동기화된 캘린더 식별
+  googleCalendarId?: string; // Google Calendar 전용 캘린더 ID
+  originalCalDAVUrl?: string; // unsync 시 원래 CalDAV URL 보존 (서버 삭제 여부 확인용)
 }
 
 // CalDAV 메타데이터 저장 (로컬 캘린더 제외)
@@ -153,6 +155,22 @@ export const getUserAvatar = async (): Promise<string | null> => {
   return data?.avatar_url || null;
 };
 
+// Google Refresh Token
+export const saveGoogleRefreshToken = async (refreshToken: string): Promise<boolean> => {
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return false;
+
+  const { error } = await supabase
+    .from('user_tokens')
+    .upsert({ user_id: user.id, provider_refresh_token: refreshToken, updated_at: new Date().toISOString() });
+
+  if (error) {
+    console.error('Error saving Google refresh token:', error);
+    return false;
+  }
+  return true;
+};
+
 const META_ID = '======VIVIDLY_META======';
 
 function serializeMemo(memo: string | undefined, meta: Record<string, any>): string {
@@ -218,6 +236,12 @@ export const createEvent = async (event: Omit<Event, 'id'> & { uid?: string; cal
   
   const normalizedCalendarUrl = normalizeCalendarUrl(calendarUrl || undefined);
 
+  const { data: userData } = await supabase.auth.getUser();
+  if (!userData.user) {
+    console.error('Cannot create event without authenticated user session');
+    return null;
+  }
+
   const payload: any = {
     ...cleanRest,
     start_time: startTime,
@@ -225,6 +249,7 @@ export const createEvent = async (event: Omit<Event, 'id'> & { uid?: string; cal
     // end_date: endDate, // REMOVED: DB column likely missing
     memo: serializeMemo(rest.memo, { endDate }), // Store in Meta only
     source: source || 'manual',
+    user_id: userData.user.id,
   };
   
   // uid 또는 caldavUid 중 하나를 사용
@@ -275,6 +300,12 @@ export const upsertEvent = async (event: Omit<Event, 'id'> & { uid?: string; cal
   
   const normalizedCalendarUrl = normalizeCalendarUrl(calendarUrl || undefined);
 
+  const { data: userData } = await supabase.auth.getUser();
+  if (!userData.user) {
+    console.error('Cannot upsert event without authenticated user session');
+    return null;
+  }
+
   const payload: any = {
     ...cleanRest,
     start_time: startTime,
@@ -282,6 +313,7 @@ export const upsertEvent = async (event: Omit<Event, 'id'> & { uid?: string; cal
     // end_date: endDate, // REMOVED: DB column likely missing
     memo: serializeMemo(rest.memo, { endDate }), // Store in Meta
     source: source || 'caldav',
+    user_id: userData.user.id,
   };
   
   const eventUid = uid || caldavUid;
@@ -1177,6 +1209,22 @@ export const deleteAllCalDAVData = async (): Promise<boolean> => {
     return false;
   }
   
+  return true;
+};
+
+export const deleteAllGoogleData = async (): Promise<boolean> => {
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return false;
+
+  const { error } = await supabase
+    .from('events')
+    .delete()
+    .eq('source', 'google');
+
+  if (error) {
+    console.error('Error deleting Google events:', error);
+    return false;
+  }
   return true;
 };
 

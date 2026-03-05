@@ -8,15 +8,13 @@ interface SubscribeModalProps {
   onSubscribeSuccess: (message: string) => void;
   calendarMetadata: CalendarMetadata[];
   setCalendarMetadata: (metadata: CalendarMetadata[]) => void;
-  setVisibleCalendarUrlSet: (updateFn: (prev: Set<string>) => Set<string>) => void;
 }
 
 export const SubscribeModal: React.FC<SubscribeModalProps> = ({
   onClose,
   onSubscribeSuccess,
   calendarMetadata,
-  setCalendarMetadata,
-  setVisibleCalendarUrlSet
+  setCalendarMetadata
 }) => {
   const [url, setUrl] = useState('');
   const [loading, setLoading] = useState(false);
@@ -89,12 +87,6 @@ export const SubscribeModal: React.FC<SubscribeModalProps> = ({
       setCalendarMetadata(updatedMetadata);
       saveCalendarMetadata(updatedMetadata);
       saveLocalCalendarMetadata(updatedMetadata); // Save to local as well
-
-      setVisibleCalendarUrlSet(prev => {
-        const next = new Set(prev);
-        next.add(normalizedUrl);
-        return next;
-      });
 
       // 3. Upsert events
       if (events.length > 0) {

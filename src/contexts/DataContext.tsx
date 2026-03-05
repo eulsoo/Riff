@@ -11,8 +11,22 @@ import {
   toggleRoutineCompletion,
   createTodo, updateTodo as apiUpdateTodo, deleteTodo as apiDeleteTodo,
   updateTodoPositions,
-  fetchDiaryEntry, deleteDiaryEntry as apiDeleteDiaryEntry
+  fetchDiaryEntry, deleteDiaryEntry as apiDeleteDiaryEntry,
+  upsertEvent, CalendarMetadata,
 } from '../services/api';
+import {
+  getGoogleProviderToken,
+  fetchGoogleEvents,
+  fetchGoogleCalendarList,
+  mapGoogleEventToRiff,
+  loadGoogleSyncTokens,
+  saveGoogleSyncTokens,
+  clearGoogleSyncToken,
+} from '../lib/googleCalendar';
+
+// localStorage key for selected google calendar IDs
+const GOOGLE_SELECTED_CALENDARS_KEY = 'googleSelectedCalendarIds';
+const GOOGLE_CALENDARS_META_KEY = 'googleCalendarsMeta';
 
 interface DataContextType {
   // State
@@ -59,6 +73,14 @@ interface DataContextType {
   ) => void;
   canUndo: boolean;
   canRedo: boolean;
+
+  // Google Calendar
+  googleCalendars: CalendarMetadata[];
+  isSyncingGoogle: boolean;
+  syncGoogleCalendar: (selectedMeta: CalendarMetadata[]) => Promise<void>;
+  removeGoogleCalendar: (calendarId: string) => void;
+  selectedGoogleCalendarIds: string[];
+  toggleGoogleCalendarSelected: (calendarId: string) => void;
 
   // Data Loading
   loadData: (force?: boolean) => Promise<void>;
@@ -109,6 +131,26 @@ export const DataProvider = ({
 
   const [emotions, setEmotions] = useState<Record<string, string>>({});
 
+  // ── Google Calendar state ──────────────────────────────────
+  const [googleCalendars, setGoogleCalendars] = useState<CalendarMetadata[]>(() => {
+    try {
+      const raw = localStorage.getItem(GOOGLE_CALENDARS_META_KEY);
+      return raw ? JSON.parse(raw) : [];
+    } catch { return []; }
+  });
+  const [selectedGoogleCalendarIds, setSelectedGoogleCalendarIds] = useState<string[]>(() => {
+    try {
+      const raw = localStorage.getItem(GOOGLE_SELECTED_CALENDARS_KEY);
+      return raw ? JSON.parse(raw) : [];
+    } catch { return []; }
+  });
+  const [isSyncingGoogle, setIsSyncingGoogle] = useState(false);
+  const googleSyncTokensRef = useRef<Record<string, string>>(loadGoogleSyncTokens());
+  const selectedGoogleIdsRef = useRef(selectedGoogleCalendarIds);
+  selectedGoogleIdsRef.current = selectedGoogleCalendarIds;
+  const googleCalendarsRef = useRef(googleCalendars);
+  googleCalendarsRef.current = googleCalendars;
+
   useEffect(() => {
     // Load emotions from local storage on mount
     const saved = window.localStorage.getItem('user_emotions');
@@ -153,6 +195,169 @@ export const DataProvider = ({
       loadData();
     }
   }, [session, loadData]);
+
+  // ── Google Calendar sync ────────────────────────────────────
+  // Called by GoogleSyncModal after user selects calendars and clicks sync,
+  // or called without arguments during auto-sync (tab focus).
+  const syncGoogleCalendar = useCallback(async (selectedMeta?: CalendarMetadata[]) => {
+    const token = await getGoogleProviderToken();
+
+    if (!token) {
+      // provider_token 만료 (Supabase JWT 갱신 후 소멸되는 알려진 한계)
+      // 자동 동기화만 있는 경우(selectedMeta 없음): 연결된 캘린더가 있으면 플래그 저장
+      if (!selectedMeta && googleCalendarsRef.current.length > 0) {
+        localStorage.setItem('googleTokenExpired', 'true');
+        console.warn('[Google] provider_token이 만료되었습니다. Google 섹션에서 재연결이 필요합니다.');
+      }
+      return;
+    }
+
+    // 토큰이 다시 유효해지면 만료 플래그 제거
+    localStorage.removeItem('googleTokenExpired');
+
+    setIsSyncingGoogle(true);
+    try {
+      let metaToSync = selectedMeta;
+
+      // 1. If explicit meta provided (from Modal), persist it.
+      if (selectedMeta) {
+        setGoogleCalendars(selectedMeta);
+        localStorage.setItem(GOOGLE_CALENDARS_META_KEY, JSON.stringify(selectedMeta));
+
+        const allIds = selectedMeta.map(m => m.googleCalendarId!).filter(Boolean);
+        setSelectedGoogleCalendarIds(allIds);
+        localStorage.setItem(GOOGLE_SELECTED_CALENDARS_KEY, JSON.stringify(allIds));
+        selectedGoogleIdsRef.current = allIds;
+      } else {
+        // Auto-sync mode: use current state
+        metaToSync = googleCalendarsRef.current.filter(c => selectedGoogleIdsRef.current.includes(c.googleCalendarId!));
+
+        // Google에서 캘린더 이름이 바뀌었는지 확인 후 갱신 (Google → Riff 이름 동기화)
+        try {
+          const calendarList = await fetchGoogleCalendarList(token);
+          const nameMap = new Map(calendarList.map(cal => [cal.id, cal.summary]));
+
+          let hasNameChange = false;
+          const updatedMeta = googleCalendarsRef.current.map((cal: CalendarMetadata) => {
+            const latestName: string | undefined = cal.googleCalendarId ? nameMap.get(cal.googleCalendarId) : undefined;
+            if (latestName && latestName !== cal.displayName) {
+              hasNameChange = true;
+              return { ...cal, displayName: latestName };
+            }
+            return cal;
+          });
+
+          if (hasNameChange) {
+            setGoogleCalendars(updatedMeta);
+            localStorage.setItem(GOOGLE_CALENDARS_META_KEY, JSON.stringify(updatedMeta));
+            metaToSync = updatedMeta.filter(c => selectedGoogleIdsRef.current.includes(c.googleCalendarId!));
+            console.log('[Google] 캘린더 이름 변경 감지 → Riff 업데이트 완료');
+          }
+        } catch (e) {
+          // 이름 갱신 실패는 무시 (이벤트 동기화는 계속 진행)
+          console.warn('[Google] 캘린더 목록 갱신 실패:', e);
+        }
+      }
+
+      if (!metaToSync || metaToSync.length === 0) {
+        setIsSyncingGoogle(false);
+        return;
+      }
+
+      // 2. Fetch events for each selected calendar and upsert into Supabase
+      const now = new Date();
+      const timeMin = new Date(now.getFullYear(), now.getMonth() - 2, 1).toISOString();
+      const timeMax = new Date(now.getFullYear(), now.getMonth() + 4, 0).toISOString();
+
+      for (const calMeta of metaToSync) {
+        const calId = calMeta.googleCalendarId!;
+        if (!calId) continue;
+        const color = calMeta.color;
+        const syncToken = googleSyncTokensRef.current[calId];
+
+        try {
+          const { events: gEvents, nextSyncToken } = await fetchGoogleEvents(token, calId, {
+            timeMin: syncToken ? undefined : timeMin,
+            timeMax: syncToken ? undefined : timeMax,
+            syncToken,
+          });
+
+          for (const gEv of gEvents) {
+            const mapped = mapGoogleEventToRiff(gEv, calId, color);
+            if (mapped) {
+              await upsertEvent({ ...mapped, source: 'google' });
+            }
+          }
+
+          if (nextSyncToken) {
+            googleSyncTokensRef.current[calId] = nextSyncToken;
+            saveGoogleSyncTokens(googleSyncTokensRef.current);
+          }
+        } catch (err: any) {
+          if (err?.message === 'SYNC_TOKEN_INVALID') {
+            clearGoogleSyncToken(calId);
+            delete googleSyncTokensRef.current[calId];
+          } else {
+            console.error(`Google sync error for calendar ${calId}:`, err);
+          }
+        }
+      }
+
+      // 3. Reload local events state
+      await loadData();
+    } catch (err) {
+      console.error('syncGoogleCalendar failed:', err);
+    } finally {
+      setIsSyncingGoogle(false);
+    }
+  }, [loadData]);
+
+
+  const removeGoogleCalendar = useCallback((calendarId: string) => {
+    setGoogleCalendars(prev => prev.filter(c => c.googleCalendarId !== calendarId));
+    setSelectedGoogleCalendarIds(prev => {
+      const next = prev.filter(id => id !== calendarId);
+      localStorage.setItem(GOOGLE_SELECTED_CALENDARS_KEY, JSON.stringify(next));
+      return next;
+    });
+    clearGoogleSyncToken(calendarId);
+  }, []);
+
+  const toggleGoogleCalendarSelected = useCallback((calendarId: string) => {
+    setSelectedGoogleCalendarIds(prev => {
+      const next = prev.includes(calendarId)
+        ? prev.filter(id => id !== calendarId)
+        : [...prev, calendarId];
+      localStorage.setItem(GOOGLE_SELECTED_CALENDARS_KEY, JSON.stringify(next));
+      return next;
+    });
+  }, []);
+
+  // Re-sync on tab focus & periodically (1 minute)
+  useEffect(() => {
+    // 1. Tab Focus event
+    const handleVisibility = () => {
+      if (document.visibilityState === 'visible' && selectedGoogleIdsRef.current.length > 0) {
+        syncGoogleCalendar();
+      }
+    };
+    document.addEventListener('visibilitychange', handleVisibility);
+
+    // 2. Periodic background polling (60s)
+    const intervalId = setInterval(() => {
+      if (selectedGoogleIdsRef.current.length > 0) {
+        syncGoogleCalendar();
+      }
+    }, 60 * 1000); // 60 seconds
+
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibility);
+      clearInterval(intervalId);
+    };
+  }, [syncGoogleCalendar]);
+
+
+
 
   // --- Events ---
   const addEvent = useCallback(async (event: Omit<Event, 'id'>) => {
@@ -570,7 +775,10 @@ export const DataProvider = ({
     addTodo, toggleTodo, updateTodo, deleteTodo, reorderTodos: reorderWeekTodos,
     fetchDiary, saveDiary, deleteDiary, setEmotion: setEmotionStr,
     recordAction, registerCategoryHandlers, canUndo, canRedo,
-    loadData
+    loadData,
+    // Google Calendar
+    googleCalendars, isSyncingGoogle, syncGoogleCalendar,
+    removeGoogleCalendar, selectedGoogleCalendarIds, toggleGoogleCalendarSelected,
   };
 
   return <DataContext.Provider value={value}>{children}</DataContext.Provider>;
