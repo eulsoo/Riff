@@ -24,8 +24,35 @@ export default function App() {
   const [pastWeeks, setPastWeeks] = useState(8);
   const [futureWeeks, setFutureWeeks] = useState(12);
 
+  // 사용자별 localStorage 키 목록 (로그인 사용자가 바뀌면 초기화해야 함)
+  const USER_SCOPED_LS_KEYS = [
+    'caldavCalendarMetadata',       // 캘린더 메타데이터 (CalDAV)
+    'localCalendarMetadata',        // 로컬 캘린더 메타데이터
+    'riffHiddenCalendars',          // 캘린더 숨김 설정
+    'googleCalendarsMeta',          // 구글 캘린더 메타
+    'googleSelectedCalendarIds',    // 선택된 구글 캘린더 IDs
+    'googleSyncTokens',             // 구글 동기화 토큰
+    'googleTokenExpired',           // 구글 토큰 만료 플래그
+    'user_emotions',                // 감정 이모지 기록
+    'holiday_synced_v2',            // 공휴일 동기화 여부
+  ];
+
+
+  const clearOtherUserLocalStorage = (newUserId: string) => {
+    const storedUserId = localStorage.getItem('riff_current_user_id');
+    if (storedUserId && storedUserId !== newUserId) {
+      // 다른 사용자가 로그인 → 이전 사용자의 캐시 데이터 초기화
+      console.log(`[Auth] 사용자 변경 감지 (${storedUserId} → ${newUserId}). localStorage 초기화.`);
+      USER_SCOPED_LS_KEYS.forEach(key => localStorage.removeItem(key));
+    }
+    localStorage.setItem('riff_current_user_id', newUserId);
+  };
+
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
+      if (session?.user?.id) {
+        clearOtherUserLocalStorage(session.user.id);
+      }
       setSession(session);
       setSessionLoading(false);
     });
@@ -37,12 +64,17 @@ export default function App() {
       // Avoid setting null on TOKEN_REFRESHED failures to prevent
       // unmounting the entire app tree and losing unsaved work.
       if (session) {
+        // 사용자가 바뀐 경우 localStorage 초기화 (계정 간 데이터 오염 방지)
+        if (session.user?.id) {
+          clearOtherUserLocalStorage(session.user.id);
+        }
         setSession(session);
         if (_event === 'SIGNED_IN' && session.provider_token && session.provider_refresh_token) {
           saveGoogleRefreshToken(session.provider_refresh_token).catch(console.error);
         }
       } else if (_event === 'SIGNED_OUT') {
         // Only clear session on explicit sign-out
+        localStorage.removeItem('riff_current_user_id');
         setSession(null);
       }
       // For other events with null session (e.g., failed refresh),
@@ -51,6 +83,7 @@ export default function App() {
 
     return () => subscription.unsubscribe();
   }, []);
+
 
   const handleGetWeekStartForDate = useCallback((date: Date) => getWeekStartForDate(date, weekOrder), [weekOrder]);
   const handleGetCurrentTodoWeekStart = useCallback(() => {
