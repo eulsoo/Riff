@@ -438,6 +438,13 @@ export async function syncSelectedCalendars(
   if (syncInFlight) {
     return 0;
   }
+
+  // 세션 검사: 로그아웃 상태이면 즉시 중단 (로그아웃 후 비동기 sync가 계속 실행되는 것 방지)
+  const { data: sessionData } = await supabase.auth.getSession();
+  if (!sessionData?.session?.user) {
+    return 0;
+  }
+
   syncInFlight = true;
 
   try {
@@ -584,9 +591,6 @@ export async function syncSelectedCalendars(
             // 새 이벤트 생성
             // event에서 uid 필드 제거 (caldavUid로 전달)
             const { uid: _uid, ...eventWithoutUid } = event as any;
-            
-            // [DEBUG] Log upsert attempt
-            console.log(`[DEBUG-SYNC] Upserting: "${eventWithoutUid.title}"`, uid);
 
             const result = await upsertEvent({
               ...eventWithoutUid,

@@ -1,6 +1,6 @@
 
 import { supabase } from '../lib/supabase';
-import { DiaryEntry, Event, Routine, RoutineCompletion, Todo } from '../types';
+import { DiaryEntry, Event, Routine, Todo } from '../types';
 
 // 캘린더 URL 정규화: 끝의 슬래시 제거
 export const normalizeCalendarUrl = (url?: string | null) =>
@@ -407,7 +407,8 @@ export const upsertEvent = async (event: Omit<Event, 'id'> & { uid?: string; cal
 
   const { data: userData } = await supabase.auth.getUser();
   if (!userData.user) {
-    console.error('Cannot upsert event without authenticated user session');
+    // 로그아웃 후 비동기 sync가 계속 실행될 때 발생하는 정상적인 상황
+    // console.error 대신 조용히 종료 (콘솔 오염 방지)
     return null;
   }
 
