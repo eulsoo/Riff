@@ -171,6 +171,111 @@ export const saveGoogleRefreshToken = async (refreshToken: string): Promise<bool
   return true;
 };
 
+// ─────────────────────────────────────────────────────────────
+// Calendar Metadata DB (Cross-device persistence)
+// ─────────────────────────────────────────────────────────────
+
+// DB row → CalendarMetadata 변환
+const dbRowToCalendarMetadata = (row: any): CalendarMetadata => ({
+  url: row.url,
+  displayName: row.display_name ?? '',
+  color: row.color ?? '#3b82f6',
+  type: row.type ?? undefined,
+  isLocal: row.is_local ?? false,
+  isVisible: row.is_visible ?? true,
+  isSubscription: row.is_subscription ?? false,
+  isShared: row.is_shared ?? false,
+  readOnly: row.read_only ?? false,
+  createdFromApp: row.created_from_app ?? false,
+  googleCalendarId: row.google_calendar_id ?? undefined,
+  subscriptionUrl: row.subscription_url ?? undefined,
+  originalCalDAVUrl: row.original_caldav_url ?? undefined,
+});
+
+// CalendarMetadata → DB row 변환
+const calendarMetadataToDbRow = (meta: CalendarMetadata, userId: string) => ({
+  user_id: userId,
+  url: normalizeCalendarUrl(meta.url) || meta.url,
+  display_name: meta.displayName,
+  color: meta.color,
+  type: meta.type ?? null,
+  is_local: meta.isLocal ?? false,
+  is_visible: meta.isVisible ?? true,
+  is_subscription: meta.isSubscription ?? false,
+  is_shared: meta.isShared ?? false,
+  read_only: meta.readOnly ?? false,
+  created_from_app: meta.createdFromApp ?? false,
+  google_calendar_id: meta.googleCalendarId ?? null,
+  subscription_url: meta.subscriptionUrl ?? null,
+  original_caldav_url: meta.originalCalDAVUrl ?? null,
+  updated_at: new Date().toISOString(),
+});
+
+/**
+ * DB에서 현재 사용자의 캘린더 메타데이터를 전부 불러옴
+ * localStorage 캐시와 병합해서 최종 목록을 반환
+ */
+export const fetchCalendarMetadataFromDB = async (): Promise<CalendarMetadata[]> => {
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return [];
+
+  const { data, error } = await supabase
+    .from('calendar_metadata')
+    .select('*')
+    .eq('user_id', user.id)
+    .order('created_at', { ascending: true });
+
+  if (error) {
+    console.error('Error fetching calendar metadata from DB:', error);
+    return [];
+  }
+
+  return (data ?? []).map(dbRowToCalendarMetadata);
+};
+
+/**
+ * 캘린더 메타데이터 목록 전체를 DB에 upsert (있으면 업데이트, 없으면 생성)
+ * localStorage에도 동시에 저장해서 빠른 초기 로딩 유지
+ */
+export const saveCalendarMetadataToDB = async (metaList: CalendarMetadata[]): Promise<boolean> => {
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return false;
+
+  const rows = metaList.map(m => calendarMetadataToDbRow(m, user.id));
+  if (rows.length === 0) return true;
+
+  const { error } = await supabase
+    .from('calendar_metadata')
+    .upsert(rows, { onConflict: 'user_id,url' });
+
+  if (error) {
+    console.error('Error saving calendar metadata to DB:', error);
+    return false;
+  }
+  return true;
+};
+
+/**
+ * 특정 캘린더를 DB에서 삭제
+ */
+export const deleteCalendarMetadataFromDB = async (url: string): Promise<boolean> => {
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return false;
+
+  const normalizedUrl = normalizeCalendarUrl(url) || url;
+  const { error } = await supabase
+    .from('calendar_metadata')
+    .delete()
+    .eq('user_id', user.id)
+    .eq('url', normalizedUrl);
+
+  if (error) {
+    console.error('Error deleting calendar metadata from DB:', error);
+    return false;
+  }
+  return true;
+};
+
 const META_ID = '======VIVIDLY_META======';
 
 function serializeMemo(memo: string | undefined, meta: Record<string, any>): string {

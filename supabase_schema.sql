@@ -88,3 +88,28 @@ create table if not exists user_tokens (
 alter table user_tokens enable row level security;
 create policy "Users can manage their own tokens" on user_tokens for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
 
+-- 8. Calendar Metadata Table (Cross-device calendar list persistence)
+create table if not exists calendar_metadata (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid references auth.users(id) on delete cascade not null,
+  url text not null,
+  display_name text,
+  color text,
+  type text, -- 'local' | 'caldav' | 'google' | 'subscription'
+  is_local boolean default false,
+  is_visible boolean default true,
+  is_subscription boolean default false,
+  is_shared boolean default false,
+  read_only boolean default false,
+  created_from_app boolean default false,
+  google_calendar_id text,
+  subscription_url text,
+  original_caldav_url text,
+  updated_at timestamptz default now(),
+  created_at timestamptz default now(),
+  unique(user_id, url)
+);
+
+alter table calendar_metadata enable row level security;
+create policy "Users can manage their own calendar metadata" on calendar_metadata
+  for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
