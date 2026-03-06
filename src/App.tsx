@@ -74,6 +74,9 @@ export default function App() {
         }
       } else if (_event === 'SIGNED_OUT') {
         // Only clear session on explicit sign-out
+        // 로그아웃 시 모든 캐시 데이터를 즉시 초기화하여 완전히 깨끗한 상태로 만듭니다.
+        console.log('[Auth] 로그아웃 감지. 사용자 캐시 데이터 초기화.');
+        USER_SCOPED_LS_KEYS.forEach(key => localStorage.removeItem(key));
         localStorage.removeItem('riff_current_user_id');
         setSession(null);
       }
