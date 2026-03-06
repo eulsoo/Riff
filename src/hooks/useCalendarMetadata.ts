@@ -85,7 +85,12 @@ export const useCalendarMetadata = () => {
     setVisibleCalendarUrlSet(visible);
 
     // 2. DB에서 비동기로 최신 데이터 가져와서 병합
+    // isMounted guard: 언마운트 후 Promise resolve 시 setState 호출 방지
+    let isMounted = true;
+
     fetchCalendarMetadataFromDB().then(dbList => {
+      if (!isMounted) return;
+
       if (dbList.length === 0) {
         // DB에 데이터가 없으면 → localStorage 데이터를 DB로 마이그레이션
         if (localList.length > 0) {
@@ -122,6 +127,8 @@ export const useCalendarMetadata = () => {
     }).catch(err => {
       console.warn('[useCalendarMetadata] DB fetch failed, using localStorage:', err);
     });
+
+    return () => { isMounted = false; };
   }, []);
 
   // ── localStorage + DB 동시 저장 헬퍼 ────────────────────────

@@ -1,4 +1,4 @@
-import { memo, useState } from 'react';
+import { memo, useState, useMemo } from 'react';
 import { EventItem } from './EventItem';
 import { Event, Routine, RoutineCompletion, Todo, WeekOrder } from '../types';
 import { RoutineIcon } from './RoutineIcon';
@@ -7,6 +7,7 @@ import { useData } from '../contexts/DataContext';
 import { useHover, useSelection } from '../contexts/SelectionContext';
 import { useDrag, addDays } from '../contexts/DragContext';
 import { useAllDayEventLayout } from '../hooks/useAllDayEventLayout';
+import { buildEventsByDate, formatDateKey } from '../lib/eventLayout';
 import styles from './WeekCard.module.css';
 
 interface WeekCardProps {
@@ -120,18 +121,13 @@ export const WeekCard = memo(function WeekCard({
     return date.toDateString() === today.toDateString();
   };
 
-  const getEventsForDate = (date: Date) => {
-    const year = date.getFullYear();
-    const month = String(date.getMonth() + 1).padStart(2, '0');
-    const day = String(date.getDate()).padStart(2, '0');
-    const dateStr = `${year}-${month}-${day}`;
-    return events.filter(event => {
-      if (event.date !== dateStr) return false;
-      // Exclude ONLY Multi-Day events (handled in All-Day Row)
-      if (multiDayEventKeys.has(event.id)) return false;
-      return true;
-    });
-  };
+  // 렌더당 14회 반복 filter 제거: events 배열 변경 시만 맵 재계산
+  const eventsByDate = useMemo(
+    () => buildEventsByDate(events, multiDayEventKeys),
+    [events, multiDayEventKeys]
+  );
+
+  const getEventsForDate = (date: Date) => eventsByDate[formatDateKey(date)] ?? [];
 
   const getRoutinesForDay = (dayIndex: number) => {
     return routines.filter(routine => routine.days.includes(dayIndex));

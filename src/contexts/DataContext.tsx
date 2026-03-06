@@ -12,7 +12,7 @@ import {
   createTodo, updateTodo as apiUpdateTodo, deleteTodo as apiDeleteTodo,
   updateTodoPositions,
   fetchDiaryEntry, deleteDiaryEntry as apiDeleteDiaryEntry,
-  upsertEvent, deleteEventByCaldavUid, CalendarMetadata,
+  upsertEvent, deleteEventByCaldavUid, bulkUpsertGoogleEvents, bulkDeleteEventsByCaldavUids, CalendarMetadata,
 } from '../services/api';
 import {
   getGoogleProviderToken,
@@ -282,19 +282,23 @@ export const DataProvider = ({
             syncToken,
           });
 
+          // N+1 방지: 개별 await 대신 bulk upsert/delete로 단일 DB 왕복
+          const toUpsert: Array<ReturnType<typeof mapGoogleEventToRiff> & object> = [];
+          const toDelete: string[] = [];
+
           for (const gEv of gEvents) {
             if (gEv.status === 'cancelled') {
-              // 구글에서 삭제/취소된 이벤트 → 로컬 DB에서도 제거
-              if (gEv.id) {
-                await deleteEventByCaldavUid(gEv.id, `google:${calId}`);
-              }
-              continue;
-            }
-            const mapped = mapGoogleEventToRiff(gEv, calId, color);
-            if (mapped) {
-              await upsertEvent({ ...mapped, source: 'google' });
+              if (gEv.id) toDelete.push(gEv.id);
+            } else {
+              const mapped = mapGoogleEventToRiff(gEv, calId, color);
+              if (mapped) toUpsert.push(mapped);
             }
           }
+
+          await Promise.all([
+            bulkUpsertGoogleEvents(toUpsert as any),
+            bulkDeleteEventsByCaldavUids(toDelete, `google:${calId}`),
+          ]);
 
           if (nextSyncToken) {
             googleSyncTokensRef.current[calId] = nextSyncToken;
@@ -341,21 +345,26 @@ export const DataProvider = ({
   }, []);
 
   // Re-sync on tab focus & periodically (1 minute)
+  // lastSyncAtRef: 30초 내 중복 발화(타이머 + 탭 포커스 동시 발생) 차단
+  const lastSyncAtRef = useRef<number>(0);
+
   useEffect(() => {
+    const triggerSync = () => {
+      if (selectedGoogleIdsRef.current.length === 0) return;
+      const now = Date.now();
+      if (now - lastSyncAtRef.current < 30_000) return; // 30초 내 중복 방지
+      lastSyncAtRef.current = now;
+      syncGoogleCalendar();
+    };
+
     // 1. Tab Focus event
     const handleVisibility = () => {
-      if (document.visibilityState === 'visible' && selectedGoogleIdsRef.current.length > 0) {
-        syncGoogleCalendar();
-      }
+      if (document.visibilityState === 'visible') triggerSync();
     };
     document.addEventListener('visibilitychange', handleVisibility);
 
     // 2. Periodic background polling (60s)
-    const intervalId = setInterval(() => {
-      if (selectedGoogleIdsRef.current.length > 0) {
-        syncGoogleCalendar();
-      }
-    }, 60 * 1000); // 60 seconds
+    const intervalId = setInterval(triggerSync, 60 * 1000);
 
     return () => {
       document.removeEventListener('visibilitychange', handleVisibility);
