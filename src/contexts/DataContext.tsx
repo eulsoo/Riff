@@ -12,7 +12,7 @@ import {
   createTodo, updateTodo as apiUpdateTodo, deleteTodo as apiDeleteTodo,
   updateTodoPositions,
   fetchDiaryEntry, deleteDiaryEntry as apiDeleteDiaryEntry,
-  upsertEvent, CalendarMetadata,
+  upsertEvent, deleteEventByCaldavUid, CalendarMetadata,
 } from '../services/api';
 import {
   getGoogleProviderToken,
@@ -283,6 +283,13 @@ export const DataProvider = ({
           });
 
           for (const gEv of gEvents) {
+            if (gEv.status === 'cancelled') {
+              // 구글에서 삭제/취소된 이벤트 → 로컬 DB에서도 제거
+              if (gEv.id) {
+                await deleteEventByCaldavUid(gEv.id, `google:${calId}`);
+              }
+              continue;
+            }
             const mapped = mapGoogleEventToRiff(gEv, calId, color);
             if (mapped) {
               await upsertEvent({ ...mapped, source: 'google' });

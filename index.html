@@ -1,11 +1,35 @@
 
   <!DOCTYPE html>
   <html lang="en">
-    <head>
-      <meta charset="UTF-8" />
-      <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-      <title>Riff</title>
-      <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200" />
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <!--
+      Content-Security-Policy
+      - script-src 'unsafe-inline': Vite dev HMR에 필요. 프로덕션 배포 시
+        호스팅 플랫폼(Vercel/Netlify) 헤더로 'unsafe-inline' 없이 설정 권장.
+      - connect-src: Supabase API/Realtime + Google OAuth/Calendar API만 허용.
+        외부 미지정 도메인으로의 데이터 유출 차단.
+    -->
+    <meta http-equiv="Content-Security-Policy" content="
+      default-src 'self';
+      script-src 'self' 'unsafe-inline';
+      style-src 'self' 'unsafe-inline' https://fonts.googleapis.com;
+      font-src 'self' https://fonts.gstatic.com data:;
+      img-src 'self' data: blob: https:;
+      connect-src 'self'
+        https://*.supabase.co
+        wss://*.supabase.co
+        https://www.googleapis.com
+        https://oauth2.googleapis.com
+        https://accounts.google.com;
+      frame-src https://accounts.google.com https://appleid.apple.com;
+      object-src 'none';
+      base-uri 'self';
+    " />
+    <title>Riff</title>
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200" />
     </head>
 
     <body>

@@ -31,12 +31,12 @@ vi.mock('./api', () => ({
 const fetchMock = vi.fn();
 global.fetch = fetchMock;
 
-// Mock Deno env for URL (if needed, but caldav.ts uses import.meta.env which is harder to mock in node environment without setup)
-// However, caldav.ts sets supabaseUrl via import.meta.env.VITE_SUPABASE_URL.
-// Jest/Vitest runs in Node, so import.meta.env might be undefined.
-// We need to ensure 'import.meta.env' is handled or mocked before importing caldav.ts basically.
-// But since we already imported it, maybe it's too late?
-// Vitest handles import.meta.env if configured, but let's try.
+// navigator.onLine을 true로 고정 (테스트 환경에서 navigator가 없거나 offline으로 판단되는 문제 방지)
+Object.defineProperty(global, 'navigator', {
+  value: { onLine: true },
+  writable: true,
+  configurable: true,
+});
 
 describe('CalDAV Service (Phase 2-4 Logic)', () => {
     const config: CalDAVConfig = {

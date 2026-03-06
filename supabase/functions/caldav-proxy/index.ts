@@ -18,7 +18,9 @@ function base64Decode(str: string): string {
 }
 
 // 암호화/복호화 (AES-GCM)
-async function getCryptoKey(secret: string): Promise<CryptoKey> {
+// v2 포맷: "v2:saltBase64:ivBase64:cipherBase64" (랜덤 솔트)
+// 레거시 포맷: "ivBase64:cipherBase64" (고정 솔트 "caldav-salt")
+async function getCryptoKey(secret: string, salt: Uint8Array): Promise<CryptoKey> {
   const encoder = new TextEncoder();
   const keyMaterial = await crypto.subtle.importKey(
     "raw",
@@ -28,12 +30,7 @@ async function getCryptoKey(secret: string): Promise<CryptoKey> {
     ["deriveKey"]
   );
   return crypto.subtle.deriveKey(
-    {
-      name: "PBKDF2",
-      salt: encoder.encode("caldav-salt"), // 고정 솔트 (단순화)
-      iterations: 100000,
-      hash: "SHA-256",
-    },
+    { name: "PBKDF2", salt, iterations: 100000, hash: "SHA-256" },
     keyMaterial,
     { name: "AES-GCM", length: 256 },
     false,
@@ -42,36 +39,46 @@ async function getCryptoKey(secret: string): Promise<CryptoKey> {
 }
 
 async function encryptPassword(password: string, secret: string): Promise<string> {
-  const key = await getCryptoKey(secret);
-  const iv = crypto.getRandomValues(new Uint8Array(12));
-  const encoded = new TextEncoder().encode(password);
+  const salt = crypto.getRandomValues(new Uint8Array(16)); // 랜덤 솔트
+  const iv   = crypto.getRandomValues(new Uint8Array(12));
+  const key  = await getCryptoKey(secret, salt);
   const encrypted = await crypto.subtle.encrypt(
     { name: "AES-GCM", iv },
     key,
-    encoded
+    new TextEncoder().encode(password)
   );
-  
-  // IV와 암호문을 합쳐서 반환 (Format: iv:ciphertext in base64)
-  const ivBase64 = btoa(String.fromCharCode(...iv));
-  const contentBase64 = btoa(String.fromCharCode(...new Uint8Array(encrypted)));
-  return `${ivBase64}:${contentBase64}`;
+  const toB64 = (buf: Uint8Array) => btoa(String.fromCharCode(...buf));
+  return `v2:${toB64(salt)}:${toB64(iv)}:${toB64(new Uint8Array(encrypted))}`;
 }
 
 async function decryptPassword(encryptedStr: string, secret: string): Promise<string> {
-  const [ivBase64, contentBase64] = encryptedStr.split(':');
-  if (!ivBase64 || !contentBase64) throw new Error('Invalid encrypted format');
-  
-  const key = await getCryptoKey(secret);
-  const iv = Uint8Array.from(atob(ivBase64), c => c.charCodeAt(0));
-  const encrypted = Uint8Array.from(atob(contentBase64), c => c.charCodeAt(0));
-  
-  const decrypted = await crypto.subtle.decrypt(
-    { name: "AES-GCM", iv },
-    key,
-    encrypted
-  );
-  
-  return new TextDecoder().decode(decrypted);
+  const fromB64 = (s: string) => Uint8Array.from(atob(s), c => c.charCodeAt(0));
+
+  if (encryptedStr.startsWith('v2:')) {
+    // 신규 포맷: v2:salt:iv:cipher
+    const parts = encryptedStr.slice(3).split(':');
+    if (parts.length !== 3) throw new Error('Invalid v2 encrypted format');
+    const [saltB64, ivB64, cipherB64] = parts;
+    const key = await getCryptoKey(secret, fromB64(saltB64));
+    const decrypted = await crypto.subtle.decrypt(
+      { name: "AES-GCM", iv: fromB64(ivB64) },
+      key,
+      fromB64(cipherB64)
+    );
+    return new TextDecoder().decode(decrypted);
+  } else {
+    // 레거시 포맷: iv:cipher (고정 솔트 "caldav-salt" 하위호환)
+    const [ivB64, cipherB64] = encryptedStr.split(':');
+    if (!ivB64 || !cipherB64) throw new Error('Invalid encrypted format');
+    const legacySalt = new TextEncoder().encode("caldav-salt");
+    const key = await getCryptoKey(secret, legacySalt);
+    const decrypted = await crypto.subtle.decrypt(
+      { name: "AES-GCM", iv: fromB64(ivB64) },
+      key,
+      fromB64(cipherB64)
+    );
+    return new TextDecoder().decode(decrypted);
+  }
 }
 
 // 리다이렉트 처리용 Fetch 래퍼 (Authorization 헤더 유지)
@@ -134,9 +141,14 @@ interface Event {
 }
 
 Deno.serve(async (req) => {
-  // CORS 헤더 설정
+  // CORS: 환경변수 ALLOWED_ORIGIN으로 허용 오리진 제한 (미설정 시 개발 편의상 * 허용)
+  const allowedOrigin = Deno.env.get('ALLOWED_ORIGIN') || '*';
+  const requestOrigin = req.headers.get('origin') || '';
+  const corsOrigin = allowedOrigin === '*' ? '*'
+    : (requestOrigin === allowedOrigin ? requestOrigin : allowedOrigin);
+
   const corsHeaders = {
-    'Access-Control-Allow-Origin': '*',
+    'Access-Control-Allow-Origin': corsOrigin,
     'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
     'Access-Control-Allow-Methods': 'POST, OPTIONS',
   };
@@ -233,9 +245,9 @@ Deno.serve(async (req) => {
          // 만약 암호화되지 않은 구형 데이터라면 그대로 사용 (호환성)
          if (settings.password && settings.password.includes(':')) {
             try {
-              const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') || 'fallback-secret-key';
+              const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
+              if (!serviceRoleKey) throw new Error('SUPABASE_SERVICE_ROLE_KEY 환경변수가 설정되지 않았습니다.');
               password = await decryptPassword(settings.password, serviceRoleKey);
-              console.log(`[DEBUG] 복호화 완료: 길이=${password ? password.length : 0}`);
             } catch (e) {
               console.warn('복호화 실패, 평문으로 시도:', e);
               password = settings.password;
@@ -246,10 +258,28 @@ Deno.serve(async (req) => {
        }
     }
 
+    // SSRF 방어: serverUrl이 내부 네트워크를 가리키지 않는지 검증
+    if (serverUrl) {
+      const urlCheck = validateCalDAVUrl(serverUrl);
+      if (!urlCheck.valid) {
+        return new Response(
+          JSON.stringify({ error: `허용되지 않는 서버 URL: ${urlCheck.reason}` }),
+          { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        );
+      }
+    }
+
     if (action === 'saveSettings') {
         const { serverUrl, username, password } = requestData;
         if (!serverUrl || !username || !password) {
             return new Response(JSON.stringify({ error: 'Missing fields' }), { status: 400, headers: corsHeaders });
+        }
+        const saveUrlCheck = validateCalDAVUrl(serverUrl);
+        if (!saveUrlCheck.valid) {
+            return new Response(
+              JSON.stringify({ error: `허용되지 않는 서버 URL: ${saveUrlCheck.reason}` }),
+              { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+            );
         }
         
         const supabaseClient = createClient(
@@ -259,7 +289,8 @@ Deno.serve(async (req) => {
         );
         
         // 비밀번호 암호화
-        const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') || 'fallback-secret-key';
+        const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
+        if (!serviceRoleKey) throw new Error('SUPABASE_SERVICE_ROLE_KEY 환경변수가 설정되지 않았습니다.');
         const encryptedPassword = await encryptPassword(password, serviceRoleKey);
         
         const { data: authUser } = await supabaseClient.auth.getUser(token);
@@ -457,7 +488,7 @@ Deno.serve(async (req) => {
 <propertyupdate xmlns="DAV:">
   <set>
     <prop>
-      <displayname>${requestData.newCalendarName}</displayname>
+      <displayname>${escapeXml(requestData.newCalendarName)}</displayname>
     </prop>
   </set>
 </propertyupdate>`;
@@ -497,15 +528,14 @@ Deno.serve(async (req) => {
       }
     );
   } catch (error: any) {
+    // 내부 상세 정보는 서버 로그에만 기록
     console.error('CalDAV 프록시 오류:', error);
     console.error('오류 스택:', error.stack);
-    console.error('오류 타입:', typeof error);
-    console.error('오류 메시지:', error.message);
     
+    // 클라이언트에는 일반화된 메시지만 반환 (스택/내부경로 노출 금지)
+    const isKnownError = typeof error.message === 'string' && error.message.length < 300;
     const errorResponse = {
-      error: error.message || 'CalDAV 요청 처리 중 오류가 발생했습니다.',
-      details: error.toString(),
-      ...(error.stack && { stack: error.stack })
+      error: isKnownError ? error.message : 'CalDAV 요청 처리 중 오류가 발생했습니다.',
     };
     
     return new Response(
@@ -1600,6 +1630,46 @@ async function createCalendarOnServer(
     console.error('MKCALENDAR 실패:', response.status, errorText.substring(0, 500));
     throw new Error(`캘린더 생성 실패: HTTP ${response.status}`);
   }
+}
+
+// SSRF 방어: 사용자 제공 URL이 내부 네트워크/사설 IP를 가리키는지 검증
+function validateCalDAVUrl(url: string): { valid: boolean; reason?: string } {
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
+    return { valid: false, reason: '유효하지 않은 URL 형식입니다.' };
+  }
+
+  // HTTPS/HTTP만 허용 (file://, ftp:// 등 차단)
+  if (!['https:', 'http:'].includes(parsed.protocol)) {
+    return { valid: false, reason: 'https 또는 http URL만 허용됩니다.' };
+  }
+
+  const hostname = parsed.hostname.toLowerCase();
+
+  // 루프백
+  if (hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '::1') {
+    return { valid: false, reason: '내부 호스트 접근은 허용되지 않습니다.' };
+  }
+
+  // 사설 IP 대역 (RFC1918 + 링크로컬 + 메타데이터 서버)
+  const privateRanges = [
+    /^10\./,
+    /^172\.(1[6-9]|2\d|3[01])\./,
+    /^192\.168\./,
+    /^169\.254\./,   // AWS/GCP 메타데이터 서버
+    /^100\.64\./,    // CGNAT
+    /^fc[0-9a-f]{2}:/i, // IPv6 사설
+    /^fe80:/i,       // IPv6 링크로컬
+  ];
+  for (const range of privateRanges) {
+    if (range.test(hostname)) {
+      return { valid: false, reason: '사설 IP 대역 접근은 허용되지 않습니다.' };
+    }
+  }
+
+  return { valid: true };
 }
 
 // XML 특수문자 이스케이프

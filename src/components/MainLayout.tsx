@@ -131,11 +131,16 @@ export const MainLayout = ({
       return;
     }
 
-    // 2. Filter Calendars
-    const caldavCalendars = calendarMetadata.filter(c =>
-      c.url.startsWith('http') && // Valid CalDAV URL must start with http/https
-      !c.url.startsWith('local-') && !c.isSubscription && c.type !== 'subscription' && !c.url?.endsWith('.ics')
+    // 2. Filter Calendars — selectedCalendarUrls에 있는 것만 동기화
+    // (사용자가 명시적으로 선택한 캘린더만, 이전에 동기화했다가 해제된 캘린더 제외)
+    const selectedUrlSet = new Set(
+      (settings.selectedCalendarUrls || []).map((u: string) => u.replace(/\/+$/, ''))
     );
+    const caldavCalendars = calendarMetadata.filter(c => {
+      if (!c.url.startsWith('http') || c.url.startsWith('local-') || c.isSubscription || c.type === 'subscription' || c.url?.endsWith('.ics')) return false;
+      const norm = c.url.replace(/\/+$/, '');
+      return selectedUrlSet.size === 0 || selectedUrlSet.has(norm);
+    });
     if (caldavCalendars.length === 0) return;
 
     if (isManual) {
@@ -1203,39 +1208,27 @@ export const MainLayout = ({
     setCalDeleteState(null);
 
     if (isUnsync) {
-      // 동기화 해제: CalDAV 캘린더 → 로컬 캘린더로 전환 (삭제 아님)
-      // convertCalDAVToLocal이 새 로컬 URL을 반환
-      const newLocalUrl = convertCalDAVToLocal(url);
-
-      // 해당 캘린더의 이벤트 calendar_url을 새 로컬 URL로 일괄 업데이트
+      // 동기화 해제: 캘린더 메타데이터 + 연결된 이벤트 모두 삭제
+      deleteCalendar(url);
       (async () => {
         try {
-          const { error } = await supabase
-            .from('events')
-            .update({ calendar_url: newLocalUrl })
-            .eq('calendar_url', url);
-          if (error) console.error('Failed to re-link events after unsync:', error);
-          // 정규화된 URL로도 시도 (iCloud URL은 trailing slash 등 차이가 있을 수 있음)
+          await supabase.from('events').delete().eq('calendar_url', url);
           const normUrl = normalizeCalendarUrl(url);
           if (normUrl && normUrl !== url) {
-            await supabase
-              .from('events')
-              .update({ calendar_url: newLocalUrl })
-              .eq('calendar_url', normUrl);
+            await supabase.from('events').delete().eq('calendar_url', normUrl);
           }
           loadData(true);
         } catch (e) {
-          console.error('Unsync event re-link error:', e);
+          console.error('Unsync cleanup error:', e);
         }
       })();
-
-      setToast({ message: '동기화가 해제되었습니다. 캘린더는 Riff에 유지됩니다.', type: 'success' });
+      setToast({ message: '동기화가 해제되었습니다.', type: 'success' });
       return;
     }
 
     const deleteFromServer = isCalDAV && calDeleteOption === 'remote';
     await executeDeleteCalendar(url, deleteFromServer);
-  }, [calDeleteState, calDeleteOption, convertCalDAVToLocal, loadData]);
+  }, [calDeleteState, calDeleteOption, deleteCalendar, loadData]);
 
   const executeDeleteCalendar = async (url: string, deleteFromServer: boolean) => {
     if (deleteFromServer) {
@@ -1711,7 +1704,7 @@ export const MainLayout = ({
         title={calDeleteState?.isUnsync ? "동기화 해제" : "캘린더 삭제"}
         message={
           calDeleteState?.isUnsync
-            ? "동기화를 끊습니다. 하지만 iCloud의 기존 일정은 그대로 남아 있습니다."
+            ? `'${calDeleteState?.name}' 동기화를 해제합니다. Riff에 저장된 해당 캘린더의 일정도 모두 삭제됩니다.`
             : (calDeleteState?.isCalDAV ? undefined : `'${calDeleteState?.name}'를 삭제하시겠습니까?`)
         }
         confirmText="확인"

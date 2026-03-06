@@ -155,14 +155,11 @@ export const getUserAvatar = async (): Promise<string | null> => {
   return data?.avatar_url || null;
 };
 
-// Google Refresh Token
+// Google Refresh Token — Edge Function을 통해 서버에서 암호화 후 저장
 export const saveGoogleRefreshToken = async (refreshToken: string): Promise<boolean> => {
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return false;
-
-  const { error } = await supabase
-    .from('user_tokens')
-    .upsert({ user_id: user.id, provider_refresh_token: refreshToken, updated_at: new Date().toISOString() });
+  const { error } = await supabase.functions.invoke('refresh-google-token', {
+    body: { action: 'save', refreshToken },
+  });
 
   if (error) {
     console.error('Error saving Google refresh token:', error);
@@ -276,25 +273,7 @@ export const deleteCalendarMetadataFromDB = async (url: string): Promise<boolean
   return true;
 };
 
-const META_ID = '======VIVIDLY_META======';
-
-function serializeMemo(memo: string | undefined, meta: Record<string, any>): string {
-  const cleanMemo = memo ? memo.split(META_ID)[0].trimEnd() : '';
-  if (!meta || Object.keys(meta).length === 0) return cleanMemo;
-  return `${cleanMemo}\n${META_ID}\n${JSON.stringify(meta)}`;
-}
-
-function parseMemo(originalMemo: string | undefined): { memo: string | undefined; meta: Record<string, any> } {
-  if (!originalMemo) return { memo: undefined, meta: {} };
-  const parts = originalMemo.split(META_ID);
-  if (parts.length < 2) return { memo: originalMemo, meta: {} };
-  try {
-    const meta = JSON.parse(parts[1].trim());
-    return { memo: parts[0].trimEnd() || undefined, meta };
-  } catch {
-    return { memo: originalMemo, meta: {} };
-  }
-}
+import { META_ID, serializeMemo, parseMemo } from './memoUtils';
 
 // Events
 export const fetchEvents = async (startDate?: string, endDate?: string) => {
@@ -429,7 +408,7 @@ export const upsertEvent = async (event: Omit<Event, 'id'> & { uid?: string; cal
 
   const { data, error } = await supabase
     .from('events')
-    .upsert(payload, { onConflict: 'caldav_uid,calendar_url' })
+    .upsert(payload, { onConflict: 'user_id,caldav_uid,calendar_url' })
     .select()
     .single();
 
@@ -769,6 +748,21 @@ export const deleteEvent = async (id: string) => {
 
   if (error) {
     console.error('Error deleting event:', error);
+    return false;
+  }
+  return true;
+};
+
+export const deleteEventByCaldavUid = async (caldavUid: string, calendarUrl: string) => {
+  const normalizedUrl = normalizeCalendarUrl(calendarUrl) || calendarUrl;
+  const { error } = await supabase
+    .from('events')
+    .delete()
+    .eq('caldav_uid', caldavUid)
+    .eq('calendar_url', normalizedUrl);
+
+  if (error) {
+    console.error('Error deleting event by caldav_uid:', error);
     return false;
   }
   return true;

@@ -20,43 +20,57 @@ export const useCalendarMetadata = () => {
     const metaMap = getCalendarMetadata();
     const localList = Object.values(metaMap);
 
-    // 기본 로컬 캘린더 없으면 추가
-    const localExists = localList.some(c => c.url === 'local');
-    if (!localExists) {
-      const defaultCal: CalendarMetadata = {
-        url: 'local',
-        displayName: '미팅',
-        color: '#3b82f6',
-        isVisible: true,
-        isLocal: true,
-        type: 'local',
-      };
-      localList.push(defaultCal);
-      saveLocalCalendarMetadata(localList);
-    }
+    // 사용자 ID 기반 기본 캘린더 초기화 여부 확인
+    // 이 플래그는 USER_SCOPED_LS_KEYS에 포함되지 않으므로 로그아웃 후에도 유지됨
+    // → 사용자가 한 번 기본 캘린더를 삭제하면 재로그인 시 다시 생기지 않음
+    const currentUserId = localStorage.getItem('riff_current_user_id');
+    const defaultsKey = currentUserId ? `riff_defaults_init_${currentUserId}` : null;
+    const defaultsAlreadyDone = defaultsKey ? localStorage.getItem(defaultsKey) === '1' : false;
 
-    // 기본 공휴일 구독 캘린더 없으면 추가
-    const KOREA_HOLIDAYS_URL = 'https://calendars.apple.com/subscriptions/holidays/ko_KR.ics';
-    const holidayExists = localList.some(c =>
-      c.url === KOREA_HOLIDAYS_URL ||
-      c.subscriptionUrl === KOREA_HOLIDAYS_URL ||
-      c.url.includes('ko_KR') ||
-      c.url.includes('holidays')
-    );
-    if (!holidayExists) {
-      const holidayCal: CalendarMetadata = {
-        url: KOREA_HOLIDAYS_URL,
-        displayName: '대한민국 공휴일',
-        color: '#ff3b30',
-        isVisible: true,
-        isLocal: false,
-        isSubscription: true,
-        type: 'subscription',
-        subscriptionUrl: KOREA_HOLIDAYS_URL,
-        readOnly: true,
-      };
-      localList.push(holidayCal);
-      saveCalendarMetadata(localList.filter(c => !c.isLocal));
+    if (!defaultsAlreadyDone) {
+      // 기본 로컬 캘린더 없으면 추가
+      const localExists = localList.some(c => c.url === 'local');
+      if (!localExists) {
+        const defaultCal: CalendarMetadata = {
+          url: 'local',
+          displayName: '미팅',
+          color: '#3b82f6',
+          isVisible: true,
+          isLocal: true,
+          type: 'local',
+        };
+        localList.push(defaultCal);
+        saveLocalCalendarMetadata(localList);
+      }
+
+      // 기본 공휴일 구독 캘린더 없으면 추가
+      const KOREA_HOLIDAYS_URL = 'https://calendars.apple.com/subscriptions/holidays/ko_KR.ics';
+      const holidayExists = localList.some(c =>
+        c.url === KOREA_HOLIDAYS_URL ||
+        c.subscriptionUrl === KOREA_HOLIDAYS_URL ||
+        c.url.includes('ko_KR') ||
+        c.url.includes('holidays')
+      );
+      if (!holidayExists) {
+        const holidayCal: CalendarMetadata = {
+          url: KOREA_HOLIDAYS_URL,
+          displayName: '대한민국 공휴일',
+          color: '#ff3b30',
+          isVisible: true,
+          isLocal: false,
+          isSubscription: true,
+          type: 'subscription',
+          subscriptionUrl: KOREA_HOLIDAYS_URL,
+          readOnly: true,
+        };
+        localList.push(holidayCal);
+        saveCalendarMetadata(localList.filter(c => !c.isLocal));
+      }
+
+      // 초기화 완료 마킹 (사용자별, 로그아웃 후에도 유지)
+      if (defaultsKey) {
+        localStorage.setItem(defaultsKey, '1');
+      }
     }
 
     setCalendarMetadata(localList);
@@ -247,10 +261,9 @@ export const useCalendarMetadata = () => {
       return acc;
     }, [] as CalendarMetadata[]);
 
-    if (hasChanges) {
-      persistAll(updatedList);
-      setCalendarMetadata(updatedList);
-    }
+    // 항상 상태와 DB를 업데이트 (새로 추가된 CalDAV 캘린더도 반영되도록)
+    persistAll(updatedList);
+    setCalendarMetadata(updatedList);
 
     return urlRemap;
   }, [persistAll]);
