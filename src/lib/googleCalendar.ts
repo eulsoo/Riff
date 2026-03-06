@@ -65,31 +65,82 @@ export const clearGoogleSyncToken = (calendarId: string) => {
 // Auth
 // ─────────────────────────────────────────────────────────────
 
+// 메모리 캐시: Edge Function에서 받은 access_token과 만료 시각 저장
+let cachedToken: string | null = null;
+let cachedTokenExpiry: number = 0;
+let edgeFunctionFailed = false; // 한 번 실패하면 주기 동안 재시도 안 함
+let edgeFunctionRetryAt: number = 0;
+
+/** 캐시된 토큰을 초기화 (로그아웃 등에서 사용) */
+export const clearCachedGoogleToken = () => {
+  cachedToken = null;
+  cachedTokenExpiry = 0;
+  edgeFunctionFailed = false;
+  edgeFunctionRetryAt = 0;
+};
+
 /**
  * Returns the Google OAuth access_token from the current Supabase session.
- * Only available when the user logged in with Google provider.
+ * - 세션에 provider_token이 있으면 그것을 사용
+ * - 없으면 Edge Function으로 갱신 시도 (55분 캐시)
+ * - Edge Function 실패 시 10분 동안 재시도 안 함
  */
 export const getGoogleProviderToken = async (): Promise<string | null> => {
   const { data: { session } } = await supabase.auth.getSession();
-  let token = session?.provider_token ?? null;
+  const sessionToken = session?.provider_token ?? null;
 
-  // token is null if provider_token expired/removed during standard Supabase session refresh
-  if (!token) {
-    try {
-      const { data, error } = await supabase.functions.invoke('refresh-google-token', {
-        method: 'POST',
-      });
-
-      if (!error && data?.access_token) {
-        token = data.access_token as string;
-      }
-    } catch (e) {
-      console.error('Failed to refresh Google provider token via edge function', e);
-    }
+  // 세션에 토큰이 살아있으면 바로 반환
+  if (sessionToken) {
+    cachedToken = null; // 세션 토큰이 살아있으면 캐시 초기화
+    cachedTokenExpiry = 0;
+    return sessionToken;
   }
 
-  return token;
+  // 메모리 캐시에 유효한 토큰이 있으면 재사용 (Edge Function 호출 최소화)
+  const now = Date.now();
+  if (cachedToken && cachedTokenExpiry > now) {
+    return cachedToken;
+  }
+
+  // Edge Function 최근 실패 시 10분간 재시도 안 함 (401 루프 방지)
+  if (edgeFunctionFailed && edgeFunctionRetryAt > now) {
+    return null;
+  }
+
+  // Google 계정이 아니면 Edge Function 호출 자체를 생략
+  const isGoogle = session?.user?.app_metadata?.providers?.includes('google') ||
+    session?.user?.app_metadata?.provider === 'google';
+  if (!isGoogle) {
+    return null;
+  }
+
+  // Edge Function으로 토큰 갱신 시도
+  try {
+    const { data, error } = await supabase.functions.invoke('refresh-google-token', {
+      method: 'POST',
+    });
+
+    if (!error && data?.access_token) {
+      cachedToken = data.access_token as string;
+      // expires_in(초)가 있으면 그 시간 기준, 없으면 55분 캐시
+      const expiresIn = (data.expires_in as number | undefined) ?? 3300;
+      cachedTokenExpiry = now + (expiresIn - 60) * 1000; // 1분 여유
+      edgeFunctionFailed = false;
+      return cachedToken;
+    } else {
+      // Edge Function 호출은 성공했지만 토큰 없음 (refresh_token 없거나 만료)
+      edgeFunctionFailed = true;
+      edgeFunctionRetryAt = now + 10 * 60 * 1000; // 10분 후 재시도
+      return null;
+    }
+  } catch (e) {
+    console.error('Failed to refresh Google provider token via edge function', e);
+    edgeFunctionFailed = true;
+    edgeFunctionRetryAt = now + 10 * 60 * 1000;
+    return null;
+  }
 };
+
 
 /**
  * Returns true if the current user logged in through Google OAuth.

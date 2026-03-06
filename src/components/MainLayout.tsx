@@ -14,6 +14,7 @@ import { WeekOrder, Event, DiaryEntry, Todo } from '../types';
 import { normalizeCalendarUrl, CalendarMetadata, upsertDiaryEntry, getUserAvatar, getCalDAVSyncSettings } from '../services/api';
 import { createCalDavEvent, updateCalDavEvent, deleteCalDavEvent, syncSelectedCalendars, CalDAVConfig, createRemoteCalendar, deleteRemoteCalendar, renameRemoteCalendar, getCalendars } from '../services/caldav';
 import { getWeekStartForDate, getTodoWeekStart, formatLocalDate } from '../utils/dateUtils';
+import { clearCachedGoogleToken } from '../lib/googleCalendar';
 import { HistoryAction } from '../hooks/useUndoRedo';
 import { ModalPosition } from './EventModal';
 import { EmotionModal } from './EmotionModal';
@@ -419,6 +420,7 @@ export const MainLayout = ({
   }, []);
 
   const handleLogout = useCallback(() => {
+    clearCachedGoogleToken();
     supabase.auth.signOut();
   }, []);
 
@@ -430,14 +432,25 @@ export const MainLayout = ({
   // --- Data Processing (Weeks, Events By Week) ---
   // --- Data Processing (Weeks, Events By Week) ---
   const filteredEvents = useMemo(() => {
+    // 메타데이터에 등록된 캘린더 URL 집합 (DB 로딩 완료 후 채워짐)
+    const knownUrls = new Set(calendarMetadata.map(c => normalizeCalendarUrl(c.url) || c.url));
+
     const list = events.filter(e => {
       if (selectedEvent && e.id === selectedEvent.id) return true;
 
       // Handle local events (no calendarUrl)
       if (!e.calendarUrl) return true;
 
-      // Check visibility
-      return visibleCalendarUrlSet.has(normalizeCalendarUrl(e.calendarUrl!) || '');
+      const normalizedUrl = normalizeCalendarUrl(e.calendarUrl!) || '';
+
+      // 등록된 캘린더: 가시성 설정에 따라 필터링
+      if (knownUrls.has(normalizedUrl)) {
+        return visibleCalendarUrlSet.has(normalizedUrl);
+      }
+
+      // 미등록 캘린더 (DB 메타데이터 아직 로딩 중이거나 Google 캘린더 등):
+      // 명시적으로 숨긴 경우만 제외, 나머지는 기본 표시
+      return !hiddenCalendarUrls.has(normalizedUrl);
     }).map(e => {
       // 캘린더 메타데이터의 색상을 이벤트에 실시간 반영
       // (구독 캘린더 뿐 아니라 iCloud/로컬 캘린더 색상 변경도 즉시 적용)
@@ -467,7 +480,8 @@ export const MainLayout = ({
       return [...list, temp];
     }
     return list;
-  }, [events, visibleCalendarUrlSet, selectedEvent, draftEvent, calendarMetadata]);
+  }, [events, visibleCalendarUrlSet, selectedEvent, draftEvent, calendarMetadata, hiddenCalendarUrls]);
+
 
 
   // Use Memo for map creation
