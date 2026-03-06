@@ -46,7 +46,8 @@ async function decryptToken(encryptedStr: string, secret: string): Promise<strin
 const getAllowedOrigin = (requestOrigin: string): string => {
   const allowedOrigin = Deno.env.get('ALLOWED_ORIGIN') || '*';
   if (allowedOrigin === '*') return '*';
-  return requestOrigin === allowedOrigin ? requestOrigin : allowedOrigin;
+  // 불일치 오리진에는 빈 문자열 반환 → 브라우저가 CORS 차단
+  return requestOrigin === allowedOrigin ? requestOrigin : '';
 };
 
 const buildCorsHeaders = (origin: string) => ({

@@ -42,8 +42,9 @@ export function Login() {
     });
 
     if (error) {
+      // 내부 오류 메시지는 콘솔에만 기록, 사용자에게는 일반화된 메시지 표시
       console.error('Error logging in:', error.message);
-      alert('로그인 중 오류가 발생했습니다: ' + error.message);
+      alert('로그인 중 오류가 발생했습니다. 잠시 후 다시 시도해주세요.');
     }
   };
 

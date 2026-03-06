@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { Session } from '@supabase/supabase-js';
 import { supabase } from './lib/supabase';
 import { saveGoogleRefreshToken } from './services/api';
+import { clearCachedGoogleToken } from './lib/googleCalendar';
 import { Login } from './components/Login';
 import { MainLayout } from './components/MainLayout';
 import { DataProvider } from './contexts/DataContext';
@@ -44,6 +45,13 @@ export default function App() {
       // 다른 사용자가 로그인 → 이전 사용자의 캐시 데이터 초기화
       console.log(`[Auth] 사용자 변경 감지 (${storedUserId} → ${newUserId}). localStorage 초기화.`);
       USER_SCOPED_LS_KEYS.forEach(key => localStorage.removeItem(key));
+      localStorage.removeItem('last_login_provider');
+      // diaryCache:날짜 패턴 키 일괄 삭제 (패턴 키라 USER_SCOPED_LS_KEYS에 포함 불가)
+      Object.keys(localStorage).forEach(key => {
+        if (key.startsWith('diaryCache:')) localStorage.removeItem(key);
+      });
+      // 이전 사용자의 메모리 캐시 Google 토큰 초기화
+      clearCachedGoogleToken();
     }
     localStorage.setItem('riff_current_user_id', newUserId);
   };
@@ -78,6 +86,13 @@ export default function App() {
         console.log('[Auth] 로그아웃 감지. 사용자 캐시 데이터 초기화.');
         USER_SCOPED_LS_KEYS.forEach(key => localStorage.removeItem(key));
         localStorage.removeItem('riff_current_user_id');
+        localStorage.removeItem('last_login_provider');
+        // diaryCache:날짜 패턴 키 일괄 삭제
+        Object.keys(localStorage).forEach(key => {
+          if (key.startsWith('diaryCache:')) localStorage.removeItem(key);
+        });
+        // 메모리에 캐싱된 Google access token 즉시 초기화
+        clearCachedGoogleToken();
         setSession(null);
       }
       // For other events with null session (e.g., failed refresh),

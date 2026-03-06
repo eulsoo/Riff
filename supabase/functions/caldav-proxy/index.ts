@@ -142,10 +142,11 @@ interface Event {
 
 Deno.serve(async (req) => {
   // CORS: 환경변수 ALLOWED_ORIGIN으로 허용 오리진 제한 (미설정 시 개발 편의상 * 허용)
+  // 불일치 오리진에는 빈 문자열 반환 → 브라우저가 CORS 차단
   const allowedOrigin = Deno.env.get('ALLOWED_ORIGIN') || '*';
   const requestOrigin = req.headers.get('origin') || '';
   const corsOrigin = allowedOrigin === '*' ? '*'
-    : (requestOrigin === allowedOrigin ? requestOrigin : allowedOrigin);
+    : (requestOrigin === allowedOrigin ? requestOrigin : '');
 
   const corsHeaders = {
     'Access-Control-Allow-Origin': corsOrigin,

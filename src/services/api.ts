@@ -768,6 +768,65 @@ export const deleteEventByCaldavUid = async (caldavUid: string, calendarUrl: str
   return true;
 };
 
+// Google sync용 bulk upsert — 개별 await N회 → 단일 DB 왕복
+export const bulkUpsertGoogleEvents = async (
+  events: Array<Omit<Event, 'id'> & { calendarUrl: string; source: 'google'; caldavUid?: string; etag?: string }>
+): Promise<boolean> => {
+  if (events.length === 0) return true;
+
+  const { data: userData } = await supabase.auth.getUser();
+  if (!userData.user) return false;
+
+  const payloads = events.map(event => {
+    const { startTime, endTime, calendarUrl, caldavUid, etag, endDate, ...rest } = event as any;
+    const payload: any = {
+      ...rest,
+      start_time: startTime,
+      end_time: endTime,
+      memo: serializeMemo(rest.memo, endDate ? { endDate } : {}),
+      source: 'google',
+      user_id: userData.user!.id,
+      calendar_url: normalizeCalendarUrl(calendarUrl) || calendarUrl,
+    };
+    delete payload.caldavUid;
+    delete payload.endDate;
+    if (caldavUid) payload.caldav_uid = caldavUid;
+    if (etag) payload.etag = etag;
+    return payload;
+  });
+
+  const { error } = await supabase
+    .from('events')
+    .upsert(payloads, { onConflict: 'user_id,caldav_uid,calendar_url' });
+
+  if (error) {
+    console.error('Error bulk upserting Google events:', error);
+    return false;
+  }
+  return true;
+};
+
+// Google sync용 bulk delete — 취소된 이벤트를 단일 쿼리로 일괄 삭제
+export const bulkDeleteEventsByCaldavUids = async (
+  caldavUids: string[],
+  calendarUrl: string
+): Promise<boolean> => {
+  if (caldavUids.length === 0) return true;
+
+  const normalizedUrl = normalizeCalendarUrl(calendarUrl) || calendarUrl;
+  const { error } = await supabase
+    .from('events')
+    .delete()
+    .in('caldav_uid', caldavUids)
+    .eq('calendar_url', normalizedUrl);
+
+  if (error) {
+    console.error('Error bulk deleting events by caldav_uid:', error);
+    return false;
+  }
+  return true;
+};
+
 export const updateEvent = async (id: string, updates: Partial<{
   title: string;
   memo?: string;
