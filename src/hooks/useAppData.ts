@@ -174,6 +174,7 @@ export const useAppData = (
         fetchTodos(),
         fetchDiaryEntriesByRange(startDate, endDate),
       ]);
+
       
       // 서버 데이터와 로컬 상태 병합
       // - 서버에서 가져온 범위 내 이벤트: 서버 데이터 사용

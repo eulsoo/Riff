@@ -87,13 +87,20 @@ export const clearCachedGoogleToken = () => {
  */
 export const getGoogleProviderToken = async (): Promise<string | null> => {
   const { data: { session } } = await supabase.auth.getSession();
-  const sessionToken = session?.provider_token ?? null;
 
-  // 세션에 토큰이 살아있으면 바로 반환
-  if (sessionToken) {
-    cachedToken = null; // 세션 토큰이 살아있으면 캐시 초기화
+  // Google 계정이 전혀 없는 유저 (예: 카카오 전용)는 즉시 반환
+  const hasGoogleProvider =
+    session?.user?.app_metadata?.providers?.includes('google') ||
+    session?.user?.app_metadata?.provider === 'google';
+  if (!hasGoogleProvider) return null;
+
+  // 현재 세션이 Google OAuth로 로그인된 경우에만 provider_token을 Google 토큰으로 사용
+  // (카카오로 로그인했을 때 provider_token은 카카오 토큰이므로 사용하면 안 됨)
+  const isCurrentlyGoogleSession = session?.user?.app_metadata?.provider === 'google';
+  if (isCurrentlyGoogleSession && session?.provider_token) {
+    cachedToken = null;
     cachedTokenExpiry = 0;
-    return sessionToken;
+    return session.provider_token;
   }
 
   // 메모리 캐시에 유효한 토큰이 있으면 재사용 (Edge Function 호출 최소화)
@@ -107,14 +114,7 @@ export const getGoogleProviderToken = async (): Promise<string | null> => {
     return null;
   }
 
-  // Google 계정이 아니면 Edge Function 호출 자체를 생략
-  const isGoogle = session?.user?.app_metadata?.providers?.includes('google') ||
-    session?.user?.app_metadata?.provider === 'google';
-  if (!isGoogle) {
-    return null;
-  }
-
-  // Edge Function으로 토큰 갱신 시도
+  // Edge Function으로 토큰 갱신 시도 (카카오+구글 연동 계정, 또는 세션 만료)
   try {
     const { data, error } = await supabase.functions.invoke('refresh-google-token', {
       method: 'POST',
@@ -122,15 +122,13 @@ export const getGoogleProviderToken = async (): Promise<string | null> => {
 
     if (!error && data?.access_token) {
       cachedToken = data.access_token as string;
-      // expires_in(초)가 있으면 그 시간 기준, 없으면 55분 캐시
       const expiresIn = (data.expires_in as number | undefined) ?? 3300;
-      cachedTokenExpiry = now + (expiresIn - 60) * 1000; // 1분 여유
+      cachedTokenExpiry = now + (expiresIn - 60) * 1000;
       edgeFunctionFailed = false;
       return cachedToken;
     } else {
-      // Edge Function 호출은 성공했지만 토큰 없음 (refresh_token 없거나 만료)
       edgeFunctionFailed = true;
-      edgeFunctionRetryAt = now + 10 * 60 * 1000; // 10분 후 재시도
+      edgeFunctionRetryAt = now + 10 * 60 * 1000;
       return null;
     }
   } catch (e) {
@@ -140,6 +138,7 @@ export const getGoogleProviderToken = async (): Promise<string | null> => {
     return null;
   }
 };
+
 
 
 /**
