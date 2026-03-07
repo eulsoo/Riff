@@ -77,8 +77,10 @@ export default function App() {
           clearOtherUserLocalStorage(session.user.id);
         }
         setSession(session);
-        if (_event === 'SIGNED_IN' && session.provider_token && session.provider_refresh_token) {
-          // access_token을 직접 전달 — 클라이언트 내부 세션 업데이트 타이밍 문제 방지
+        // provider_refresh_token은 실제 OAuth 로그인 시에만 존재함
+        // (페이지 새로고침으로 세션이 복원될 때는 undefined)
+        // → 진짜 신규 Google 로그인 시에만 저장 실행
+        if (_event === 'SIGNED_IN' && session.provider_refresh_token) {
           saveGoogleRefreshToken(session.provider_refresh_token, session.access_token).catch(console.error);
         }
       } else if (_event === 'SIGNED_OUT') {

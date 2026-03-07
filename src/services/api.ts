@@ -156,16 +156,28 @@ export const getUserAvatar = async (): Promise<string | null> => {
 };
 
 // Google Refresh Token — Edge Function을 통해 서버에서 암호화 후 저장
-// accessToken: SIGNED_IN 이벤트에서 받은 세션 토큰을 직접 전달 (타이밍 문제 방지)
+// 항상 getSession()으로 최신(자동 갱신된) 토큰을 사용하고,
+// 세션이 아직 없는 초기 로그인 타이밍에는 직접 전달된 accessToken을 fallback으로 사용
 export const saveGoogleRefreshToken = async (refreshToken: string, accessToken?: string): Promise<boolean> => {
-  const headers: Record<string, string> = {};
-  if (accessToken) {
-    headers['Authorization'] = `Bearer ${accessToken}`;
+  let token = accessToken;
+
+  try {
+    const { data: { session } } = await supabase.auth.getSession();
+    if (session?.access_token) {
+      token = session.access_token; // 자동 갱신된 최신 토큰 우선 사용
+    }
+  } catch {
+    // getSession 실패 시 직접 전달된 token으로 fallback
+  }
+
+  if (!token) {
+    console.warn('[saveGoogleRefreshToken] 유효한 액세스 토큰 없음, 저장 건너뜀');
+    return false;
   }
 
   const { error } = await supabase.functions.invoke('refresh-google-token', {
     body: { action: 'save', refreshToken },
-    headers,
+    headers: { Authorization: `Bearer ${token}` },
   });
 
   if (error) {
