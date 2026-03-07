@@ -14,64 +14,11 @@ export const useCalendarMetadata = () => {
   const [calendarMetadata, setCalendarMetadata] = useState<CalendarMetadata[]>([]);
   const [visibleCalendarUrlSet, setVisibleCalendarUrlSet] = useState<Set<string>>(new Set());
 
-  // ── 초기 로드: localStorage(즉시) → DB(비동기 병합) ─────────
+  // ── 초기 로드: localStorage(즉시) → DB(비동기 병합 + 기본값 초기화) ─────────
   useEffect(() => {
-    // 1. localStorage에서 즉시 UI 렌더링 (깜빡임 없음)
+    // 1. localStorage에서 즉시 UI 렌더링 (깜빡임 없음, 기본값 추가 없음)
     const metaMap = getCalendarMetadata();
     const localList = Object.values(metaMap);
-
-    // 사용자 ID 기반 기본 캘린더 초기화 여부 확인
-    // 이 플래그는 USER_SCOPED_LS_KEYS에 포함되지 않으므로 로그아웃 후에도 유지됨
-    // → 사용자가 한 번 기본 캘린더를 삭제하면 재로그인 시 다시 생기지 않음
-    const currentUserId = localStorage.getItem('riff_current_user_id');
-    const defaultsKey = currentUserId ? `riff_defaults_init_${currentUserId}` : null;
-    const defaultsAlreadyDone = defaultsKey ? localStorage.getItem(defaultsKey) === '1' : false;
-
-    if (!defaultsAlreadyDone) {
-      // 기본 로컬 캘린더 없으면 추가
-      const localExists = localList.some(c => c.url === 'local');
-      if (!localExists) {
-        const defaultCal: CalendarMetadata = {
-          url: 'local',
-          displayName: '미팅',
-          color: '#3b82f6',
-          isVisible: true,
-          isLocal: true,
-          type: 'local',
-        };
-        localList.push(defaultCal);
-        saveLocalCalendarMetadata(localList);
-      }
-
-      // 기본 공휴일 구독 캘린더 없으면 추가
-      const KOREA_HOLIDAYS_URL = 'https://calendars.apple.com/subscriptions/holidays/ko_KR.ics';
-      const holidayExists = localList.some(c =>
-        c.url === KOREA_HOLIDAYS_URL ||
-        c.subscriptionUrl === KOREA_HOLIDAYS_URL ||
-        c.url.includes('ko_KR') ||
-        c.url.includes('holidays')
-      );
-      if (!holidayExists) {
-        const holidayCal: CalendarMetadata = {
-          url: KOREA_HOLIDAYS_URL,
-          displayName: '대한민국 공휴일',
-          color: '#ff3b30',
-          isVisible: true,
-          isLocal: false,
-          isSubscription: true,
-          type: 'subscription',
-          subscriptionUrl: KOREA_HOLIDAYS_URL,
-          readOnly: true,
-        };
-        localList.push(holidayCal);
-        saveCalendarMetadata(localList.filter(c => !c.isLocal));
-      }
-
-      // 초기화 완료 마킹 (사용자별, 로그아웃 후에도 유지)
-      if (defaultsKey) {
-        localStorage.setItem(defaultsKey, '1');
-      }
-    }
 
     setCalendarMetadata(localList);
 
@@ -84,46 +31,109 @@ export const useCalendarMetadata = () => {
     if (!visible.has('local')) visible.add('local');
     setVisibleCalendarUrlSet(visible);
 
-    // 2. DB에서 비동기로 최신 데이터 가져와서 병합
+    // 2. DB에서 비동기로 최신 데이터 가져온 뒤 기본값 초기화 결정
     // isMounted guard: 언마운트 후 Promise resolve 시 setState 호출 방지
     let isMounted = true;
 
     fetchCalendarMetadataFromDB().then(dbList => {
       if (!isMounted) return;
 
-      if (dbList.length === 0) {
-        // DB에 데이터가 없으면 → localStorage 데이터를 DB로 마이그레이션
-        if (localList.length > 0) {
-          saveCalendarMetadataToDB(localList).catch(console.error);
+      // 기본값 초기화 플래그 — DB 결과를 본 뒤에 판단해야 정확함
+      const currentUserId = localStorage.getItem('riff_current_user_id');
+      const defaultsKey = currentUserId ? `riff_defaults_init_${currentUserId}` : null;
+      const defaultsAlreadyDone = defaultsKey ? localStorage.getItem(defaultsKey) === '1' : false;
+
+      if (dbList.length > 0) {
+        // ── 기존 사용자: DB 데이터가 있음 ──
+        // 플래그가 없으면 설정 (코드 업데이트 이전에 가입한 사용자 포함)
+        if (defaultsKey && !defaultsAlreadyDone) {
+          localStorage.setItem(defaultsKey, '1');
         }
-        return;
+
+        // DB 데이터 기준으로 최종 목록 구성
+        const dbUrlSet = new Set(dbList.map(c => normalizeCalendarUrl(c.url) || c.url));
+        const localOnlyItems = localList.filter(c => {
+          const norm = normalizeCalendarUrl(c.url) || c.url;
+          return !dbUrlSet.has(norm);
+        });
+
+        const merged = [...dbList, ...localOnlyItems];
+        setCalendarMetadata(merged);
+        saveCalendarMetadata(merged.filter(c => !c.isLocal));
+        saveLocalCalendarMetadata(merged);
+
+        const dbVisible = new Set(
+          merged
+            .filter(c => c.isVisible !== false)
+            .map(c => normalizeCalendarUrl(c.url))
+            .filter((url): url is string => !!url)
+        );
+        if (!dbVisible.has('local')) dbVisible.add('local');
+        setVisibleCalendarUrlSet(dbVisible);
+
+      } else {
+        // ── 신규 사용자 또는 DB가 비어있는 경우 ──
+        if (!defaultsAlreadyDone) {
+          // 진짜 신규 사용자: 기본 캘린더 추가 후 DB에 저장
+          const newList = [...localList];
+
+          const localExists = newList.some(c => c.url === 'local');
+          if (!localExists) {
+            newList.push({
+              url: 'local',
+              displayName: '미팅',
+              color: '#3b82f6',
+              isVisible: true,
+              isLocal: true,
+              type: 'local',
+            });
+          }
+
+          const KOREA_HOLIDAYS_URL = 'https://calendars.apple.com/subscriptions/holidays/ko_KR.ics';
+          const holidayExists = newList.some(c =>
+            c.url === KOREA_HOLIDAYS_URL ||
+            c.subscriptionUrl === KOREA_HOLIDAYS_URL ||
+            c.url.includes('ko_KR') ||
+            c.url.includes('holidays')
+          );
+          if (!holidayExists) {
+            newList.push({
+              url: KOREA_HOLIDAYS_URL,
+              displayName: '대한민국 공휴일(Apple)',
+              color: '#ff3b30',
+              isVisible: true,
+              isLocal: false,
+              isSubscription: true,
+              type: 'subscription',
+              subscriptionUrl: KOREA_HOLIDAYS_URL,
+              readOnly: true,
+            });
+          }
+
+          saveCalendarMetadataToDB(newList).catch(console.error);
+          saveCalendarMetadata(newList.filter(c => !c.isLocal));
+          saveLocalCalendarMetadata(newList);
+          setCalendarMetadata(newList);
+
+          const newVisible = new Set(
+            newList
+              .filter(c => c.isVisible !== false)
+              .map(c => normalizeCalendarUrl(c.url))
+              .filter((url): url is string => !!url)
+          );
+          if (!newVisible.has('local')) newVisible.add('local');
+          setVisibleCalendarUrlSet(newVisible);
+
+          if (defaultsKey) localStorage.setItem(defaultsKey, '1');
+
+        } else {
+          // 플래그는 있지만 DB가 비어있음 → 사용자가 직접 전부 삭제한 것
+          // 또는 localStorage에서 DB로 마이그레이션 필요
+          if (localList.length > 0) {
+            saveCalendarMetadataToDB(localList).catch(console.error);
+          }
+        }
       }
-
-      // DB 데이터 기준으로 최종 목록 구성
-      // (DB가 진짜 소스이므로 DB를 우선, localStorage에만 있는 임시 항목은 병합)
-      const dbUrlSet = new Set(dbList.map(c => normalizeCalendarUrl(c.url) || c.url));
-      const localOnlyItems = localList.filter(c => {
-        const norm = normalizeCalendarUrl(c.url) || c.url;
-        return !dbUrlSet.has(norm);
-      });
-
-      const merged = [...dbList, ...localOnlyItems];
-
-      setCalendarMetadata(merged);
-
-      // localStorage 캐시도 DB 데이터로 갱신
-      saveCalendarMetadata(merged.filter(c => !c.isLocal));
-      saveLocalCalendarMetadata(merged);
-
-      // visibleCalendarUrlSet도 DB 기준으로 재계산
-      const dbVisible = new Set(
-        merged
-          .filter(c => c.isVisible !== false)
-          .map(c => normalizeCalendarUrl(c.url))
-          .filter((url): url is string => !!url)
-      );
-      if (!dbVisible.has('local')) dbVisible.add('local');
-      setVisibleCalendarUrlSet(dbVisible);
     }).catch(err => {
       console.warn('[useCalendarMetadata] DB fetch failed, using localStorage:', err);
     });
