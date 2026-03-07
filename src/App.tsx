@@ -77,11 +77,15 @@ export default function App() {
           clearOtherUserLocalStorage(session.user.id);
         }
         setSession(session);
-        // provider_refresh_token은 실제 OAuth 로그인 시에만 존재함
-        // (페이지 새로고침으로 세션이 복원될 때는 undefined)
-        // → 진짜 신규 Google 로그인 시에만 저장 실행
-        if (_event === 'SIGNED_IN' && session.provider_refresh_token) {
-          saveGoogleRefreshToken(session.provider_refresh_token, session.access_token).catch(console.error);
+        // provider_refresh_token은 실제 OAuth 로그인 시에만 Google이 발급
+        // sessionStorage 플래그로 같은 탭 세션 내 중복 저장 방지
+        // (Supabase가 SIGNED_IN을 여러 번 발화하는 경우 대비)
+        if (_event === 'SIGNED_IN' && session.provider_refresh_token && session.user?.id) {
+          const dedupeKey = `grt_saved_${session.user.id}`;
+          if (!sessionStorage.getItem(dedupeKey)) {
+            sessionStorage.setItem(dedupeKey, '1');
+            saveGoogleRefreshToken(session.provider_refresh_token, session.access_token).catch(console.error);
+          }
         }
       } else if (_event === 'SIGNED_OUT') {
         // Only clear session on explicit sign-out

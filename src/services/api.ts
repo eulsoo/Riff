@@ -1,6 +1,8 @@
 
-import { supabase } from '../lib/supabase';
+import { supabase, supabaseAnonKey } from '../lib/supabase';
 import { DiaryEntry, Event, Routine, Todo } from '../types';
+
+const SUPABASE_FUNCTIONS_URL = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1`;
 
 // 캘린더 URL 정규화: 끝의 슬래시 제거
 export const normalizeCalendarUrl = (url?: string | null) =>
@@ -156,18 +158,14 @@ export const getUserAvatar = async (): Promise<string | null> => {
 };
 
 // Google Refresh Token — Edge Function을 통해 서버에서 암호화 후 저장
-// 항상 getSession()으로 최신(자동 갱신된) 토큰을 사용하고,
-// 세션이 아직 없는 초기 로그인 타이밍에는 직접 전달된 accessToken을 fallback으로 사용
+// supabase.functions.invoke 대신 fetch 직접 사용 —
+// SDK가 자신의 세션 헤더로 Authorization을 덮어쓰는 문제 완전 회피
 export const saveGoogleRefreshToken = async (refreshToken: string, accessToken?: string): Promise<boolean> => {
+  // 직접 전달된 토큰 우선, 없으면 현재 세션에서 획득
   let token = accessToken;
-
-  try {
+  if (!token) {
     const { data: { session } } = await supabase.auth.getSession();
-    if (session?.access_token) {
-      token = session.access_token; // 자동 갱신된 최신 토큰 우선 사용
-    }
-  } catch {
-    // getSession 실패 시 직접 전달된 token으로 fallback
+    token = session?.access_token;
   }
 
   if (!token) {
@@ -175,16 +173,27 @@ export const saveGoogleRefreshToken = async (refreshToken: string, accessToken?:
     return false;
   }
 
-  const { error } = await supabase.functions.invoke('refresh-google-token', {
-    body: { action: 'save', refreshToken },
-    headers: { Authorization: `Bearer ${token}` },
-  });
+  try {
+    const resp = await fetch(`${SUPABASE_FUNCTIONS_URL}/refresh-google-token`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`,
+        'apikey': supabaseAnonKey,
+      },
+      body: JSON.stringify({ action: 'save', refreshToken }),
+    });
 
-  if (error) {
-    console.error('Error saving Google refresh token:', error);
+    if (!resp.ok) {
+      const errText = await resp.text().catch(() => '');
+      console.error('Error saving Google refresh token:', resp.status, errText);
+      return false;
+    }
+    return true;
+  } catch (e) {
+    console.error('Error saving Google refresh token:', e);
     return false;
   }
-  return true;
 };
 
 // ─────────────────────────────────────────────────────────────
