@@ -105,7 +105,7 @@ interface CalDAVRequest {
   serverUrl: string;
   username: string;
   password: string;
-  action: 'listCalendars' | 'fetchEvents' | 'getSyncToken' | 'syncCollection' | 'createEvent' | 'updateEvent' | 'deleteEvent' | 'saveSettings' | 'loadSettings' | 'createCalendar' | 'deleteCalendar' | 'renameCalendar';
+  action: 'listCalendars' | 'fetchEvents' | 'getSyncToken' | 'syncCollection' | 'createEvent' | 'updateEvent' | 'deleteEvent' | 'saveSettings' | 'loadSettings' | 'createCalendar' | 'deleteCalendar' | 'renameCalendar' | 'fetchIcs';
   calendarUrl?: string;
   startDate?: string;
   endDate?: string;
@@ -117,6 +117,7 @@ interface CalDAVRequest {
   calendarName?: string;     // For createCalendar
   calendarColor?: string;    // For createCalendar
   newCalendarName?: string;  // For renameCalendar
+  icsUrl?: string;           // For fetchIcs
 }
 
 interface Calendar {
@@ -268,6 +269,37 @@ Deno.serve(async (req) => {
           { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
         );
       }
+    }
+
+    // 공개 ICS URL을 서버 사이드에서 fetch — CORS 프록시 없이도 동작
+    if (action === 'fetchIcs') {
+      const icsUrl = requestData.icsUrl;
+      if (!icsUrl) {
+        return new Response(
+          JSON.stringify({ error: 'icsUrl이 필요합니다.' }),
+          { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        );
+      }
+      const icsUrlCheck = validateCalDAVUrl(icsUrl);
+      if (!icsUrlCheck.valid) {
+        return new Response(
+          JSON.stringify({ error: `허용되지 않는 URL: ${icsUrlCheck.reason}` }),
+          { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        );
+      }
+      const icsResp = await fetch(icsUrl, {
+        headers: { 'User-Agent': 'Riff-Calendar/1.0', 'Accept': 'text/calendar, */*' }
+      });
+      if (!icsResp.ok) {
+        return new Response(
+          JSON.stringify({ error: `ICS 파일을 가져올 수 없습니다: HTTP ${icsResp.status}` }),
+          { status: 502, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        );
+      }
+      const icsText = await icsResp.text();
+      return new Response(icsText, {
+        headers: { ...corsHeaders, 'Content-Type': 'text/calendar; charset=utf-8' }
+      });
     }
 
     if (action === 'saveSettings') {

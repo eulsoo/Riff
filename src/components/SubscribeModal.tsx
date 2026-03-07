@@ -107,7 +107,7 @@ export const SubscribeModal: React.FC<SubscribeModalProps> = ({
       console.error('Subscription failed:', err);
 
       const errMsg = err?.message || '';
-      if (errMsg.includes('All CORS proxies failed')) {
+      if (errMsg.includes('접근할 수 없습니다') || errMsg.includes('HTTP 4') || errMsg.includes('HTTP 5')) {
         setError('캘린더 서버에 접근할 수 없습니다.\n\n해당 주소가 외부에서 접근 가능한 캘린더 구독 주소인지 확인해주세요.');
       } else if (errMsg.includes('parse') || errMsg.includes('jCal') || errMsg.includes('invalid')) {
         setError('유효한 iCal 데이터가 아닙니다.\n\n이 주소가 캘린더 구독용(.ics) 주소가 맞는지 확인해주세요.\n일반 웹페이지 링크가 아닌, 캘린더 서비스의 "iCal 형식" 주소를 사용해야 합니다.');

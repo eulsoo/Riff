@@ -1,6 +1,9 @@
 import { Event } from '../types';
 import { upsertEvent } from './api';
 import ICAL from 'ical.js';
+import { supabase } from '../lib/supabase';
+
+const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL as string;
 
 /**
  * ICS 파일을 파싱하여 이벤트 배열로 변환
@@ -117,36 +120,36 @@ export async function importICSFile(file: File): Promise<number> {
 }
 
 /**
+ * caldav-proxy Edge Function을 통해 ICS 파일을 서버 사이드에서 fetch
+ * (CORS 프록시 제거 → CSP 위반 없음)
+ */
+async function fetchIcsViaProxy(url: string): Promise<string> {
+  const { data: sessionData } = await supabase.auth.getSession();
+  const token = sessionData?.session?.access_token;
+  if (!token) throw new Error('로그인이 필요합니다.');
+
+  const resp = await fetch(`${SUPABASE_URL}/functions/v1/caldav-proxy`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${token}`,
+    },
+    body: JSON.stringify({ action: 'fetchIcs', icsUrl: url }),
+  });
+
+  if (!resp.ok) {
+    const errJson = await resp.json().catch(() => ({}));
+    throw new Error(errJson.error || `캘린더 서버에 접근할 수 없습니다: HTTP ${resp.status}`);
+  }
+  return resp.text();
+}
+
+/**
  * URL에서 ICS를 가져와서 지정된 기간 내의 이벤트를 파싱 (RRULE 지원)
  */
 export async function fetchAndParseICS(url: string, rangeStart: Date, rangeEnd: Date, defaultColor: string = '#8b5cf6'): Promise<{ events: Omit<Event, 'id'>[]; calendarName?: string }> {
   try {
-    const proxies = [
-      (url: string) => `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`,
-      (url: string) => `https://api.codetabs.com/v1/proxy/?quest=${encodeURIComponent(url)}`,
-      (url: string) => `https://corsproxy.io/?${encodeURIComponent(url)}`
-    ];
-
-    let text = '';
-    let success = false;
-    
-    for (const proxyFn of proxies) {
-        try {
-            const proxyUrl = proxyFn(url);
-            const r = await fetch(proxyUrl);
-            if (r.ok) {
-                text = await r.text();
-                success = true;
-                break;
-            }
-        } catch (err) {
-            console.warn(`Proxy failed: ${proxyFn(url)}`, err);
-        }
-    }
-
-    if (!success || !text) {
-        throw new Error('All CORS proxies failed to fetch the ICS file.');
-    }
+    const text = await fetchIcsViaProxy(url);
 
     const jcalData = ICAL.parse(text);
     const comp = new ICAL.Component(jcalData);
