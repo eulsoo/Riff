@@ -83,7 +83,7 @@ interface DataContextType {
   toggleGoogleCalendarSelected: (calendarId: string) => void;
 
   // Data Loading
-  loadData: (force?: boolean) => Promise<void>;
+  loadData: (force?: boolean, excludeCalendarUrls?: string[]) => Promise<void>;
 }
 
 const DataContext = createContext<DataContextType | undefined>(undefined);
@@ -150,6 +150,18 @@ export const DataProvider = ({
   selectedGoogleIdsRef.current = selectedGoogleCalendarIds;
   const googleCalendarsRef = useRef(googleCalendars);
   googleCalendarsRef.current = googleCalendars;
+
+  const persistGoogleCalendars = useCallback((meta: CalendarMetadata[]) => {
+    setGoogleCalendars(meta);
+    googleCalendarsRef.current = meta;
+    localStorage.setItem(GOOGLE_CALENDARS_META_KEY, JSON.stringify(meta));
+  }, []);
+
+  const persistSelectedGoogleCalendarIds = useCallback((ids: string[]) => {
+    setSelectedGoogleCalendarIds(ids);
+    selectedGoogleIdsRef.current = ids;
+    localStorage.setItem(GOOGLE_SELECTED_CALENDARS_KEY, JSON.stringify(ids));
+  }, []);
 
   useEffect(() => {
     // Load emotions from local storage on mount
@@ -221,13 +233,9 @@ export const DataProvider = ({
 
       // 1. If explicit meta provided (from Modal), persist it.
       if (selectedMeta) {
-        setGoogleCalendars(selectedMeta);
-        localStorage.setItem(GOOGLE_CALENDARS_META_KEY, JSON.stringify(selectedMeta));
-
+        persistGoogleCalendars(selectedMeta);
         const allIds = selectedMeta.map(m => m.googleCalendarId!).filter(Boolean);
-        setSelectedGoogleCalendarIds(allIds);
-        localStorage.setItem(GOOGLE_SELECTED_CALENDARS_KEY, JSON.stringify(allIds));
-        selectedGoogleIdsRef.current = allIds;
+        persistSelectedGoogleCalendarIds(allIds);
       } else {
         // Auto-sync mode: use current state
         metaToSync = googleCalendarsRef.current.filter(c => selectedGoogleIdsRef.current.includes(c.googleCalendarId!));
@@ -248,8 +256,7 @@ export const DataProvider = ({
           });
 
           if (hasNameChange) {
-            setGoogleCalendars(updatedMeta);
-            localStorage.setItem(GOOGLE_CALENDARS_META_KEY, JSON.stringify(updatedMeta));
+            persistGoogleCalendars(updatedMeta);
             metaToSync = updatedMeta.filter(c => selectedGoogleIdsRef.current.includes(c.googleCalendarId!));
             console.log('[Google] 캘린더 이름 변경 감지 → Riff 업데이트 완료');
           }
@@ -314,18 +321,22 @@ export const DataProvider = ({
         }
       }
 
-      // 3. Reload local events state
-      await loadData();
+      // 3. Reload local events state (force=true로 캐시/쓰로틀 무시 → 즉시 반영)
+      await loadData(true);
     } catch (err) {
       console.error('syncGoogleCalendar failed:', err);
     } finally {
       setIsSyncingGoogle(false);
     }
-  }, [loadData]);
+  }, [loadData, persistGoogleCalendars, persistSelectedGoogleCalendarIds]);
 
 
   const removeGoogleCalendar = useCallback((calendarId: string) => {
-    setGoogleCalendars(prev => prev.filter(c => c.googleCalendarId !== calendarId));
+    setGoogleCalendars(prev => {
+      const next = prev.filter(c => c.googleCalendarId !== calendarId);
+      localStorage.setItem(GOOGLE_CALENDARS_META_KEY, JSON.stringify(next)); // 새로고침 시 복원 방지
+      return next;
+    });
     setSelectedGoogleCalendarIds(prev => {
       const next = prev.filter(id => id !== calendarId);
       localStorage.setItem(GOOGLE_SELECTED_CALENDARS_KEY, JSON.stringify(next));

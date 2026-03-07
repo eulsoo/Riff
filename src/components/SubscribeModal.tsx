@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import styles from './SharedModal.module.css';
-import { CalendarMetadata, normalizeCalendarUrl, saveCalendarMetadata, saveLocalCalendarMetadata, upsertEvent } from '../services/api';
+import { CalendarMetadata, normalizeCalendarUrl, saveCalendarMetadata, saveLocalCalendarMetadata, bulkUpsertSubscriptionEvents } from '../services/api';
 import { fetchAndParseICS } from '../services/icsParser';
 
 interface SubscribeModalProps {
@@ -88,17 +88,16 @@ export const SubscribeModal: React.FC<SubscribeModalProps> = ({
       saveCalendarMetadata(updatedMetadata);
       saveLocalCalendarMetadata(updatedMetadata); // Save to local as well
 
-      // 3. Upsert events
+      // 3. Bulk upsert events (개별 N회 → 단일 DB 왕복, Auth 락 경합 방지)
       if (events.length > 0) {
-        await Promise.all(
-          events.map(ev =>
-            upsertEvent({
-              ...ev,
-              calendarUrl: normalizedUrl,
-              source: 'caldav'
-            })
-          )
+        const ok = await bulkUpsertSubscriptionEvents(
+          events.map(ev => ({
+            ...ev,
+            calendarUrl: normalizedUrl,
+            source: 'caldav' as const,
+          }))
         );
+        if (!ok) throw new Error('이벤트 저장에 실패했습니다.');
       }
 
       onSubscribeSuccess('캘린더 구독에 성공했습니다.');

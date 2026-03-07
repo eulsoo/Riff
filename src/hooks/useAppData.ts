@@ -9,7 +9,8 @@ import {
   fetchTodos, 
   updateTodo,
   updateTodoPositions,
-  fetchDiaryEntriesByRange
+  fetchDiaryEntriesByRange,
+  normalizeCalendarUrl
 } from '../services/api';
 import { getCacheKey, readCache, writeCache } from '../lib/cache';
 
@@ -25,6 +26,51 @@ export const useAppData = (
   getCurrentTodoWeekStart: () => string,
   formatLocalDate: (date: Date) => string
 ) => {
+  const buildExcludeCalendarSet = (excludeCalendarUrls?: string[]) =>
+    excludeCalendarUrls?.length
+      ? new Set(excludeCalendarUrls.flatMap(u => [u, normalizeCalendarUrl(u)].filter(Boolean)))
+      : null;
+
+  const mergeEventsWithLocal = (
+    prev: Event[],
+    eventsFromServer: Event[],
+    deletedIds: Set<string>,
+    excludeSet: Set<string> | null
+  ) => {
+    const serverIds = new Set(eventsFromServer.map(e => e.id));
+    const isExcluded = (e: Event) =>
+      excludeSet && e.calendarUrl && (excludeSet.has(e.calendarUrl) || excludeSet.has(normalizeCalendarUrl(e.calendarUrl) || ''));
+
+    const localOnly = prev.filter(e =>
+      !serverIds.has(e.id) && !deletedIds.has(e.id) && !isExcluded(e)
+    );
+    return [...eventsFromServer.filter(e => !deletedIds.has(e.id)), ...localOnly];
+  };
+
+  const mergeTodosWithLocal = (
+    prev: Todo[],
+    rolledTodos: Todo[]
+  ) => {
+    const tempAndNewTodos = prev.filter(t => t.id.startsWith('temp-') || t.isNew);
+    const serverIds = new Set(rolledTodos.map(t => t.id));
+    const keptTodos = tempAndNewTodos.filter(t => !serverIds.has(t.id));
+    return [...rolledTodos, ...keptTodos];
+  };
+
+  const mergeDiaryEntriesWithLocal = (
+    prev: Record<string, DiaryEntry>,
+    diaryData: DiaryEntry[]
+  ) => {
+    const merged = { ...prev };
+    for (const entry of diaryData) {
+      const existing = merged[entry.date];
+      if (!existing || (entry.updatedAt && existing.updatedAt && entry.updatedAt > existing.updatedAt)) {
+        merged[entry.date] = entry;
+      }
+    }
+    return merged;
+  };
+
   const [events, setEvents] = useState<Event[]>([]);
   const [routines, setRoutines] = useState<Routine[]>([]);
   const [routineCompletions, setRoutineCompletions] = useState<RoutineCompletion[]>([]);
@@ -35,6 +81,7 @@ export const useAppData = (
   const deletedEventIdsRef = useRef<Set<string>>(new Set());
 
   const loadDataInFlightRef = useRef(false);
+  const pendingForceLoadRef = useRef(false); // force=true 호출이 진행 중 load에 막혔을 때 재시도용
   const lastLoadSessionRef = useRef<string | null>(null);
   const lastLoadAtRef = useRef<number>(0);
   const lastLoadRangeRef = useRef<{ startDate: string; endDate: string } | null>(null);
@@ -98,9 +145,12 @@ export const useAppData = (
     return todosData.map(todo => updatedById.get(todo.id) ?? todo);
   }, [getCurrentTodoWeekStart]);
 
-  const loadData = useCallback(async (force: boolean = false) => {
+  const loadData = useCallback(async (force: boolean = false, excludeCalendarUrls?: string[]) => {
     if (!session) return;
-    if (loadDataInFlightRef.current) return;
+    if (loadDataInFlightRef.current) {
+      if (force) pendingForceLoadRef.current = true;
+      return;
+    }
     const sessionId = session.user?.id || null;
     const now = Date.now();
     
@@ -180,14 +230,10 @@ export const useAppData = (
       // - 서버에서 가져온 범위 내 이벤트: 서버 데이터 사용
       // - 서버 범위 밖의 로컬 이벤트: 유지 (스크롤 시 사라지지 않도록)
       // - 삭제된 이벤트: 제외
+      // - 동기화 해제된 캘린더 이벤트: excludeCalendarUrls에 있으면 제외
       const deletedIds = deletedEventIdsRef.current;
-      setEvents(prev => {
-        const serverIds = new Set(eventsData.map(e => e.id));
-        // 서버 범위에 없고, 삭제되지 않은 로컬 이벤트 유지
-        const localOnly = prev.filter(e => !serverIds.has(e.id) && !deletedIds.has(e.id));
-        // 서버 데이터 + 범위 밖 로컬 이벤트 (삭제된 것 제외)
-        return [...eventsData.filter(e => !deletedIds.has(e.id)), ...localOnly];
-      });
+      const excludeSet = buildExcludeCalendarSet(excludeCalendarUrls);
+      setEvents(prev => mergeEventsWithLocal(prev, eventsData, deletedIds, excludeSet));
       
       // 서버에서 성공적으로 데이터를 가져왔으므로 삭제 추적 ID 클리어
       deletedEventIdsRef.current.clear();
@@ -196,37 +242,12 @@ export const useAppData = (
       setRoutineCompletions(completionsData);
       
       const rolledTodos = await rolloverTodosToCurrentWeek(todosData);
-      setTodos(prev => {
-        // Keep optimistic updates (temp todos) AND newly created todos (isNew)
-        // that might be missing from the stale server data we just fetched
-        const tempAndNewTodos = prev.filter(t => t.id.startsWith('temp-') || t.isNew);
-        
-        // Remove duplicates: if server data actually has the todo, use server data
-        const serverIds = new Set(rolledTodos.map(t => t.id));
-        const keptTodos = tempAndNewTodos.filter(t => !serverIds.has(t.id));
-        
-        let finalTodos = [...rolledTodos, ...keptTodos];
-
-        // position 기반 그룹 정렬 적용
-        finalTodos = sortTodosGrouped(finalTodos);
-        
-        return finalTodos;
-      });
+      setTodos(prev => sortTodosGrouped(mergeTodosWithLocal(prev, rolledTodos)));
 
       // Diary entries: merge server data with local cache
       // Preserve locally cached entries (from active editing) to avoid overwriting unsaved work
       if (diaryData.length > 0) {
-        setDiaryEntries(prev => {
-          const merged = { ...prev };
-          for (const entry of diaryData) {
-            const existing = merged[entry.date];
-            // Only overwrite if we don't have a local version, or server is newer
-            if (!existing || (entry.updatedAt && existing.updatedAt && entry.updatedAt > existing.updatedAt)) {
-              merged[entry.date] = entry;
-            }
-          }
-          return merged;
-        });
+        setDiaryEntries(prev => mergeDiaryEntriesWithLocal(prev, diaryData));
       }
       
       const networkEnd = typeof performance !== 'undefined' ? performance.now() : Date.now();
@@ -245,6 +266,10 @@ export const useAppData = (
       lastLoadRangeRef.current = currentRange; // Update last loaded range
     } finally {
       loadDataInFlightRef.current = false;
+      if (pendingForceLoadRef.current) {
+        pendingForceLoadRef.current = false;
+        setTimeout(() => loadData(true), 0);
+      }
     }
   }, [session, getEventRange, rolloverTodosToCurrentWeek]);
 

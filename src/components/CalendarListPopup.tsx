@@ -17,6 +17,7 @@ export interface CalendarListPopupProps {
   onOpenSubscribeModal?: () => void;
   onOpenGoogleSync?: () => void;
   isSyncingGoogle?: boolean;
+  isCalDAVAuthError?: boolean;
   onShowToast?: (message: string, type: 'success' | 'error') => void;
 }
 
@@ -150,6 +151,7 @@ function CalendarListPopupComponent({
   onOpenSubscribeModal,
   onOpenGoogleSync,
   isSyncingGoogle,
+  isCalDAVAuthError = false,
   onShowToast,
 }: CalendarListPopupProps) {
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; calendarUrl: string } | null>(null);
@@ -341,10 +343,14 @@ function CalendarListPopupComponent({
                   </div>
                   <span
                     className={`material-symbols-rounded ${styles.actionIcon}`}
-                    style={{ fontSize: '16px', cursor: 'pointer' }}
+                    style={{
+                      fontSize: '16px',
+                      cursor: 'pointer',
+                      color: isCalDAVAuthError ? '#f59e0b' : undefined,
+                    }}
                     onClick={onOpenCalDAVModal}
-                    title="Mac 캘린더 동기화"
-                  >cloud_download</span>
+                    title={isCalDAVAuthError ? 'iCloud 인증 실패 — 재연결 필요' : 'Mac 캘린더 동기화'}
+                  >{isCalDAVAuthError ? 'cloud_off' : 'cloud_download'}</span>
                 </div>
                 {groups.riffFromIcloud.length > 0 ? (
                   groups.riffFromIcloud.map(cal => renderCalendarItem(
@@ -353,9 +359,11 @@ function CalendarListPopupComponent({
                     setEditingId, setEditingName, handleNameSave, handleKeyDown
                   ))
                 ) : (
-                  <div style={{ padding: '0.5rem 0.75rem', fontSize: '0.8rem', color: '#9ca3af' }}>
-                    동기화된 캘린더가 없습니다.
-                  </div>
+                  !isCalDAVAuthError && (
+                    <div style={{ padding: '0.5rem 0.75rem', fontSize: '0.8rem', color: '#9ca3af' }}>
+                      동기화된 캘린더가 없습니다.
+                    </div>
+                  )
                 )}
               </div>
 
@@ -367,35 +375,21 @@ function CalendarListPopupComponent({
                   </div>
                   <span
                     className={`material-symbols-rounded ${styles.actionIcon}`}
-                    style={{ fontSize: '16px', cursor: 'pointer', color: isSyncingGoogle ? '#4285F4' : undefined }}
-                    onClick={onOpenGoogleSync}
-                    title="Google 캘린더 동기화"
-                  >{isSyncingGoogle ? 'sync' : 'cloud_download'}</span>
-                </div>
-                {/* Google 토큰 만료 배너 */}
-                {isGoogleTokenExpired && groups.google.length === 0 && (
-                  <div
                     style={{
-                      padding: '0.4rem 0.75rem',
-                      fontSize: '0.78rem',
-                      color: '#f59e0b',
-                      background: 'rgba(245,158,11,0.08)',
-                      borderRadius: '6px',
-                      margin: '0.25rem 0',
+                      fontSize: '16px',
                       cursor: 'pointer',
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: '6px',
+                      color: isGoogleTokenExpired ? '#f59e0b' : undefined,
                     }}
-                    onClick={() => {
-                      onOpenGoogleSync?.();
-                    }}
-                    title="클릭하여 Google 재연결"
-                  >
-                    <span className="material-symbols-rounded" style={{ fontSize: '14px' }}>warning</span>
-                    Google 연결 만료 — 재연결 필요
-                  </div>
-                )}
+                    onClick={onOpenGoogleSync}
+                    title={
+                      isGoogleTokenExpired
+                        ? 'Google 연결 만료 — 재연결 필요'
+                        : isSyncingGoogle
+                          ? '동기화 중...'
+                          : 'Google 캘린더 동기화'
+                    }
+                  >{isGoogleTokenExpired ? 'cloud_off' : isSyncingGoogle ? 'sync' : 'cloud_download'}</span>
+                </div>
                 {groups.google.length > 0 ? (
                   groups.google.map(cal => renderCalendarItem(
                     cal, false, visibleUrlSet, editingId, selectedId,

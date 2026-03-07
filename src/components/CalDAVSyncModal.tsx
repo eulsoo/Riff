@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Calendar, CalDAVConfig, getCalendars, syncSelectedCalendars } from '../services/caldav';
+import { Calendar, CalDAVConfig, getCalendars, syncSelectedCalendars, waitForSyncIdle } from '../services/caldav';
 import { saveCalDAVSyncSettings, getCalDAVSyncSettings, deleteAllCalDAVData, saveCalendarMetadata, deleteCalDAVSyncSettings, normalizeCalendarUrl, CalendarMetadata } from '../services/api';
 import { supabase } from '../lib/supabase';
 import styles from './CalDAVSyncModal.module.css';
@@ -7,7 +7,7 @@ import shared from './SharedModal.module.css';
 
 interface CalDAVSyncModalProps {
   onClose: () => void;
-  onSyncComplete: (count: number, syncedCalendarUrls?: string[]) => void;
+  onSyncComplete: (count: number, syncedCalendarUrls?: string[]) => void | Promise<void>;
   mode?: 'sync' | 'auth-only';
   existingCalendars: CalendarMetadata[];
 }
@@ -24,6 +24,7 @@ export function CalDAVSyncModal({ onClose, onSyncComplete, mode = 'sync', existi
   const [selectedCalendars, setSelectedCalendars] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(false);
   const [syncing, setSyncing] = useState(false);
+  const [syncProgress, setSyncProgress] = useState<{ current: number; total: number } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [existingSettings, setExistingSettings] = useState<{
     lastSyncAt?: string | null;
@@ -254,27 +255,51 @@ export function CalDAVSyncModal({ onClose, onSyncComplete, mode = 'sync', existi
         ? existingSettings.lastSyncAt
         : null;
 
-      const count = await syncSelectedCalendars(
-        config,
-        Array.from(selectedCalendars),
-        lastSyncAt
-      );
+      // 모달 동기화 시 넓은 범위 + forceFullSync (재연결/재동기화 시 delta sync가 빈 결과를 주는 것 방지)
+      const fullStart = new Date();
+      fullStart.setMonth(fullStart.getMonth() - 6);
+      const fullEnd = new Date();
+      fullEnd.setMonth(fullEnd.getMonth() + 6);
+      const selectedUrls = Array.from(selectedCalendars);
+      const syncRange = { startDate: fullStart, endDate: fullEnd };
+      const runSyncOnce = () =>
+        syncSelectedCalendars(
+          config,
+          selectedUrls,
+          {
+            lastSyncAt,
+            forceFullSync: true, // sync token 무시하고 전체 fetch → 재동기화 직후 일정 즉시 표시
+            manualRange: syncRange,
+            onProgress: (cur, tot) => setSyncProgress({ current: cur, total: tot })
+          }
+        );
+
+      setSyncProgress({ current: 0, total: selectedCalendars.size });
+      let count = await runSyncOnce();
+      // syncInFlight로 차단됐으면 백그라운드 sync 완료까지 대기 후 재시도
+      if (count === 0) {
+        await waitForSyncIdle();
+        count = await runSyncOnce();
+      }
+      setSyncProgress(null);
 
       await saveCalDAVSyncSettings({
         serverUrl,
         username,
         password,
-        selectedCalendarUrls: Array.from(selectedCalendars),
+        selectedCalendarUrls: selectedUrls,
         syncIntervalMinutes: 60,
       });
 
-      // 서버에서 가져온 모든 캘린더 URL 전달 (선택 여부와 무관)
-      onSyncComplete(count, calendars.map(c => c.url));
+      // 실제로 동기화된(선택된) 캘린더 URL 전달 (재동기화 시 exclude 목록에서 제거용)
+      // loadData 완료 후 모달 닫기 → 일정이 화면에 표시된 뒤 닫힘
+      await onSyncComplete(count, selectedUrls);
       onClose();
     } catch (err: any) {
       setError(err.message || '동기화 중 오류가 발생했습니다.');
     } finally {
       setSyncing(false);
+      setSyncProgress(null);
     }
   };
 
@@ -486,7 +511,7 @@ export function CalDAVSyncModal({ onClose, onSyncComplete, mode = 'sync', existi
                 className={`${styles.syncButton} ${styles.syncButtonMargin}`}
               >
                 {syncing
-                  ? '동기화 중...'
+                  ? (syncProgress ? `캘린더 ${syncProgress.current}/${syncProgress.total} 가져오는 중...` : '동기화 중...')
                   : `선택한 ${selectedCalendars.size}개 캘린더 동기화`}
               </button>
             </div>

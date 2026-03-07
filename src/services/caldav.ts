@@ -130,6 +130,14 @@ const normalizeCalendarUrl = (url: string) => url.replace(/\/+$/, '');
 // 동시 동기화 방지 플래그
 let syncInFlight = false;
 
+/** 백그라운드 sync 완료까지 대기 (모달 sync가 0 반환 시 재시도 전용) */
+export async function waitForSyncIdle(maxWaitMs = 60000): Promise<void> {
+  const start = Date.now();
+  while (syncInFlight && Date.now() - start < maxWaitMs) {
+    await new Promise(r => setTimeout(r, 400));
+  }
+}
+
 export interface Calendar {
   displayName: string;
   url: string;
@@ -311,6 +319,28 @@ const writeSyncTokens = (config: CalDAVConfig, tokens: Record<string, string>) =
   window.localStorage.setItem(getSyncTokenStorageKey(config), JSON.stringify(tokens));
 };
 
+/** 동기화 해제 시 해당 캘린더의 sync token 제거 → 재동기화 시 전체 fetch 보장 */
+export const clearCalDAVSyncTokenForCalendar = (
+  config: CalDAVConfig,
+  calendarUrl: string
+): void => {
+  if (typeof window === 'undefined') return;
+  try {
+    const tokens = readSyncTokens(config);
+    const norm = normalizeCalendarUrl(calendarUrl);
+    if (norm && tokens[norm]) {
+      delete tokens[norm];
+      writeSyncTokens(config, tokens);
+    }
+    if (calendarUrl !== norm && tokens[calendarUrl]) {
+      delete tokens[calendarUrl];
+      writeSyncTokens(config, tokens);
+    }
+  } catch (e) {
+    console.warn('clearCalDAVSyncTokenForCalendar failed:', e);
+  }
+};
+
 // 사용 가능한 캘린더 목록 가져오기 (Edge Function 사용)
 export async function getCalendars(config: CalDAVConfig): Promise<Calendar[]> {
   try {
@@ -426,14 +456,241 @@ export async function fetchSyncCollection(
   };
 }
 
+interface FetchResult {
+  calendarUrl: string;
+  eventsToProcess: Omit<Event, 'id'>[];
+  fullStartDate?: Date;
+  fullEndDate?: Date;
+  usedFullFetch: boolean;
+  syncToken: string | null;
+}
+
+const logSyncScope = (
+  forceFullSync: boolean,
+  lastSyncAt?: string | null,
+  manualRange?: { startDate: Date; endDate: Date }
+) => {
+  if (forceFullSync) {
+    console.log('MANUAL SYNC: Forcing full sync (ignoring sync tokens).');
+  }
+
+  if (lastSyncAt) {
+    console.log(`마지막 동기화 시점(${lastSyncAt})부터 동기화합니다.`);
+    return;
+  }
+
+  if (manualRange) {
+    console.log(
+      `구간 동기화: ${manualRange.startDate.toISOString().split('T')[0]} ~ ${manualRange.endDate.toISOString().split('T')[0]}`
+    );
+    return;
+  }
+
+  console.log('첫 동기화: 최근 1년간의 일정을 가져옵니다.');
+};
+
+const buildUrlsToSync = (
+  selectedCalendarUrls: string[],
+  excludeCalendarUrls?: Set<string>
+): string[] => {
+  const excludeSet = excludeCalendarUrls ?? new Set<string>();
+  return selectedCalendarUrls.filter(raw => {
+    const normalized = normalizeCalendarUrl(raw);
+    return !excludeSet.has(normalized) && !excludeSet.has(raw);
+  });
+};
+
+const isAuthSyncError = (error: any): boolean =>
+  error?.message?.includes('401') ||
+  error?.message?.includes('Unauthorized') ||
+  error?.status === 401 ||
+  (error?.body && error.body.includes('401'));
+
+interface CalendarSyncWorkUnit extends FetchResult {
+  syncResult: SyncCollectionResult | null;
+}
+
+interface ProcessEventsResult {
+  syncedCount: number;
+  skippedCount: number;
+  currentEventUids: Set<string>;
+}
+
+export interface SyncSelectedCalendarsOptions {
+  lastSyncAt?: string | null;
+  forceFullSync?: boolean;
+  manualRange?: { startDate: Date; endDate: Date };
+  excludeCalendarUrls?: Set<string>;
+  onProgress?: (current: number, total: number) => void;
+}
+
+const getDefaultFullFetchRange = (): { startDate: Date; endDate: Date } => {
+  const startDate = new Date();
+  startDate.setMonth(startDate.getMonth() - 1);
+  const endDate = new Date();
+  endDate.setMonth(endDate.getMonth() + 3);
+  return { startDate, endDate };
+};
+
+const collectEventUpdates = (existing: any, event: any) => {
+  const normalizeTime = (value?: string | null) => value ?? null;
+  const updates: {
+    title?: string;
+    date?: string;
+    memo?: string | null;
+    startTime?: string | null;
+    endTime?: string | null;
+    endDate?: string | null;
+    color?: string;
+    etag?: string | null;
+  } = {};
+
+  if (existing.title !== event.title) updates.title = event.title;
+  if (existing.date !== event.date) updates.date = event.date;
+  if ((existing.memo ?? null) !== (event.memo ?? null)) updates.memo = event.memo ?? null;
+  if (normalizeTime(existing.startTime) !== normalizeTime(event.startTime)) {
+    updates.startTime = event.startTime ?? null;
+  }
+  if (normalizeTime(existing.endTime) !== normalizeTime(event.endTime)) {
+    updates.endTime = event.endTime ?? null;
+  }
+
+  const existingEndDate = (existing as any).endDate ?? null;
+  const newEndDate = (event as any).endDate ?? null;
+  if (existingEndDate !== newEndDate) {
+    updates.endDate = newEndDate;
+  }
+  if (existing.color !== event.color) updates.color = event.color;
+  if ((existing.etag ?? null) !== (event.etag ?? null)) updates.etag = event.etag ?? null;
+
+  return updates;
+};
+
+const resolveCalendarWorkUnit = async (
+  config: CalDAVConfig,
+  calendarUrl: string,
+  forceFullSync: boolean,
+  manualRange?: { startDate: Date; endDate: Date },
+  syncTokenFromStore?: string
+): Promise<CalendarSyncWorkUnit> => {
+  let syncResult: SyncCollectionResult | null = null;
+  if (!forceFullSync && syncTokenFromStore && !manualRange) {
+    try {
+      syncResult = await fetchSyncCollection(config, calendarUrl, syncTokenFromStore);
+    } catch (error: any) {
+      if (error?.code !== 'OFFLINE') {
+        console.warn(`sync-collection 실패, 전체 동기화로 전환: ${calendarUrl}`, error);
+      }
+      syncResult = null;
+    }
+  }
+
+  if (syncResult?.hasDeletions) syncResult = null;
+
+  if (syncResult) {
+    return {
+      calendarUrl,
+      eventsToProcess: syncResult.events,
+      usedFullFetch: false,
+      syncToken: syncResult.syncToken,
+      syncResult,
+    };
+  }
+
+  const range = manualRange ?? getDefaultFullFetchRange();
+  const eventsToProcess = await fetchCalendarEvents(config, calendarUrl, range.startDate, range.endDate);
+  return {
+    calendarUrl,
+    eventsToProcess,
+    fullStartDate: range.startDate,
+    fullEndDate: range.endDate,
+    usedFullFetch: true,
+    syncToken: null,
+    syncResult: null,
+  };
+};
+
+const processCalendarEvents = async (
+  calendarUrl: string,
+  eventsToProcess: Omit<Event, 'id'>[]
+): Promise<ProcessEventsResult> => {
+  const currentEventUids = new Set<string>();
+  let syncedCount = 0;
+  let skippedCount = 0;
+
+  for (const event of eventsToProcess) {
+    const eventWithUID = event as any;
+    const uid = eventWithUID.uid;
+
+    if (uid) {
+      currentEventUids.add(uid);
+      const exists = await eventExistsByUID(uid, calendarUrl);
+      if (exists) {
+        const existing = await fetchEventByUID(uid, calendarUrl);
+        if (existing) {
+          const updates = collectEventUpdates(existing, event);
+          const hasUpdates = Object.keys(updates).length > 0;
+          if (hasUpdates) {
+            const updated = await updateEventByUID(uid, calendarUrl, updates);
+            if (updated) syncedCount++;
+            else skippedCount++;
+          } else {
+            skippedCount++;
+          }
+        } else {
+          skippedCount++;
+        }
+        continue;
+      }
+
+      const existingEventId = await findEventByDetails(event, calendarUrl);
+      if (existingEventId) {
+        await updateEventUID(existingEventId, uid, calendarUrl);
+        skippedCount++;
+        continue;
+      }
+
+      const { uid: _uid, ...eventWithoutUid } = event as any;
+      const result = await upsertEvent({
+        ...eventWithoutUid,
+        caldavUid: uid,
+        calendarUrl,
+        source: 'caldav',
+      });
+      if (result) syncedCount++;
+      continue;
+    }
+
+    const exists = await eventExists(event, calendarUrl, 'caldav');
+    if (!exists) {
+      const result = await upsertEvent({
+        ...event,
+        calendarUrl,
+        source: 'caldav',
+      });
+      if (result) syncedCount++;
+    } else {
+      skippedCount++;
+    }
+  }
+
+  return { syncedCount, skippedCount, currentEventUids };
+};
+
 // 선택한 여러 캘린더의 이벤트 동기화
 export async function syncSelectedCalendars(
   config: CalDAVConfig,
   selectedCalendarUrls: string[],
-  lastSyncAt?: string | null, // 마지막 동기화 시간 추가
-  forceFullSync: boolean = false, // 강제 전체 동기화 플래그
-  manualRange?: { startDate: Date; endDate: Date } // 수동 범위 (스크롤 등)
+  options: SyncSelectedCalendarsOptions = {}
 ): Promise<number> {
+  const {
+    lastSyncAt,
+    forceFullSync = false,
+    manualRange,
+    excludeCalendarUrls,
+    onProgress
+  } = options;
+
   // 동기화 중복 실행 방지
   if (syncInFlight) {
     return 0;
@@ -452,172 +709,52 @@ export async function syncSelectedCalendars(
     let skippedCount = 0;
     let deletedCount = 0;
     const syncTokens = readSyncTokens(config);
+    logSyncScope(forceFullSync, lastSyncAt, manualRange);
+    const urlsToSync = buildUrlsToSync(selectedCalendarUrls, excludeCalendarUrls);
 
-    if (forceFullSync) {
-       console.log('MANUAL SYNC: Forcing full sync (ignoring sync tokens).');
+    // manualRange(모달 동기화) 시 캘린더 fetch 병렬화 → 2분→30초 수준으로 단축
+    const useParallelFetch = Boolean(manualRange);
+    let fetchResults: FetchResult[] = [];
+
+    if (useParallelFetch) {
+      const fullStart = manualRange!.startDate;
+      const fullEnd = manualRange!.endDate;
+      const results = await Promise.all(
+        urlsToSync.map(async (rawUrl, idx) => {
+          const calendarUrl = normalizeCalendarUrl(rawUrl);
+          const events = await fetchCalendarEvents(config, calendarUrl, fullStart, fullEnd);
+          onProgress?.(idx + 1, urlsToSync.length); // 각 캘린더 fetch 완료 시 진행 표시
+          return {
+            calendarUrl,
+            eventsToProcess: events,
+            fullStartDate: fullStart,
+            fullEndDate: fullEnd,
+            usedFullFetch: true,
+            syncToken: null as string | null,
+          } satisfies FetchResult;
+        })
+      );
+      fetchResults = results;
     }
 
-    if (lastSyncAt) {
-      console.log(`마지막 동기화 시점(${lastSyncAt})부터 동기화합니다.`);
-    } else {
-      if (manualRange) {
-        console.log(`구간 동기화: ${manualRange.startDate.toISOString().split('T')[0]} ~ ${manualRange.endDate.toISOString().split('T')[0]}`);
-      } else {
-        console.log('첫 동기화: 최근 1년간의 일정을 가져옵니다.');
-      }
-    }
-    
-    for (const rawCalendarUrl of selectedCalendarUrls) {
+    for (let i = 0; i < urlsToSync.length; i++) {
+      const rawCalendarUrl = urlsToSync[i];
       const calendarUrl = normalizeCalendarUrl(rawCalendarUrl);
       try {
-        const currentEventUids = new Set<string>();
-        let calendarSyncedCount = 0;
-        let calendarSkippedCount = 0;
-        let usedFullFetch = false;
-
-        const token = forceFullSync ? null : syncTokens[calendarUrl];
-        let syncResult: SyncCollectionResult | null = null;
-
-        if (token && !manualRange) { // 수동 범위가 있으면 토큰 무시하고 전체 조회
-          try {
-            syncResult = await fetchSyncCollection(config, calendarUrl, token);
-          } catch (error: any) {
-            if (error?.code !== 'OFFLINE') {
-               console.warn(`sync-collection 실패, 전체 동기화로 전환: ${calendarUrl}`, error);
-            }
-            syncResult = null;
-          }
-        }
-
-        if (syncResult && syncResult.hasDeletions) {
-          syncResult = null;
-        }
-
-        let eventsToProcess: Omit<Event, 'id'>[] = [];
-        let fullStartDate: Date | undefined;
-        let fullEndDate: Date | undefined;
-        
-        if (syncResult) {
-          eventsToProcess = syncResult.events;
-        } else {
-          usedFullFetch = true;
-
-          if (manualRange) {
-            fullStartDate = manualRange.startDate;
-            fullEndDate = manualRange.endDate;
-          } else {
-            fullStartDate = new Date();
-            fullStartDate.setMonth(fullStartDate.getMonth() - 1); // 기본값: 과거 1개월
-            fullEndDate = new Date();
-            fullEndDate.setMonth(fullEndDate.getMonth() + 3);     // 기본값: 미래 3개월
-          }
-          
-          eventsToProcess = await fetchCalendarEvents(config, calendarUrl, fullStartDate, fullEndDate);
-        }
-
-        // CalDAV에서 가져온 이벤트 처리
-        for (const event of eventsToProcess) {
-          // [NOTE] 타임존 처리는 Edge Function(parseICalDateTime)에서 올바르게 수행됨
-          // 이전에 있던 +1일 보정 워크어라운드는 제거 (근본 원인이 해결되었으므로)
-          // UID가 있는 경우 UID로 중복 체크, 없으면 기존 방식 사용
-          const eventWithUID = event as any;
-          const uid = eventWithUID.uid;
-          
-          if (uid) {
-            currentEventUids.add(uid);
-            // UID로 중복 체크 (가장 확실한 방법)
-            const exists = await eventExistsByUID(uid, calendarUrl);
-            if (exists) {
-              // 기존 이벤트가 있으면 변경된 필드만 업데이트
-              const existing = await fetchEventByUID(uid, calendarUrl);
-              if (existing) {
-                const normalizeTime = (value?: string | null) => value ?? null;
-                const updates: {
-                  title?: string;
-                  date?: string;
-                  memo?: string | null;
-                  startTime?: string | null;
-                  endTime?: string | null;
-                  endDate?: string | null;
-                  color?: string;
-                  etag?: string | null;
-                } = {};
-
-                if (existing.title !== event.title) updates.title = event.title;
-                if (existing.date !== event.date) updates.date = event.date;
-                if ((existing.memo ?? null) !== (event.memo ?? null)) updates.memo = event.memo ?? null;
-                if (normalizeTime(existing.startTime) !== normalizeTime(event.startTime)) {
-                  updates.startTime = event.startTime ?? null;
-                }
-                if (normalizeTime(existing.endTime) !== normalizeTime(event.endTime)) {
-                  updates.endTime = event.endTime ?? null;
-                }
-                // endDate 변경 감지 (여러 날 종일 일정)
-                const existingEndDate = (existing as any).endDate ?? null;
-                const newEndDate = (event as any).endDate ?? null;
-                if (existingEndDate !== newEndDate) {
-                  updates.endDate = newEndDate;
-                }
-                if (existing.color !== event.color) updates.color = event.color;
-                if ((existing.etag ?? null) !== (event.etag ?? null)) updates.etag = event.etag ?? null;
-
-                const hasUpdates = Object.keys(updates).length > 0;
-                if (hasUpdates) {
-                  const updated = await updateEventByUID(uid, calendarUrl, updates);
-                  if (updated) {
-                    calendarSyncedCount++;
-                  } else {
-                    calendarSkippedCount++;
-                  }
-                } else {
-                  calendarSkippedCount++;
-                }
-              } else {
-                calendarSkippedCount++;
-              }
-              continue; // 이미 존재하므로 다음 이벤트로
-            }
-            
-            // UID가 없는 기존 이벤트가 있는지 확인 (제목+날짜+시간으로)
-            // 이 경우에만 기존 이벤트에 UID를 업데이트
-            const existingEventId = await findEventByDetails(event, calendarUrl);
-            if (existingEventId) {
-              // 기존 이벤트에 UID 업데이트
-              await updateEventUID(existingEventId, uid, calendarUrl);
-              calendarSkippedCount++;
-              continue; // 업데이트했으므로 다음 이벤트로
-            }
-            
-            // 새 이벤트 생성
-            // event에서 uid 필드 제거 (caldavUid로 전달)
-            const { uid: _uid, ...eventWithoutUid } = event as any;
-
-            const result = await upsertEvent({
-              ...eventWithoutUid,
-              caldavUid: uid,
-              calendarUrl,
-              source: 'caldav',
-            });
-            if (result) {
-              calendarSyncedCount++;
-            }
-          } else {
-            // UID가 없는 경우 기존 방식으로 중복 체크
-          const exists = await eventExists(event, calendarUrl, 'caldav');
-            if (!exists) {
-              const result = await upsertEvent({
-                ...event,
+        const workUnit: CalendarSyncWorkUnit =
+          useParallelFetch && fetchResults[i]
+            ? { ...fetchResults[i], syncResult: null }
+            : await resolveCalendarWorkUnit(
+                config,
                 calendarUrl,
-                source: 'caldav',
-              });
-              if (result) {
-                calendarSyncedCount++;
-              }
-            } else {
-              calendarSkippedCount++;
-            }
-          }
-        }
+                forceFullSync,
+                manualRange,
+                syncTokens[calendarUrl]
+              );
+
+        const processed = await processCalendarEvents(calendarUrl, workUnit.eventsToProcess);
+        const calendarSyncedCount = processed.syncedCount;
+        const calendarSkippedCount = processed.skippedCount;
         
         syncedCount += calendarSyncedCount;
         skippedCount += calendarSkippedCount;
@@ -628,20 +765,28 @@ export async function syncSelectedCalendars(
         
         // 해당 캘린더에서 삭제된 이벤트 찾기 및 삭제
         // allEvents가 빈 배열이어도 삭제 체크 수행 (캘린더에서 모든 이벤트를 삭제한 경우 처리)
-        if (usedFullFetch && fullStartDate && fullEndDate) {
+        if (workUnit.usedFullFetch && workUnit.fullStartDate && workUnit.fullEndDate) {
           // 삭제 체크는 실제 동기화 범위(fullStartDate/fullEndDate)와 동일하게 사용
-          const deleted = await deleteRemovedEvents(calendarUrl, currentEventUids, eventsToProcess, fullStartDate, fullEndDate);
+          const deleted = await deleteRemovedEvents(
+            calendarUrl,
+            processed.currentEventUids,
+            workUnit.eventsToProcess,
+            workUnit.fullStartDate,
+            workUnit.fullEndDate
+          );
           deletedCount += deleted;
           if (deleted > 0) {
-            console.log(`캘린더 ${calendarUrl}: ${deleted}개 삭제 (범위: ${fullStartDate.toISOString().slice(0,10)} ~ ${fullEndDate.toISOString().slice(0,10)})`);
-          } else if (eventsToProcess.length === 0) {
+            console.log(
+              `캘린더 ${calendarUrl}: ${deleted}개 삭제 (범위: ${workUnit.fullStartDate.toISOString().slice(0, 10)} ~ ${workUnit.fullEndDate.toISOString().slice(0, 10)})`
+            );
+          } else if (workUnit.eventsToProcess.length === 0) {
             console.log(`캘린더 ${calendarUrl}: 이벤트 없음 (삭제 체크 완료)`);
           }
         }
 
-        if (syncResult?.syncToken) {
-          syncTokens[calendarUrl] = syncResult.syncToken;
-        } else if (usedFullFetch) {
+        if (workUnit.syncResult?.syncToken) {
+          syncTokens[calendarUrl] = workUnit.syncResult.syncToken;
+        } else if (workUnit.usedFullFetch) {
           const nextToken = await fetchSyncToken(config, calendarUrl);
           if (nextToken) {
             syncTokens[calendarUrl] = nextToken;
@@ -655,13 +800,7 @@ export async function syncSelectedCalendars(
         // [Safety] 401 인증 에러(계정 잠김/암호 변경 등) 발생 시,
         // 남은 캘린더들에 대해서도 불필요한 요청을 보내지 않도록 즉시 동기화를 중단합니다.
         // 이를 통해 Edge Function 호출 비용과 트래픽(Egress) 낭비를 방지합니다.
-        const isAuthError =
-          error?.message?.includes('401') ||
-          error?.message?.includes('Unauthorized') ||
-          error?.status === 401 ||
-          (error?.body && error.body.includes('401'));
-
-        if (isAuthError) {
+        if (isAuthSyncError(error)) {
            console.error(`[Critical] Auth Error on ${calendarUrl}. Aborting remaining syncs.`);
            throw error; // 루프 종료 및 에러 전파
         }

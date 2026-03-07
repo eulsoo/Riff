@@ -12,7 +12,12 @@ import { useDrag } from '../contexts/DragContext';
 import { useCalendarMetadata } from '../hooks/useCalendarMetadata';
 import { WeekOrder, Event, DiaryEntry, Todo } from '../types';
 import { normalizeCalendarUrl, CalendarMetadata, upsertDiaryEntry, getUserAvatar, getCalDAVSyncSettings } from '../services/api';
-import { createCalDavEvent, updateCalDavEvent, deleteCalDavEvent, syncSelectedCalendars, CalDAVConfig, createRemoteCalendar, deleteRemoteCalendar, renameRemoteCalendar, getCalendars } from '../services/caldav';
+import { syncSelectedCalendars, CalDAVConfig, getCalendars } from '../services/caldav';
+import { buildCalDAVConfigFromSettings, getCalDAVSyncTargets, isCalDAVAuthErrorMessage, isCalDAVSyncTarget, isSubscriptionLikeCalendar, isWritableCalendar } from '../services/calendarSyncUtils';
+import { relinkEventsByCalendarUrl } from '../services/calendarEventRelink';
+import { syncRemoteEventCreateInBackground, syncRemoteEventDeleteInBackground, syncRemoteEventUpdateInBackground } from '../services/remoteEventSync';
+import { buildCalendarDeleteState, runCalendarDeleteFlow, runCalendarUnsyncFlow } from '../services/calendarDeleteFlow';
+import { syncCalendarNameToRemote, syncLocalCalendarToMac } from '../services/calendarMacSyncFlow';
 import { getWeekStartForDate, getTodoWeekStart, formatLocalDate } from '../utils/dateUtils';
 import { clearCachedGoogleToken } from '../lib/googleCalendar';
 import { HistoryAction } from '../hooks/useUndoRedo';
@@ -82,6 +87,8 @@ export const MainLayout = ({
   const [isSyncEnabled, setIsSyncEnabled] = useState(false);
   // 앱 초기 로드 시 1회: 유령 캘린더 정리를 위한 메타데이터 검증
   const hasMetadataCheckedRef = useRef(false);
+  // 동기화 해제 직후 진행 중인 sync가 해당 캘린더를 재추가하지 않도록
+  const unsyncedUrlsRef = useRef<Set<string>>(new Set());
 
   // --- Robust Global Calendar Visibility ---
   const [hiddenCalendarUrls, setHiddenCalendarUrls] = useState<Set<string>>(() => {
@@ -133,14 +140,7 @@ export const MainLayout = ({
 
     // 2. Filter Calendars — selectedCalendarUrls에 있는 것만 동기화
     // (사용자가 명시적으로 선택한 캘린더만, 이전에 동기화했다가 해제된 캘린더 제외)
-    const selectedUrlSet = new Set(
-      (settings.selectedCalendarUrls || []).map((u: string) => u.replace(/\/+$/, ''))
-    );
-    const caldavCalendars = calendarMetadata.filter(c => {
-      if (!c.url.startsWith('http') || c.url.startsWith('local-') || c.isSubscription || c.type === 'subscription' || c.url?.endsWith('.ics')) return false;
-      const norm = c.url.replace(/\/+$/, '');
-      return selectedUrlSet.size === 0 || selectedUrlSet.has(norm);
-    });
+    const caldavCalendars = getCalDAVSyncTargets(calendarMetadata, settings.selectedCalendarUrls);
     if (caldavCalendars.length === 0) return;
 
     if (isManual) {
@@ -148,24 +148,29 @@ export const MainLayout = ({
     }
 
     // 3. Prepare Config
-    const config: CalDAVConfig = {
-      serverUrl: settings.serverUrl,
-      username: settings.username,
-      password: settings.password,
-      settingId: settings.id
-    };
+    const config: CalDAVConfig = buildCalDAVConfigFromSettings(settings);
     const caldavUrls = caldavCalendars.map(c => c.url);
 
     try {
       // 4. Execute Sync (Range provided by hook!)
       const forceFullSync = false;
-      // Use the calculated range from the hook
-      const count = await syncSelectedCalendars(config, caldavUrls, null, forceFullSync, range);
+      const count = await syncSelectedCalendars(
+        config,
+        caldavUrls,
+        {
+          forceFullSync,
+          manualRange: range,
+          excludeCalendarUrls: unsyncedUrlsRef.current
+        }
+      );
 
       if (count !== 0 || isManual) {
         if (isManual) console.log(`Sync complete. Reloading data...`);
         loadData(true);
       }
+      unsyncedUrlsRef.current.clear(); // 동기화 해제 exclude 목록 초기화
+      localStorage.removeItem('caldavAuthError');
+      setIsCalDAVAuthError(false);
 
       // 5. 서버 캘린더 목록 확인 로직은 매번 Sync마다 수행하면 오버헤드 및 무한 리렌더링 위험이 있으므로,
       // 별도의 주기적 확인이나 초기화 단계로 이동하는 것이 좋음. 현재는 제거.
@@ -175,12 +180,17 @@ export const MainLayout = ({
         console.log('Sync skipped (Offline)');
       } else {
         console.warn('Sync failed:', error);
+        const msg = String(error?.message || error || '');
+        if (isCalDAVAuthErrorMessage(msg)) {
+          localStorage.setItem('caldavAuthError', 'true');
+          setIsCalDAVAuthError(true);
+        }
       }
     }
   }, [calendarMetadata, loadData, refreshMetadataWithServerList]);
 
   // Use the reusable hook for Infinite Scroll & Windowed Fetching
-  useWindowedSync({
+  const { trigger: triggerCalDAVSync } = useWindowedSync({
     pastUnits: pastWeeks,
     futureUnits: futureWeeks,
     unitDays: 7,
@@ -223,21 +233,22 @@ export const MainLayout = ({
           settingId: settings.id,
         };
         const serverCalendars = await getCalendars(config);
+        localStorage.removeItem('caldavAuthError');
+        setIsCalDAVAuthError(false);
         const urlRemap = refreshMetadataWithServerList(serverCalendars); // displayName도 같이 전달
 
         // 이벤트 re-link (CalDAV URL → 새 로컬 URL)
         if (urlRemap.size > 0) {
-          for (const [oldUrl, newLocalUrl] of urlRemap.entries()) {
-            const { error } = await supabase
-              .from('events')
-              .update({ calendar_url: newLocalUrl })
-              .eq('calendar_url', oldUrl);
-            if (error) console.error(`[PopupCheck] Event re-link failed: ${oldUrl} →`, error);
-          }
+          await relinkEventsByCalendarUrl(urlRemap, '[PopupCheck]');
           loadData(true);
         }
-      } catch (e) {
+      } catch (e: any) {
         console.warn('[PopupCheck] Server calendar check failed:', e);
+        const msg = String(e?.message || e || '');
+        if (isCalDAVAuthErrorMessage(msg)) {
+          localStorage.setItem('caldavAuthError', 'true');
+          setIsCalDAVAuthError(true);
+        }
       }
     })();
   }, [isCalendarPopupOpen, calendarMetadata, refreshMetadataWithServerList, loadData]);
@@ -297,12 +308,16 @@ export const MainLayout = ({
   const userInitial = session.user?.email?.[0]?.toUpperCase() || 'U';
 
   // Calendar Delete Dialog State
+  const [isCalDAVAuthError, setIsCalDAVAuthError] = useState(
+    () => typeof window !== 'undefined' && localStorage.getItem('caldavAuthError') === 'true'
+  );
   const [calDeleteState, setCalDeleteState] = useState<{
     isOpen: boolean;
     url: string;
     name: string;
     isCalDAV: boolean;
     isUnsync?: boolean;
+    isGoogle?: boolean;
   } | null>(null);
   const [calDeleteOption, setCalDeleteOption] = useState<'local' | 'remote'>('local');
 
@@ -367,9 +382,7 @@ export const MainLayout = ({
     }
 
     // CalDAV 캘린더 확인
-    const hasCalDAV = calendarMetadata.some(c =>
-      !c.isLocal && !c.isSubscription && c.type !== 'subscription' && c.url.startsWith('http')
-    );
+    const hasCalDAV = calendarMetadata.some(c => isCalDAVSyncTarget(c));
 
     // CalDAV가 없으면 즉시 Sync 활성화
     if (!hasCalDAV) {
@@ -398,14 +411,7 @@ export const MainLayout = ({
 
         // 이벤트 re-link: 로컬 전환된 캘린더의 이벤트 calendar_url 업데이트
         if (urlRemap.size > 0) {
-          for (const [oldUrl, newLocalUrl] of urlRemap.entries()) {
-            const { error } = await supabase
-              .from('events')
-              .update({ calendar_url: newLocalUrl })
-              .eq('calendar_url', oldUrl);
-            if (error) console.error(`[Metadata] Event re-link failed: ${oldUrl} →`, error);
-            else console.log(`[Metadata] Re-linked events: ${oldUrl} → ${newLocalUrl}`);
-          }
+          await relinkEventsByCalendarUrl(urlRemap, '[Metadata]');
           loadData(true);
         }
       } catch (e) {
@@ -434,6 +440,53 @@ export const MainLayout = ({
     supabase.auth.signOut();
   }, []);
 
+  const closeHeaderPanels = useCallback(() => {
+    setIsProfileMenuOpen(false);
+    setIsRoutineModalOpen(false);
+    setIsSettingsModalOpen(false);
+    setIsTimeSettingsModalOpen(false);
+  }, []);
+
+  const handleToggleProfileMenu = useCallback(() => {
+    setIsProfileMenuOpen(prev => !prev);
+  }, []);
+
+  const handleOpenRoutineFromHeader = useCallback(() => {
+    closeHeaderPanels();
+    setIsRoutineModalOpen(true);
+  }, [closeHeaderPanels]);
+
+  const handleOpenSettingsFromHeader = useCallback(() => {
+    closeHeaderPanels();
+    setIsSettingsModalOpen(true);
+  }, [closeHeaderPanels]);
+
+  const handleOpenTimeSettingsFromHeader = useCallback(() => {
+    closeHeaderPanels();
+    setIsTimeSettingsModalOpen(true);
+  }, [closeHeaderPanels]);
+
+  const handleToggleRoutines = useCallback(() => {
+    setShowRoutines(prev => !prev);
+  }, []);
+
+  const handleToggleDiary = useCallback(() => {
+    setShowDiary(prev => !prev);
+  }, []);
+
+  const handleToggleEmotion = useCallback(() => {
+    setShowEmotion(prev => !prev);
+  }, []);
+
+  const handleToggleTodos = useCallback(() => {
+    setShowTodos(prev => !prev);
+  }, []);
+
+  const handleSubscribeSuccess = useCallback((message: string) => {
+    setToast({ message, type: 'success' });
+    loadData(true);
+  }, [loadData]);
+
   // Note: Initial load is now handled by useCalendarMetadata hook
 
 
@@ -452,6 +505,11 @@ export const MainLayout = ({
       if (!e.calendarUrl) return true;
 
       const normalizedUrl = normalizeCalendarUrl(e.calendarUrl!) || '';
+
+      // 동기화 해제된 캘린더: 즉시 표시에서 제외 (loadData 병합 전에도 적용)
+      if (unsyncedUrlsRef.current.has(normalizedUrl) || unsyncedUrlsRef.current.has(e.calendarUrl!)) {
+        return false;
+      }
 
       // 등록된 캘린더: 가시성 설정에 따라 필터링
       if (knownUrls.has(normalizedUrl)) {
@@ -787,64 +845,14 @@ export const MainLayout = ({
       }
       setDraftEvent(prev => (prev && prev.date === newEvent.date ? null : prev));
 
-      // 3. Perform CalDAV Sync in background
-      (async () => {
-        try {
-          if (event.calendarUrl) {
-            const calMeta = calendarMetadata.find(c => normalizeCalendarUrl(c.url) === normalizeCalendarUrl(event.calendarUrl));
-            const isGoogleCalendar = event.calendarUrl.startsWith('google:');
-            const isCalDavCalendar = calMeta?.type === 'caldav'
-              || (event.calendarUrl && (event.calendarUrl.includes('caldav') || event.calendarUrl.includes('icloud')));
-
-            if (isGoogleCalendar) {
-              if (calMeta?.readOnly) {
-                console.warn('Skipping Google create: Calendar is read-only', event.calendarUrl);
-              } else {
-                try {
-                  const { getGoogleProviderToken, uploadEventToGoogle } = await import('../lib/googleCalendar');
-                  const token = await getGoogleProviderToken();
-                  if (token) {
-                    const calId = event.calendarUrl.replace('google:', '');
-                    console.log('Syncing to Google Calendar (Create - Background)...', event.title);
-                    const gId = await uploadEventToGoogle(token, calId, newEvent);
-                    if (gId) {
-                      await updateEvent(newEvent.id, { caldavUid: gId });
-                    } else {
-                      console.error('Google Calendar creation failed (Background)');
-                    }
-                  }
-                } catch (e) {
-                  console.error('Google Sync Create Error (Background):', e);
-                }
-              }
-            } else if (isCalDavCalendar) {
-              if (calMeta?.readOnly) {
-                console.warn('Skipping CalDAV create: Calendar is read-only', event.calendarUrl);
-              } else {
-                const settings = await getCalDAVSyncSettings();
-                if (settings) {
-                  const config: CalDAVConfig = {
-                    serverUrl: settings.serverUrl,
-                    username: settings.username,
-                    password: settings.password,
-                    settingId: settings.id
-                  };
-
-                  console.log('Syncing to CalDAV (Background)...', eventToSave.title);
-                  const { success } = await createCalDavEvent(config, event.calendarUrl!, eventToSave);
-
-                  if (!success) {
-                    console.error('CalDAV creation failed (Background)');
-                    // Optional: Mark event as 'sync-failed' in local DB or notify user
-                  }
-                }
-              }
-            }
-          }
-        } catch (e) {
-          console.error('Remote Sync Error (Background):', e);
-        }
-      })();
+      void syncRemoteEventCreateInBackground({
+        inputEvent: eventToSave,
+        savedEvent: newEvent,
+        calendarMetadata,
+        onGoogleUidMapped: async (gId: string) => {
+          await updateEvent(newEvent.id, { caldavUid: gId });
+        },
+      });
     }
 
     // Return immediately (newEvent is already created)
@@ -862,7 +870,7 @@ export const MainLayout = ({
     // Check if it's a subscription event
     if (eventToDelete?.calendarUrl) {
       const calMeta = calendarMetadata.find(c => normalizeCalendarUrl(c.url) === normalizeCalendarUrl(eventToDelete.calendarUrl!));
-      if (calMeta && (calMeta.type === 'subscription' || calMeta.isSubscription || calMeta.url.includes('holidays') || calMeta.url.endsWith('.ics'))) {
+      if (isSubscriptionLikeCalendar(calMeta)) {
         setToast({ message: '구독한 캘린더의 일정은 변경/삭제할 수 없습니다.', type: 'error' });
         return;
       }
@@ -879,62 +887,12 @@ export const MainLayout = ({
       // removeIdFromSelection(eventId);
     }
 
-    // 2. Background Sync (CalDAV)
+    // 2. Background Sync
     if (eventToDelete?.calendarUrl && eventToDelete.caldavUid) {
-      // Run in background without awaiting
-      (async () => {
-        const calendarUrl = eventToDelete.calendarUrl!;
-        const calMeta = calendarMetadata.find(c => normalizeCalendarUrl(c.url) === normalizeCalendarUrl(calendarUrl));
-
-        const isGoogleCalendar = calendarUrl.startsWith('google:');
-        const isCalDavCalendar = calMeta?.type === 'caldav'
-          || (calendarUrl && (calendarUrl.includes('caldav') || calendarUrl.includes('icloud')));
-
-        if (isGoogleCalendar) {
-          if (calMeta?.readOnly) {
-            console.warn('Skipping Google delete: Calendar is read-only', calendarUrl);
-          } else {
-            try {
-              const { getGoogleProviderToken, deleteEventFromGoogle } = await import('../lib/googleCalendar');
-              const token = await getGoogleProviderToken();
-              if (token && eventToDelete.caldavUid) {
-                const calId = calendarUrl.replace('google:', '');
-                console.log('Syncing to Google Calendar (Delete - Background)...', eventToDelete.title);
-                const gSuccess = await deleteEventFromGoogle(token, calId, eventToDelete.caldavUid);
-                if (!gSuccess) {
-                  console.error('Google deletion failed (Background)');
-                }
-              }
-            } catch (e) {
-              console.error('Google Delete Error (Background):', e);
-            }
-          }
-        } else if (isCalDavCalendar) {
-          if (calMeta?.readOnly) {
-            console.warn('Skipping CalDAV delete: Calendar is read-only', calendarUrl);
-          } else {
-            try {
-              const settings = await getCalDAVSyncSettings();
-              if (settings) {
-                const config: CalDAVConfig = {
-                  serverUrl: settings.serverUrl,
-                  username: settings.username,
-                  password: settings.password,
-                  settingId: settings.id
-                };
-                console.log('Syncing to CalDAV (Delete - Background)...', eventToDelete.title);
-                const { success: caldavSuccess } = await deleteCalDavEvent(config, calendarUrl, eventToDelete.caldavUid!);
-
-                if (!caldavSuccess) {
-                  console.error('CalDAV deletion failed (Background)');
-                }
-              }
-            } catch (e) {
-              console.error('CalDAV Delete Error (Background):', e);
-            }
-          }
-        }
-      })();
+      void syncRemoteEventDeleteInBackground({
+        eventToDelete,
+        calendarMetadata,
+      });
     } else if (eventToDelete?.calendarUrl && !eventToDelete.caldavUid) {
       console.warn('UID missing for CalDAV event, skipping remote delete', eventToDelete);
     }
@@ -951,7 +909,7 @@ export const MainLayout = ({
     // Check if it's a subscription event
     if (oldEvent.calendarUrl) {
       const calMeta = calendarMetadata.find(c => normalizeCalendarUrl(c.url) === normalizeCalendarUrl(oldEvent.calendarUrl!));
-      if (calMeta && (calMeta.type === 'subscription' || calMeta.isSubscription || calMeta.url.includes('holidays') || calMeta.url.endsWith('.ics'))) {
+      if (isSubscriptionLikeCalendar(calMeta)) {
         setToast({ message: '구독한 캘린더의 일정은 변경/삭제할 수 없습니다.', type: 'error' });
         return;
       }
@@ -965,86 +923,15 @@ export const MainLayout = ({
       setSelectedEvent(prev => prev ? { ...prev, ...updates } : null);
     }
 
-    // 2. Background Sync (CalDAV)
+    // 2. Background Sync
     const targetCalendarUrl = updates.calendarUrl || oldEvent.calendarUrl;
 
     if (targetCalendarUrl) {
-      // Fire and Forget
-      (async () => {
-        try {
-          const calMeta = calendarMetadata.find(c => normalizeCalendarUrl(c.url) === normalizeCalendarUrl(targetCalendarUrl));
-          const isGoogleCalendar = targetCalendarUrl.startsWith('google:');
-          const isCalDavCalendar = calMeta?.type === 'caldav'
-            || (targetCalendarUrl && (targetCalendarUrl.includes('caldav') || targetCalendarUrl.includes('icloud')));
-
-          const uid = updates.caldavUid || oldEvent.caldavUid;
-          const mergedEvent = { ...oldEvent, ...updates };
-
-          if (isGoogleCalendar && uid) {
-            if (calMeta?.readOnly) {
-              console.warn('Skipping Google update: Calendar is read-only', targetCalendarUrl);
-            } else {
-              try {
-                const { getGoogleProviderToken, updateEventInGoogle } = await import('../lib/googleCalendar');
-                const token = await getGoogleProviderToken();
-                if (token) {
-                  const calId = targetCalendarUrl.replace('google:', '');
-                  console.log('Syncing to Google Calendar (Update - Background)...', mergedEvent.title);
-
-                  // For move operation you'd need delete then create, but for simplicity of same-calendar updates:
-                  const isMovingCalendar = updates.calendarUrl && normalizeCalendarUrl(updates.calendarUrl) !== normalizeCalendarUrl(oldEvent.calendarUrl || '');
-
-                  if (isMovingCalendar && oldEvent.calendarUrl && oldEvent.calendarUrl.startsWith('google:')) {
-                    // Advanced: Handling move between two google calendars
-                    const { deleteEventFromGoogle, uploadEventToGoogle } = await import('../lib/googleCalendar');
-                    await deleteEventFromGoogle(token, oldEvent.calendarUrl.replace('google:', ''), uid);
-                    await uploadEventToGoogle(token, calId, mergedEvent);
-                  } else {
-                    // Regular update (or update in new system if moved from CalDAV to Google, handled as pure override)
-                    const success = await updateEventInGoogle(token, calId, uid, mergedEvent);
-                    if (!success) {
-                      console.error('Google update failed');
-                    }
-                  }
-                }
-              } catch (e) {
-                console.error('Google Update Error (Background):', e);
-              }
-            }
-          } else if (isCalDavCalendar && uid) {
-            if (calMeta?.readOnly) {
-              console.warn('Skipping CalDAV update: Calendar is read-only', targetCalendarUrl);
-            } else {
-              const settings = await getCalDAVSyncSettings();
-              if (settings) {
-                const config: CalDAVConfig = {
-                  serverUrl: settings.serverUrl,
-                  username: settings.username,
-                  password: settings.password,
-                  settingId: settings.id
-                };
-
-                const isMovingCalendar = updates.calendarUrl && normalizeCalendarUrl(updates.calendarUrl) !== normalizeCalendarUrl(oldEvent.calendarUrl || '');
-
-                if (isMovingCalendar && oldEvent.calendarUrl) {
-                  console.log(`Moving event ${uid} from ${oldEvent.calendarUrl} to ${targetCalendarUrl}`);
-                  const { success: deleteSuccess } = await deleteCalDavEvent(config, oldEvent.calendarUrl, uid);
-                  if (!deleteSuccess) console.error('CalDAV Move: Failed to delete from old calendar', oldEvent.calendarUrl);
-
-                  const { success: createSuccess } = await createCalDavEvent(config, targetCalendarUrl, mergedEvent);
-                  if (!createSuccess) console.error('CalDAV Move: Failed to create in new calendar', targetCalendarUrl);
-                } else {
-                  console.log(`Updating event ${uid} in ${targetCalendarUrl}`);
-                  const { success } = await updateCalDavEvent(config, targetCalendarUrl, uid, mergedEvent);
-                  if (!success) console.error('CalDAV update failed');
-                }
-              }
-            }
-          }
-        } catch (e) {
-          console.error('Remote Background Update Error:', e);
-        }
-      })();
+      void syncRemoteEventUpdateInBackground({
+        oldEvent,
+        updates,
+        calendarMetadata,
+      });
     }
 
     // Record Action for Undo
@@ -1136,7 +1023,7 @@ export const MainLayout = ({
   );
 
   const writableCalendars = useMemo(
-    () => allCalendars.filter(c => !c.isSubscription && !c.readOnly),
+    () => allCalendars.filter(isWritableCalendar),
     [allCalendars]
   );
 
@@ -1187,225 +1074,111 @@ export const MainLayout = ({
   }, [endDrag, cancelDrag, dragStateRef]);
 
   const handleDeleteCalendar = useCallback((url: string, actionType?: 'unsync' | 'delete') => {
-    if (url.startsWith('google:')) {
-      // 1. 구글 캘린더 동기화 해제
-      const id = url.replace('google:', '');
-      removeGoogleCalendar(id);
-
-      // 2. 로컬DB의 구글 캐시 내역 정리
-      (async () => {
-        const { error } = await supabase.from('events').delete().eq('calendar_url', url);
-        if (error) console.error('Failed to cleanup google local events', error);
-        loadData(true);
-      })();
-      setToast({ message: '구글 캘린더 동기화가 해제되었습니다.', type: 'success' });
-      return;
-    }
-
-    const calendar = calendarMetadata.find(c => c.url === url);
-    if (!calendar) return;
-
-    if (actionType === 'unsync') {
-      setCalDeleteState({
-        isOpen: true,
-        url,
-        name: calendar.displayName || '캘린더',
-        isCalDAV: true, // For UI purposes
-        isUnsync: true
-      });
-      return;
-    }
-
-    setCalDeleteOption('local'); // Reset default option
-    setCalDeleteState({
-      isOpen: true,
-      url,
-      name: calendar.displayName || '캘린더',
-      isCalDAV: !calendar.isLocal && !calendar.readOnly && !calendar.isSubscription && calendar.type !== 'subscription',
-      isUnsync: false
-    });
-  }, [calendarMetadata, removeGoogleCalendar, loadData]);
+    const nextState = buildCalendarDeleteState(url, actionType, calendarMetadata, googleCalendars);
+    if (!nextState) return;
+    if (!nextState.isUnsync) setCalDeleteOption('local');
+    setCalDeleteState(nextState);
+  }, [calendarMetadata, googleCalendars]);
 
   const handleConfirmDelete = useCallback(async () => {
     if (!calDeleteState) return;
-    const { url, isCalDAV, isUnsync } = calDeleteState;
+    const { url, isCalDAV, isUnsync, isGoogle } = calDeleteState;
 
     // Close dialog
     setCalDeleteState(null);
 
     if (isUnsync) {
-      // 동기화 해제: 캘린더 메타데이터 + 연결된 이벤트 모두 삭제
-      deleteCalendar(url);
-      (async () => {
-        try {
-          await supabase.from('events').delete().eq('calendar_url', url);
-          const normUrl = normalizeCalendarUrl(url);
-          if (normUrl && normUrl !== url) {
-            await supabase.from('events').delete().eq('calendar_url', normUrl);
-          }
-          loadData(true);
-        } catch (e) {
-          console.error('Unsync cleanup error:', e);
-        }
-      })();
-      setToast({ message: '동기화가 해제되었습니다.', type: 'success' });
+      await runCalendarUnsyncFlow({
+        url,
+        isGoogle,
+        markUnsyncedUrl: (u) => unsyncedUrlsRef.current.add(u),
+        removeGoogleCalendar,
+        deleteCalendar,
+        loadData,
+        setToast,
+      });
       return;
     }
 
     const deleteFromServer = isCalDAV && calDeleteOption === 'remote';
-    await executeDeleteCalendar(url, deleteFromServer);
-  }, [calDeleteState, calDeleteOption, deleteCalendar, loadData]);
-
-  const executeDeleteCalendar = async (url: string, deleteFromServer: boolean) => {
-    if (deleteFromServer) {
-      try {
-        const settings = await getCalDAVSyncSettings();
-        if (settings) {
-          const config: CalDAVConfig = {
-            serverUrl: settings.serverUrl,
-            username: settings.username,
-            password: settings.password,
-            settingId: settings.id
-          };
-          await deleteRemoteCalendar(config, url);
-        }
-      } catch (e) {
-        console.error("서버 캘린더 삭제 실패:", e);
-        alert(`서버 캘린더 삭제 중 오류가 발생했습니다.\n목록에서만 제거됩니다.\n${e instanceof Error ? e.message : String(e)}`);
-      }
-    }
-
-    // 3. 로컬 목록 및 데이터 제거
-    deleteCalendar(url);
-
-    const normalizedUrl = normalizeCalendarUrl(url);
-    if (normalizedUrl) {
-      const { error } = await supabase.from('events').delete().eq('calendar_url', normalizedUrl);
-      if (error) console.error('Failed to delete events for calendar', url, error);
-
-      // Reset holiday sync flag if it's the holiday calendar
-      if (url.includes('holidays/kr_ko.ics')) {
-        localStorage.removeItem('holiday_synced_v2');
-      }
-    }
-  };
+    await runCalendarDeleteFlow({ url, deleteFromServer, deleteCalendar });
+  }, [calDeleteState, calDeleteOption, deleteCalendar, loadData, removeGoogleCalendar]);
 
   // --- Sync Local Calendar to Mac/iCloud ---
   const handleSyncToMac = useCallback(async (calendar: CalendarMetadata) => {
     try {
-      // 1. CalDAV 설정 확인
-      const savedSettings = await getCalDAVSyncSettings();
-      if (!savedSettings?.serverUrl || !savedSettings?.username) {
+      setToast({ message: 'Mac 캘린더에 추가 중...', type: 'loading' });
+      const result = await syncLocalCalendarToMac(calendar);
+
+      if (result.status === 'needs-auth') {
         setPendingSyncCalendar(calendar);
         setCalDAVModalMode('auth-only');
         setIsCalDAVModalOpen(true);
-        // 설정이 완료된 후 다시 이 함수가 호출되지는 않으므로, 
-        // 사용자가 다시 '맥 캘린더 생성'을 눌러야 함을 알리는 Toast를 띄울 수도 있지만,
-        // 일단 UI 흐름을 단순화하기 위해 바로 모달만 띄움.
+        setToast(null);
         return;
       }
 
-      const config: CalDAVConfig = {
-        serverUrl: savedSettings.serverUrl,
-        username: savedSettings.username,
-        password: savedSettings.password,
-        settingId: savedSettings.id,
-      };
-
-      // 2. 백그라운드에서 원격 캘린더 생성 (Toast로 피드백)
-      setToast({ message: 'Mac 캘린더에 추가 중...', type: 'loading' });
-      // 캘린더 팝업을 닫고 싶은 경우 여기서 닫을 수 있음 (setIsCalendarPopupOpen(false)) - 사용자 선택
-
-      try {
-        const result = await createRemoteCalendar(config, calendar.displayName, calendar.color);
-
-        if (result.success) {
-          // 3. 로컬 캘린더를 CalDAV 캘린더로 변환
-          const newCalendar = {
-            url: result.calendarUrl,
-            displayName: result.displayName,
-            color: result.color,
-            isVisible: true,
-            isLocal: false,
-            type: 'caldav' as const,
-            createdFromApp: true,
-          };
-
-          convertLocalToCalDAV(calendar.url, newCalendar);
-
-          setHiddenCalendarUrls(prev => {
-            if (prev.has(calendar.url) || prev.has(result.calendarUrl)) {
-              const next = new Set(prev);
-              next.delete(result.calendarUrl); // ensure new is visible
-              // if old was hidden, maybe hide new instead? No, if user syncs to Mac, they probably want to see it.
-              localStorage.setItem('riffHiddenCalendars', JSON.stringify(Array.from(next)));
-              return next;
-            }
-            return prev;
-          });
-
-          // 성공 Toast (팝업 대신)
-          setToast({ message: 'Mac 캘린더에 추가되었습니다.', type: 'success' });
-        }
-      } catch (error) {
-        console.error('Mac 캘린더 생성 실패:', error);
-        setToast(null); // 로딩 Toast 제거
+      if (result.status === 'error') {
+        console.error('Mac 캘린더 생성 실패:', result.message);
+        setToast(null);
         setConfirmDialog({
           isOpen: true,
           title: '오류',
-          message: `Mac 캘린더 생성 실패: ${error instanceof Error ? error.message : String(error)}`,
+          message: `Mac 캘린더 생성 실패: ${result.message}`,
         });
+        return;
       }
+
+      convertLocalToCalDAV(calendar.url, result.newCalendar);
+      setHiddenCalendarUrls(prev => {
+        if (prev.has(calendar.url) || prev.has(result.remoteCalendarUrl)) {
+          const next = new Set(prev);
+          next.delete(result.remoteCalendarUrl);
+          localStorage.setItem('riffHiddenCalendars', JSON.stringify(Array.from(next)));
+          return next;
+        }
+        return prev;
+      });
+      setToast({ message: 'Mac 캘린더에 추가되었습니다.', type: 'success' });
     } catch (e) {
       console.error('Sync failed:', e);
       setToast(null);
       alert('동기화 중 오류가 발생했습니다.');
     }
-  }, [getCalDAVSyncSettings, convertLocalToCalDAV]);
+  }, [convertLocalToCalDAV]);
 
   // ── 모달 콜백 (useCallback으로 참조 안정화 → AppModals/CalendarListPopup memo() 유효화) ─
 
   const handleUpdateLocalCalendar = useCallback(async (url: string, updates: Partial<CalendarMetadata>) => {
     updateLocalCalendar(url, updates);
     if (updates.displayName) {
-      const cal = calendarMetadata.find(c => c.url === url);
-      const isCalDAVSynced = cal && cal.createdFromApp && !cal.isLocal && cal.url.startsWith('http');
-      if (isCalDAVSynced) {
-        try {
-          const settings = await getCalDAVSyncSettings();
-          if (settings) {
-            const config: CalDAVConfig = {
-              serverUrl: settings.serverUrl,
-              username: settings.username,
-              password: settings.password,
-              settingId: settings.id,
-            };
-            await renameRemoteCalendar(config, url, updates.displayName);
-          }
-        } catch (e) {
-          console.warn('[Rename] 서버 이름 변경 실패 (로컬에는 저장됨):', e);
-        }
-      }
+      await syncCalendarNameToRemote(url, updates.displayName, calendarMetadata);
     }
-  }, [calendarMetadata, updateLocalCalendar, getCalDAVSyncSettings]);
+  }, [calendarMetadata, updateLocalCalendar]);
 
   const handleSyncComplete = useCallback(async (count: number, syncedCalendarUrls?: string[]) => {
-    loadData(true);
+    localStorage.removeItem('caldavAuthError');
+    setIsCalDAVAuthError(false);
+    // 재동기화된 캘린더를 exclude 목록에서 제거 (다음 백그라운드 sync에서 포함되도록)
+    if (syncedCalendarUrls?.length) {
+      syncedCalendarUrls.forEach(u => {
+        unsyncedUrlsRef.current.delete(u);
+        const norm = normalizeCalendarUrl(u);
+        if (norm) unsyncedUrlsRef.current.delete(norm);
+      });
+    }
+    // 메타데이터를 먼저 갱신 (모달에서 저장한 새 캘린더 반영)
     if (syncedCalendarUrls && syncedCalendarUrls.length > 0) {
       const urlRemap = refreshMetadataWithServerList(syncedCalendarUrls);
       if (urlRemap.size > 0) {
-        for (const [oldUrl, newLocalUrl] of urlRemap.entries()) {
-          const { error } = await supabase
-            .from('events')
-            .update({ calendar_url: newLocalUrl })
-            .eq('calendar_url', oldUrl);
-          if (error) console.error(`[Sync] Event re-link failed: ${oldUrl} →`, error);
-        }
-        loadData(true);
+        await relinkEventsByCalendarUrl(urlRemap, '[Sync]');
       }
     } else {
       refreshMetadata();
     }
+    await loadData(true);
+    // 메타데이터 갱신 후 다음 틱에 sync 트리거 (모달 sync가 syncInFlight로 차단됐을 때 백업)
+    setTimeout(() => triggerCalDAVSync(), 0);
     setToast({ message: '캘린더 동기화에 성공했습니다.', type: 'success' });
     if (pendingSyncCalendar) {
       const cal = pendingSyncCalendar;
@@ -1413,10 +1186,17 @@ export const MainLayout = ({
       // 언마운트 시 clearTimeout으로 정리되는 안전한 타이머
       pendingSyncTimerRef.current = setTimeout(() => handleSyncToMac(cal), 500);
     }
-  }, [loadData, refreshMetadataWithServerList, refreshMetadata, pendingSyncCalendar, handleSyncToMac]);
+  }, [loadData, refreshMetadataWithServerList, refreshMetadata, pendingSyncCalendar, handleSyncToMac, triggerCalDAVSync]);
 
   const handleGoogleSyncComplete = useCallback(async (selectedMeta: CalendarMetadata[]) => {
     setIsGoogleSyncModalOpen(false);
+    // 재동기화된 구글 캘린더를 exclude 목록에서 제거 (즉시 표시되도록)
+    selectedMeta.forEach(m => {
+      if (m.googleCalendarId) {
+        const url = `google:${m.googleCalendarId}`;
+        unsyncedUrlsRef.current.delete(url);
+      }
+    });
     await syncGoogleCalendar(selectedMeta);
     setToast({ message: 'Google 캘린더 동기화에 성공했습니다.', type: 'success' });
   }, [syncGoogleCalendar]);
@@ -1436,66 +1216,112 @@ export const MainLayout = ({
     }
   }, [loadData]);
 
+  const handleSelectionDeleteShortcut = useCallback(() => {
+    if (selectedEventIds.length === 0) return;
+
+    const validIdsToDelete = selectedEventIds.filter(id => {
+      const event = events.find(ev => ev.id === id);
+      if (event?.calendarUrl) {
+        const calMeta = calendarMetadata.find(c => normalizeCalendarUrl(c.url) === normalizeCalendarUrl(event.calendarUrl!));
+        if (isSubscriptionLikeCalendar(calMeta)) {
+          return false;
+        }
+      }
+      return true;
+    });
+
+    if (validIdsToDelete.length < selectedEventIds.length) {
+      setToast({ message: '구독한 캘린더의 일정은 변경/삭제할 수 없습니다.', type: 'error' });
+    }
+
+    if (validIdsToDelete.length > 0) {
+      Promise.all(validIdsToDelete.map(id => handleDeleteEventWrapper(id)));
+    }
+    clearSelection();
+  }, [selectedEventIds, events, calendarMetadata, handleDeleteEventWrapper, clearSelection]);
+
+  const handleCopyShortcut = useCallback(() => {
+    if (selectedEventIds.length === 0) return;
+    const eventToCopy = events.find(ev => ev.id === selectedEventIds[0]);
+    if (eventToCopy) {
+      setClipboardEvent(eventToCopy);
+      console.log('Event copied:', eventToCopy.title);
+    }
+  }, [selectedEventIds, events, setClipboardEvent]);
+
+  const handlePasteShortcut = useCallback(() => {
+    if (!clipboardEvent || !hoveredDate) return;
+    const { id, caldavUid, ...rest } = clipboardEvent;
+    void id;
+    void caldavUid;
+    handleAddEventWrapper({
+      ...rest,
+      date: hoveredDate,
+    });
+    console.log(`Event pasted to ${hoveredDate}`);
+  }, [clipboardEvent, hoveredDate, handleAddEventWrapper]);
+
+  const handleGlobalShortcutKeyDown = useCallback((e: KeyboardEvent) => {
+    if (['INPUT', 'TEXTAREA'].includes(document.activeElement?.tagName || '')) return;
+
+    if (e.key === 'Delete' || e.key === 'Backspace') {
+      if (selectedEventIds.length > 0) {
+        e.preventDefault();
+        handleSelectionDeleteShortcut();
+      }
+      return;
+    }
+
+    if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'c') {
+      handleCopyShortcut();
+      return;
+    }
+
+    if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'v') {
+      handlePasteShortcut();
+    }
+  }, [selectedEventIds.length, handleSelectionDeleteShortcut, handleCopyShortcut, handlePasteShortcut]);
+
   // --- Keyboard Selection Delete ---
   useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      // 입력 필드 포커스 시 무시
-      if (['INPUT', 'TEXTAREA'].includes(document.activeElement?.tagName || '')) return;
+    window.addEventListener('keydown', handleGlobalShortcutKeyDown);
+    return () => window.removeEventListener('keydown', handleGlobalShortcutKeyDown);
+  }, [handleGlobalShortcutKeyDown]);
 
-      if ((e.key === 'Delete' || e.key === 'Backspace') && selectedEventIds.length > 0) {
-        e.preventDefault(); // 백스페이스로 페이지 뒤로가기 방지
+  const handleQuickAddSchedule = useCallback(() => {
+    let dateToUse = activeDate;
 
-        // Prevent deleting subscription events via keyboard
-        const validIdsToDelete = selectedEventIds.filter(id => {
-          const event = events.find(ev => ev.id === id);
-          if (event?.calendarUrl) {
-            const calMeta = calendarMetadata.find(c => normalizeCalendarUrl(c.url) === normalizeCalendarUrl(event.calendarUrl!));
-            if (calMeta && (calMeta.type === 'subscription' || calMeta.isSubscription || calMeta.url.includes('holidays') || calMeta.url.endsWith('.ics'))) {
-              return false;
+    if (!dateToUse) {
+      const dayMetas = Array.from(document.querySelectorAll('[data-date-allday]')) as HTMLElement[];
+      const visibleMeta = dayMetas.find(el => el.getBoundingClientRect().top > 70);
+
+      if (visibleMeta) {
+        const weekCard = visibleMeta.closest('[data-week-id]');
+        if (weekCard) {
+          const weekMetas = Array.from(weekCard.querySelectorAll('[data-date-allday]')) as HTMLElement[];
+          for (const meta of weekMetas) {
+            const dateStr = meta.getAttribute('data-date-allday');
+            if (!dateStr) continue;
+            const [y, m, d] = dateStr.split('-').map(Number);
+            const dateObj = new Date(y, m - 1, d);
+            if (dateObj.getDay() === 1) {
+              dateToUse = dateStr;
+              break;
             }
           }
-          return true;
-        });
-
-        if (validIdsToDelete.length < selectedEventIds.length) {
-          setToast({ message: '구독한 캘린더의 일정은 변경/삭제할 수 없습니다.', type: 'error' });
-        }
-
-        if (validIdsToDelete.length > 0) {
-          Promise.all(validIdsToDelete.map(id => handleDeleteEventWrapper(id)));
-        }
-        clearSelection();
-      }
-
-      // Copy (Cmd/Ctrl + C)
-      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'c') {
-        if (selectedEventIds.length > 0) {
-          const eventToCopy = events.find(ev => ev.id === selectedEventIds[0]);
-          if (eventToCopy) {
-            setClipboardEvent(eventToCopy);
-            console.log('Event copied:', eventToCopy.title);
-          }
         }
       }
+    }
 
-      // Paste (Cmd/Ctrl + V)
-      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'v') {
-        if (clipboardEvent && hoveredDate) {
-          // eslint-disable-next-line @typescript-eslint/no-unused-vars
-          const { id, caldavUid, ...rest } = clipboardEvent; // Remove ID and UID to create new event
-          handleAddEventWrapper({
-            ...rest,
-            date: hoveredDate,
-            // Keep original times and props
-          });
-          console.log(`Event pasted to ${hoveredDate}`);
-        }
-      }
-    };
+    if (!dateToUse) {
+      const today = new Date();
+      dateToUse = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+    }
 
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [selectedEventIds, handleDeleteEventWrapper, clearSelection, events, clipboardEvent, setClipboardEvent, hoveredDate, addEvent]);
+    const slotToUse = (activeDate && activeTimeSlot) ? activeTimeSlot : 'am';
+    const alignEl = document.querySelector(`[data-date-${slotToUse}="${dateToUse}"]`) as HTMLElement | null;
+    handleDateClick(dateToUse, alignEl ?? undefined, slotToUse);
+  }, [activeDate, activeTimeSlot, handleDateClick]);
 
   return (
     <div className={styles.appLayout}>
@@ -1523,6 +1349,7 @@ export const MainLayout = ({
               }}
               onOpenGoogleSync={() => setIsGoogleSyncModalOpen(true)}
               isSyncingGoogle={isSyncingGoogle}
+              isCalDAVAuthError={isCalDAVAuthError}
               onShowToast={(message, type) => setToast({ message, type })}
             />
           ) : undefined
@@ -1534,76 +1361,21 @@ export const MainLayout = ({
         isProfileMenuOpen={isProfileMenuOpen}
         profileMenuRef={profileMenuRef}
         onScrollToToday={scrollToToday}
-        onAddSchedule={() => {
-          let dateToUse = activeDate;
-
-          if (!dateToUse) {
-            // 빈 공간 클릭이나 선택 해제 등으로 activeDate가 없을 때
-            // 화면상에 날짜(dayMeta)가 가려지지 않고 온전히 보이는 첫 번째 날짜 요소를 찾습니다.
-            const dayMetas = Array.from(document.querySelectorAll('[data-date-allday]')) as HTMLElement[];
-            // 상단 헤더 높이가 대략 60~65px 이므로, 70px 이상이면 가려지지 않고 보인다고 판단.
-            const visibleMeta = dayMetas.find(el => el.getBoundingClientRect().top > 70);
-
-            if (visibleMeta) {
-              // 그 요소가 속한 주간(weekCard) 전체를 가져옵니다.
-              const weekCard = visibleMeta.closest('[data-week-id]');
-              if (weekCard) {
-                // 해당 주간에 속한 모든 날짜들을 시도하여 월요일(getDay() === 1)을 찾습니다.
-                const weekMetas = Array.from(weekCard.querySelectorAll('[data-date-allday]')) as HTMLElement[];
-                for (const meta of weekMetas) {
-                  const dateStr = meta.getAttribute('data-date-allday');
-                  if (dateStr) {
-                    const [y, m, d] = dateStr.split('-').map(Number);
-                    const dateObj = new Date(y, m - 1, d);
-                    if (dateObj.getDay() === 1) { // 1 = 월요일
-                      dateToUse = dateStr;
-                      break;
-                    }
-                  }
-                }
-              }
-            }
-          }
-
-          if (!dateToUse) {
-            // 만약 뭔가 잘못되어 화면에서 월요일을 찾지 못했다면(예: 매우 좁은 주간 등), 오늘로 폴백합니다.
-            const today = new Date();
-            dateToUse = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
-          }
-
-          const slotToUse = (activeDate && activeTimeSlot) ? activeTimeSlot : 'am';
-          const alignEl = document.querySelector(`[data-date-${slotToUse}="${dateToUse}"]`) as HTMLElement | null;
-          handleDateClick(dateToUse, alignEl ?? undefined, slotToUse);
-        }}
-        onToggleProfileMenu={() => setIsProfileMenuOpen(p => !p)}
+        onAddSchedule={handleQuickAddSchedule}
+        onToggleProfileMenu={handleToggleProfileMenu}
         onLogout={handleLogout}
 
-        onOpenRoutine={() => {
-          setIsProfileMenuOpen(false);
-          setIsSettingsModalOpen(false);
-          setIsTimeSettingsModalOpen(false);
-          setIsRoutineModalOpen(true);
-        }}
+        onOpenRoutine={handleOpenRoutineFromHeader}
         showRoutines={showRoutines}
-        onToggleRoutines={() => setShowRoutines(p => !p)}
+        onToggleRoutines={handleToggleRoutines}
         showDiary={showDiary}
-        onToggleDiary={() => setShowDiary(p => !p)}
+        onToggleDiary={handleToggleDiary}
         showEmotion={showEmotion}
-        onToggleEmotion={() => setShowEmotion(p => !p)}
+        onToggleEmotion={handleToggleEmotion}
         showTodos={showTodos}
-        onToggleTodos={() => setShowTodos(p => !p)}
-        onOpenSettings={() => {
-          setIsProfileMenuOpen(false);
-          setIsRoutineModalOpen(false);
-          setIsTimeSettingsModalOpen(false);
-          setIsSettingsModalOpen(true);
-        }}
-        onOpenTimeSettings={() => {
-          setIsProfileMenuOpen(false);
-          setIsRoutineModalOpen(false);
-          setIsSettingsModalOpen(false);
-          setIsTimeSettingsModalOpen(true);
-        }}
+        onToggleTodos={handleToggleTodos}
+        onOpenSettings={handleOpenSettingsFromHeader}
+        onOpenTimeSettings={handleOpenTimeSettingsFromHeader}
       />
 
       <div
@@ -1706,10 +1478,7 @@ export const MainLayout = ({
         {isSubscribeModalOpen && (
           <SubscribeModal
             onClose={() => setIsSubscribeModalOpen(false)}
-            onSubscribeSuccess={(message) => {
-              setToast({ message, type: 'success' });
-              loadData(true);
-            }}
+            onSubscribeSuccess={handleSubscribeSuccess}
             calendarMetadata={calendarMetadata}
             setCalendarMetadata={setCalendarMetadata}
           />

@@ -834,6 +834,43 @@ export const bulkUpsertGoogleEvents = async (
   return true;
 };
 
+// 구독 캘린더용 bulk upsert — 개별 upsert N회 → 단일 DB 왕복 (Auth 락 경합 방지)
+export const bulkUpsertSubscriptionEvents = async (
+  events: Array<Omit<Event, 'id'> & { calendarUrl: string; source?: 'caldav'; caldavUid?: string; endDate?: string }>
+): Promise<boolean> => {
+  if (events.length === 0) return true;
+
+  const { data: userData } = await supabase.auth.getUser();
+  if (!userData.user) return false;
+
+  const payloads = events.map(event => {
+    const { startTime, endTime, calendarUrl, caldavUid, endDate, ...rest } = event as any;
+    const payload: any = {
+      ...rest,
+      start_time: startTime,
+      end_time: endTime,
+      memo: serializeMemo(rest.memo, endDate ? { endDate } : {}),
+      source: 'caldav',
+      user_id: userData.user!.id,
+      calendar_url: normalizeCalendarUrl(calendarUrl) || calendarUrl,
+    };
+    delete payload.caldavUid;
+    delete payload.endDate;
+    if (caldavUid) payload.caldav_uid = caldavUid;
+    return payload;
+  });
+
+  const { error } = await supabase
+    .from('events')
+    .upsert(payloads, { onConflict: 'user_id,caldav_uid,calendar_url' });
+
+  if (error) {
+    console.error('Error bulk upserting subscription events:', error);
+    return false;
+  }
+  return true;
+};
+
 // Google sync용 bulk delete — 취소된 이벤트를 단일 쿼리로 일괄 삭제
 export const bulkDeleteEventsByCaldavUids = async (
   caldavUids: string[],
@@ -1338,13 +1375,22 @@ export const saveCalDAVSyncSettings = async (settings: {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return false;
 
+  // 비밀번호가 비어있으면 기존 저장된 값 유지 (동기화/캘린더 선택 시 덮어쓰기 방지)
+  let passwordToSave = settings.password;
+  if (!passwordToSave || passwordToSave.trim() === '') {
+    const existing = await getCalDAVSyncSettings();
+    if (existing?.password) {
+      passwordToSave = existing.password;
+    }
+  }
+
   const { error } = await supabase
     .from('caldav_sync_settings')
     .upsert({
       user_id: user.id,
       server_url: settings.serverUrl,
       username: settings.username,
-      password: settings.password,
+      password: passwordToSave,
       selected_calendar_urls: settings.selectedCalendarUrls,
       sync_interval_minutes: settings.syncIntervalMinutes || 60,
       enabled: true,
@@ -1355,6 +1401,23 @@ export const saveCalDAVSyncSettings = async (settings: {
 
   if (error) {
     console.error('Error saving CalDAV sync settings:', error);
+    return false;
+  }
+  return true;
+};
+
+/** selectedCalendarUrls만 갱신 (비밀번호 등 다른 필드 건드리지 않음 — 인증 오염 방지) */
+export const updateCalDAVSelectedCalendars = async (selectedCalendarUrls: string[]): Promise<boolean> => {
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return false;
+
+  const { error } = await supabase
+    .from('caldav_sync_settings')
+    .update({ selected_calendar_urls: selectedCalendarUrls })
+    .eq('user_id', user.id);
+
+  if (error) {
+    console.error('Error updating CalDAV selected calendars:', error);
     return false;
   }
   return true;
@@ -1411,6 +1474,30 @@ export const deleteAllGoogleData = async (): Promise<boolean> => {
   if (error) {
     console.error('Error deleting Google events:', error);
     return false;
+  }
+  return true;
+};
+
+/** 동기화 해제 시 해당 캘린더의 이벤트 일괄 삭제 (calendar_url 기준, 정규화/비정규화 모두 처리) */
+export const deleteEventsByCalendarUrl = async (calendarUrl: string): Promise<boolean> => {
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return false;
+
+  const normUrl = normalizeCalendarUrl(calendarUrl) || calendarUrl;
+  const urlsToTry = [...new Set([normUrl, calendarUrl].filter(Boolean))];
+  if (urlsToTry.length === 0) return true;
+
+  // PostgREST .in() 대신 각 URL별로 삭제 (호환성·RLS 이슈 회피)
+  for (const url of urlsToTry) {
+    const { error } = await supabase
+      .from('events')
+      .delete()
+      .eq('calendar_url', url);
+
+    if (error) {
+      console.error('Error deleting events by calendar_url:', url, error);
+      return false;
+    }
   }
   return true;
 };
