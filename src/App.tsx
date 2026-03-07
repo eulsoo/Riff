@@ -78,7 +78,8 @@ export default function App() {
         }
         setSession(session);
         if (_event === 'SIGNED_IN' && session.provider_token && session.provider_refresh_token) {
-          saveGoogleRefreshToken(session.provider_refresh_token).catch(console.error);
+          // access_token을 직접 전달 — 클라이언트 내부 세션 업데이트 타이밍 문제 방지
+          saveGoogleRefreshToken(session.provider_refresh_token, session.access_token).catch(console.error);
         }
       } else if (_event === 'SIGNED_OUT') {
         // Only clear session on explicit sign-out
