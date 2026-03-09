@@ -59,14 +59,15 @@ describe('calendarDeleteFlow', () => {
     vi.clearAllMocks();
   });
 
-  it('Google 캘린더는 unsync만 허용하고 delete는 null 상태를 반환한다', () => {
+  it('Google 캘린더는 unsync/delete 상태를 모두 생성한다', () => {
     const google = makeCalendar({ url: 'google:primary', displayName: 'Google Primary' });
     const unsyncState = buildCalendarDeleteState('google:primary', 'unsync', [], [google]);
     const deleteState = buildCalendarDeleteState('google:primary', 'delete', [], [google]);
 
     expect(unsyncState?.isUnsync).toBe(true);
     expect(unsyncState?.isGoogle).toBe(true);
-    expect(deleteState).toBeNull();
+    expect(deleteState?.isGoogle).toBe(true);
+    expect(deleteState?.isUnsync).toBe(false);
   });
 
   it('CalDAV unsync 시 token/이벤트/선택 캘린더를 정리한다', async () => {
@@ -132,5 +133,22 @@ describe('calendarDeleteFlow', () => {
     expect(mocked.from).toHaveBeenCalledWith('events');
     expect(mocked.del).toHaveBeenCalled();
     expect(mocked.eq).toHaveBeenCalledWith('calendar_url', 'https://caldav.icloud.com/user/calendars/work');
+  });
+
+  it('Google 원격 삭제 옵션일 때 Google API 삭제 후 로컬 정리를 수행한다', async () => {
+    const deleteCalendar = vi.fn();
+    const deleteGoogleCalendarById = vi.fn().mockResolvedValue(undefined);
+
+    await runCalendarDeleteFlow({
+      url: 'google:my-calendar-id',
+      deleteFromServer: true,
+      deleteCalendar,
+      isGoogle: true,
+      deleteGoogleCalendarById,
+    });
+
+    expect(deleteGoogleCalendarById).toHaveBeenCalledWith('my-calendar-id');
+    expect(deleteCalendar).toHaveBeenCalledWith('google:my-calendar-id');
+    expect(mocked.deleteEventsByCalendarUrl).toHaveBeenCalledWith('google:my-calendar-id');
   });
 });

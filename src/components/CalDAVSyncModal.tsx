@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { Calendar, CalDAVConfig, getCalendars, syncSelectedCalendars, waitForSyncIdle } from '../services/caldav';
 import { saveCalDAVSyncSettings, getCalDAVSyncSettings, deleteAllCalDAVData, saveCalendarMetadata, deleteCalDAVSyncSettings, normalizeCalendarUrl, CalendarMetadata } from '../services/api';
 import { supabase } from '../lib/supabase';
@@ -10,9 +10,16 @@ interface CalDAVSyncModalProps {
   onSyncComplete: (count: number, syncedCalendarUrls?: string[]) => void | Promise<void>;
   mode?: 'sync' | 'auth-only';
   existingCalendars: CalendarMetadata[];
+  authNoticeMessage?: string;
 }
 
-export function CalDAVSyncModal({ onClose, onSyncComplete, mode = 'sync', existingCalendars }: CalDAVSyncModalProps) {
+export function CalDAVSyncModal({
+  onClose,
+  onSyncComplete,
+  mode = 'sync',
+  existingCalendars,
+  authNoticeMessage,
+}: CalDAVSyncModalProps) {
   const [step, setStep] = useState<'credentials' | 'selection'>('credentials');
   const [serverUrl, setServerUrl] = useState('https://caldav.icloud.com');
   const [username, setUsername] = useState('');
@@ -32,6 +39,21 @@ export function CalDAVSyncModal({ onClose, onSyncComplete, mode = 'sync', existi
     serverUrl?: string;
     username?: string;
   } | null>(null);
+
+  // Riff 섹션에서 iCloud로 연동된(createdFromApp) 캘린더는 iCloud 선택 목록에서 제외
+  const selectableCalendars = useMemo(() => {
+    const riffSyncedUrlSet = new Set(
+      existingCalendars
+        .filter(cal => cal.createdFromApp)
+        .map(cal => normalizeCalendarUrl(cal.url))
+        .filter(Boolean)
+    );
+
+    return calendars.filter(cal => {
+      const normalized = normalizeCalendarUrl(cal.url);
+      return !normalized || !riffSyncedUrlSet.has(normalized);
+    });
+  }, [calendars, existingCalendars]);
 
   // 기존 설정 불러오기
   useEffect(() => {
@@ -160,6 +182,16 @@ export function CalDAVSyncModal({ onClose, onSyncComplete, mode = 'sync', existi
 
       // 기존 설정이 있다면 이전에 선택했던 캘린더들을 자동으로 체크
       const preSelected = new Set<string>();
+      const riffSyncedUrlSet = new Set(
+        existingCalendars
+          .filter(cal => cal.createdFromApp)
+          .map(cal => normalizeCalendarUrl(cal.url))
+          .filter(Boolean)
+      );
+      const selectableCalendarList = calendarList.filter(cal => {
+        const normalized = normalizeCalendarUrl(cal.url);
+        return !normalized || !riffSyncedUrlSet.has(normalized);
+      });
 
       // 1. 현재 앱에 이미 등록된 캘린더 (동기화 중)
       const activeNormalizedUrls = new Set(existingCalendars.map(c => normalizeCalendarUrl(c.url)));
@@ -169,7 +201,7 @@ export function CalDAVSyncModal({ onClose, onSyncComplete, mode = 'sync', existi
         (existingSettings?.selectedCalendarUrls || []).map(u => normalizeCalendarUrl(u))
       );
 
-      calendarList.forEach(cal => {
+      selectableCalendarList.forEach(cal => {
         const normUrl = normalizeCalendarUrl(cal.url);
         // 이미 앱에 있거나, 설정에 저장되어 있다면 체크
         if (normUrl && (activeNormalizedUrls.has(normUrl) || settingSelectedUrls.has(normUrl))) {
@@ -201,10 +233,10 @@ export function CalDAVSyncModal({ onClose, onSyncComplete, mode = 'sync', existi
 
   // 전체 선택/해제
   const toggleAllCalendars = () => {
-    if (selectedCalendars.size === calendars.length) {
+    if (selectedCalendars.size === selectableCalendars.length) {
       setSelectedCalendars(new Set());
     } else {
-      setSelectedCalendars(new Set(calendars.map(cal => cal.url)));
+      setSelectedCalendars(new Set(selectableCalendars.map(cal => cal.url)));
     }
   };
 
@@ -220,7 +252,7 @@ export function CalDAVSyncModal({ onClose, onSyncComplete, mode = 'sync', existi
     try {
       const config: CalDAVConfig = { serverUrl, username, password: password || undefined, settingId: settingId || undefined };
 
-      const newCalDAVMetadata = calendars
+      const newCalDAVMetadata = selectableCalendars
         .filter(cal => selectedCalendars.has(cal.url))
         .map(cal => ({
           url: cal.url,
@@ -362,6 +394,11 @@ export function CalDAVSyncModal({ onClose, onSyncComplete, mode = 'sync', existi
         </div>
 
         <div className={shared.modalContent}>
+          {step === 'credentials' && authNoticeMessage && (
+            <div className={styles.errorMessage} style={{ marginBottom: '0.75rem' }}>
+              {authNoticeMessage}
+            </div>
+          )}
           {step === 'credentials' ? (
             /* Step 1: Credentials Form */
             <form
@@ -483,7 +520,7 @@ export function CalDAVSyncModal({ onClose, onSyncComplete, mode = 'sync', existi
                 <label className={styles.selectAllLabel}>
                   <input
                     type="checkbox"
-                    checked={selectedCalendars.size === calendars.length && calendars.length > 0}
+                    checked={selectedCalendars.size === selectableCalendars.length && selectableCalendars.length > 0}
                     onChange={toggleAllCalendars}
                     disabled={syncing}
                     className={styles.checkboxInput}
@@ -492,7 +529,7 @@ export function CalDAVSyncModal({ onClose, onSyncComplete, mode = 'sync', existi
                 </label>
               </div>
               <div className={styles.calendarList}>
-                {calendars.map((calendar) => (
+                {selectableCalendars.map((calendar) => (
                   <label key={calendar.url} className={styles.calendarItem}>
                     <input
                       type="checkbox"

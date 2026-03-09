@@ -28,6 +28,10 @@ export function SettingsModal({ onClose, initialAvatarUrl, initialWeekOrder, onS
   const [imgSize, setImgSize] = useState({ w: 0, h: 0 });
   const fileInputRef = useRef<HTMLInputElement>(null);
   const imgRef = useRef<HTMLImageElement>(null);
+  const offsetRef = useRef(offset);
+  const scaleRef = useRef(scale);
+  offsetRef.current = offset;
+  scaleRef.current = scale;
 
   const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -44,8 +48,11 @@ export function SettingsModal({ onClose, initialAvatarUrl, initialWeekOrder, onS
   };
 
   const resetTransform = () => {
+    const zero = { x: 0, y: 0 };
     setScale(1);
-    setOffset({ x: 0, y: 0 });
+    setOffset(zero);
+    scaleRef.current = 1;
+    offsetRef.current = zero;
   };
 
   const handleMouseDown = (e: React.MouseEvent<HTMLDivElement>) => {
@@ -60,7 +67,9 @@ export function SettingsModal({ onClose, initialAvatarUrl, initialWeekOrder, onS
     const dx = e.clientX - startPos.x;
     const dy = e.clientY - startPos.y;
     const candidate = { x: startOffset.x + dx, y: startOffset.y + dy };
-    setOffset(clampOffset(candidate, scale, imgRef.current, imgSize));
+    const next = clampOffset(candidate, scale, imgRef.current, imgSize);
+    setOffset(next);
+    offsetRef.current = next;
     setAvatarChanged(true);
   };
 
@@ -70,12 +79,12 @@ export function SettingsModal({ onClose, initialAvatarUrl, initialWeekOrder, onS
     if (!imageSrc) return;
     e.preventDefault();
     const delta = -e.deltaY;
-    setScale((prev) => {
-      const next = prev + delta * 0.0015;
-      const clamped = Math.min(Math.max(0.5, next), 3);
-      setOffset((prevOffset) => clampOffset(prevOffset, clamped, imgRef.current, imgSize));
-      return clamped;
-    });
+    const nextScale = Math.min(Math.max(0.5, scale + delta * 0.0015), 3);
+    const nextOffset = clampOffset(offset, nextScale, imgRef.current, imgSize);
+    setScale(nextScale);
+    setOffset(nextOffset);
+    scaleRef.current = nextScale;
+    offsetRef.current = nextOffset;
     setAvatarChanged(true);
   };
 
@@ -130,6 +139,13 @@ export function SettingsModal({ onClose, initialAvatarUrl, initialWeekOrder, onS
       return;
     }
 
+    // 미리보기(120px)와 100% 동일한 좌표계로 그린 뒤 200px로 확대
+    const baseScale = computeBaseScale();
+    const currentScale = scaleRef.current;
+    const currentOffset = offsetRef.current;
+    const renderScale = baseScale * currentScale;
+    const img = imgRef.current;
+
     const previewCanvas = document.createElement('canvas');
     previewCanvas.width = VIEW_SIZE;
     previewCanvas.height = VIEW_SIZE;
@@ -139,12 +155,11 @@ export function SettingsModal({ onClose, initialAvatarUrl, initialWeekOrder, onS
     ctx.fillStyle = '#ffffff';
     ctx.fillRect(0, 0, VIEW_SIZE, VIEW_SIZE);
 
-    const baseScale = computeBaseScale();
-    const renderScale = baseScale * scale;
-    const img = imgRef.current;
-
+    // CSS와 동일: translate(중심+offset) → scale(renderScale)
+    const centerX = VIEW_SIZE / 2 + currentOffset.x;
+    const centerY = VIEW_SIZE / 2 + currentOffset.y;
     ctx.save();
-    ctx.translate(VIEW_SIZE / 2 + offset.x, VIEW_SIZE / 2 + offset.y);
+    ctx.translate(centerX, centerY);
     ctx.scale(renderScale, renderScale);
     ctx.drawImage(img, -img.naturalWidth / 2, -img.naturalHeight / 2);
     ctx.restore();
@@ -273,8 +288,11 @@ export function SettingsModal({ onClose, initialAvatarUrl, initialWeekOrder, onS
                       className={styles.zoomSlider}
                       onChange={(e) => {
                         const next = Number(e.target.value);
+                        const nextOffset = clampOffset(offset, next, imgRef.current, imgSize);
                         setScale(next);
-                        setOffset((prev) => clampOffset(prev, next, imgRef.current, imgSize));
+                        setOffset(nextOffset);
+                        scaleRef.current = next;
+                        offsetRef.current = nextOffset;
                         setAvatarChanged(true);
                       }}
                     />

@@ -15,6 +15,10 @@ export interface GoogleCalendar {
   selected?: boolean;
 }
 
+export interface GoogleCalendarMutationError extends Error {
+  code?: 'AUTH' | 'FORBIDDEN' | 'UNKNOWN';
+}
+
 export interface GoogleEvent {
   id: string;
   summary?: string;
@@ -171,6 +175,70 @@ export const fetchGoogleCalendarList = async (token: string): Promise<GoogleCale
 
   const data = await res.json();
   return (data.items ?? []) as GoogleCalendar[];
+};
+
+export interface CreatedGoogleCalendar {
+  id: string;
+  summary: string;
+  backgroundColor?: string;
+}
+
+export const createGoogleCalendar = async (
+  token: string,
+  summary: string,
+  backgroundColor?: string
+): Promise<CreatedGoogleCalendar> => {
+  const res = await fetch('https://www.googleapis.com/calendar/v3/calendars', {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${token}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      summary,
+      backgroundColor,
+    }),
+  });
+
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    const error = new Error(
+      `createGoogleCalendar failed: ${res.status} ${err.error?.message ?? ''}`
+    ) as GoogleCalendarMutationError;
+    if (res.status === 401) error.code = 'AUTH';
+    else if (res.status === 403) error.code = 'FORBIDDEN';
+    else error.code = 'UNKNOWN';
+    throw error;
+  }
+
+  const data = await res.json();
+  return {
+    id: data.id,
+    summary: data.summary,
+    backgroundColor: data.backgroundColor,
+  };
+};
+
+export const deleteGoogleCalendar = async (
+  token: string,
+  calendarId: string
+): Promise<void> => {
+  const url = `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(calendarId)}`;
+  const res = await fetch(url, {
+    method: 'DELETE',
+    headers: { Authorization: `Bearer ${token}` },
+  });
+
+  if (res.status === 204 || res.status === 404) return;
+
+  const err = await res.json().catch(() => ({}));
+  const error = new Error(
+    `deleteGoogleCalendar failed: ${res.status} ${err.error?.message ?? ''}`
+  ) as GoogleCalendarMutationError;
+  if (res.status === 401) error.code = 'AUTH';
+  else if (res.status === 403) error.code = 'FORBIDDEN';
+  else error.code = 'UNKNOWN';
+  throw error;
 };
 
 // ─────────────────────────────────────────────────────────────

@@ -11,15 +11,16 @@ import { useSelection, useHover } from '../contexts/SelectionContext';
 import { useDrag } from '../contexts/DragContext';
 import { useCalendarMetadata } from '../hooks/useCalendarMetadata';
 import { WeekOrder, Event, DiaryEntry, Todo } from '../types';
-import { normalizeCalendarUrl, CalendarMetadata, upsertDiaryEntry, getUserAvatar, getCalDAVSyncSettings } from '../services/api';
+import { normalizeCalendarUrl, CalendarMetadata, upsertDiaryEntry, getUserAvatar, getCalDAVSyncSettings, deleteEventsByCalendarUrl } from '../services/api';
 import { syncSelectedCalendars, CalDAVConfig, getCalendars } from '../services/caldav';
 import { buildCalDAVConfigFromSettings, getCalDAVSyncTargets, isCalDAVAuthErrorMessage, isCalDAVSyncTarget, isSubscriptionLikeCalendar, isWritableCalendar } from '../services/calendarSyncUtils';
 import { relinkEventsByCalendarUrl } from '../services/calendarEventRelink';
 import { syncRemoteEventCreateInBackground, syncRemoteEventDeleteInBackground, syncRemoteEventUpdateInBackground } from '../services/remoteEventSync';
 import { buildCalendarDeleteState, runCalendarDeleteFlow, runCalendarUnsyncFlow } from '../services/calendarDeleteFlow';
 import { syncCalendarNameToRemote, syncLocalCalendarToMac } from '../services/calendarMacSyncFlow';
+import { deleteGoogleCalendarById, syncLocalCalendarToGoogle } from '../services/calendarGoogleSyncFlow';
 import { getWeekStartForDate, getTodoWeekStart, formatLocalDate } from '../utils/dateUtils';
-import { clearCachedGoogleToken } from '../lib/googleCalendar';
+import { clearCachedGoogleToken, getGoogleProviderToken } from '../lib/googleCalendar';
 import { HistoryAction } from '../hooks/useUndoRedo';
 import { ModalPosition } from './EventModal';
 import { EmotionModal } from './EmotionModal';
@@ -45,6 +46,8 @@ interface MainLayoutProps {
   setCurrentMonth: (month: number) => void;
 }
 
+const PENDING_GOOGLE_LOCAL_SYNC_KEY = 'pendingGoogleLocalCalendarSync';
+
 export const MainLayout = ({
   session,
   weekOrder, setWeekOrder,
@@ -59,7 +62,7 @@ export const MainLayout = ({
     addRoutine, deleteRoutine, updateRoutine,
     fetchDiary, saveDiary, deleteDiary, setEmotion,
     loadData, // Add loadData for auto-sync refresh
-    syncGoogleCalendar, isSyncingGoogle, googleCalendars, removeGoogleCalendar,
+    syncGoogleCalendar, isSyncingGoogle, isGoogleTokenExpired, clearGoogleTokenExpiredFlag, googleCalendars, removeGoogleCalendar,
   } = useData();
 
   const {
@@ -76,6 +79,7 @@ export const MainLayout = ({
     addLocalCalendar,
     updateLocalCalendar,
     convertLocalToCalDAV,
+    convertLocalToGoogle,
     convertCalDAVToLocal,
     deleteCalendar,
     refreshMetadata,
@@ -258,8 +262,17 @@ export const MainLayout = ({
   const [isSubscribeModalOpen, setIsSubscribeModalOpen] = useState(false);
   const [isCalDAVModalOpen, setIsCalDAVModalOpen] = useState(false);
   const [calDAVModalMode, setCalDAVModalMode] = useState<'sync' | 'auth-only'>('sync');
+  const [calDAVAuthNoticeMessage, setCalDAVAuthNoticeMessage] = useState<string | undefined>(undefined);
   const [isGoogleSyncModalOpen, setIsGoogleSyncModalOpen] = useState(false);
+  const [googleSyncModalMode, setGoogleSyncModalMode] = useState<'sync' | 'auth-only'>('sync');
+  const [googleAuthNoticeMessage, setGoogleAuthNoticeMessage] = useState<string | undefined>(undefined);
   const [pendingSyncCalendar, setPendingSyncCalendar] = useState<CalendarMetadata | null>(null);
+  const googleLocalSyncInFlightRef = useRef<Set<string>>(new Set());
+  const googlePendingRecoveryInFlightRef = useRef(false);
+  const calendarMetadataRef = useRef(calendarMetadata);
+  useEffect(() => {
+    calendarMetadataRef.current = calendarMetadata;
+  }, [calendarMetadata]);
   // 메모리 릭 방지: onSyncComplete 내 setTimeout cleanup용 ref
   const pendingSyncTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => () => {
@@ -1100,8 +1113,14 @@ export const MainLayout = ({
       return;
     }
 
-    const deleteFromServer = isCalDAV && calDeleteOption === 'remote';
-    await runCalendarDeleteFlow({ url, deleteFromServer, deleteCalendar });
+    const deleteFromServer = (isCalDAV || isGoogle) && calDeleteOption === 'remote';
+    await runCalendarDeleteFlow({
+      url,
+      deleteFromServer,
+      deleteCalendar,
+      isGoogle,
+      deleteGoogleCalendarById,
+    });
   }, [calDeleteState, calDeleteOption, deleteCalendar, loadData, removeGoogleCalendar]);
 
   // --- Sync Local Calendar to Mac/iCloud ---
@@ -1113,6 +1132,7 @@ export const MainLayout = ({
       if (result.status === 'needs-auth') {
         setPendingSyncCalendar(calendar);
         setCalDAVModalMode('auth-only');
+        setCalDAVAuthNoticeMessage('iCloud 앱 전용 비밀번호가 만료되었거나 해제되어 다시 입력이 필요합니다.');
         setIsCalDAVModalOpen(true);
         setToast(null);
         return;
@@ -1130,6 +1150,7 @@ export const MainLayout = ({
       }
 
       convertLocalToCalDAV(calendar.url, result.newCalendar);
+      setCalDAVAuthNoticeMessage(undefined);
       setHiddenCalendarUrls(prev => {
         if (prev.has(calendar.url) || prev.has(result.remoteCalendarUrl)) {
           const next = new Set(prev);
@@ -1146,6 +1167,100 @@ export const MainLayout = ({
       alert('동기화 중 오류가 발생했습니다.');
     }
   }, [convertLocalToCalDAV]);
+
+  const handleSyncToGoogle = useCallback(async (calendar: CalendarMetadata) => {
+    if (googleLocalSyncInFlightRef.current.has(calendar.url)) {
+      return;
+    }
+    const stillLocal = calendarMetadataRef.current.some(
+      c => c.url === calendar.url && c.isLocal
+    );
+    if (!stillLocal) {
+      return;
+    }
+    googleLocalSyncInFlightRef.current.add(calendar.url);
+    try {
+      setToast({ message: 'Google 캘린더에 추가 중...', type: 'loading' });
+      const result = await syncLocalCalendarToGoogle(calendar);
+
+      if (result.status === 'needs-auth') {
+        localStorage.setItem(PENDING_GOOGLE_LOCAL_SYNC_KEY, JSON.stringify(calendar));
+        setGoogleSyncModalMode('auth-only');
+        setGoogleAuthNoticeMessage('Google 계정 연결이 만료되었거나 해제되었습니다. 다시 연결 후 동기화를 진행해주세요.');
+        setIsGoogleSyncModalOpen(true);
+        setToast(null);
+        return;
+      }
+
+      if (result.status === 'error') {
+        setToast(null);
+        setConfirmDialog({
+          isOpen: true,
+          title: '오류',
+          message: `Google 캘린더 생성 실패: ${result.message}`,
+        });
+        return;
+      }
+
+      convertLocalToGoogle(calendar.url, result.newCalendar);
+      localStorage.removeItem(PENDING_GOOGLE_LOCAL_SYNC_KEY);
+      clearGoogleTokenExpiredFlag();
+      setGoogleAuthNoticeMessage(undefined);
+      setToast({ message: 'Google 캘린더에 추가되었습니다.', type: 'success' });
+    } catch (e) {
+      console.error('Google sync failed:', e);
+      setToast({ message: 'Google 캘린더 추가 중 오류가 발생했습니다.', type: 'error' });
+    } finally {
+      googleLocalSyncInFlightRef.current.delete(calendar.url);
+    }
+  }, [convertLocalToGoogle, clearGoogleTokenExpiredFlag]);
+
+  useEffect(() => {
+    const tryResumePendingGoogleLocalSync = async () => {
+      if (googlePendingRecoveryInFlightRef.current) return;
+      googlePendingRecoveryInFlightRef.current = true;
+      const raw = localStorage.getItem(PENDING_GOOGLE_LOCAL_SYNC_KEY);
+      if (!raw) {
+        googlePendingRecoveryInFlightRef.current = false;
+        return;
+      }
+      localStorage.removeItem(PENDING_GOOGLE_LOCAL_SYNC_KEY);
+
+      const token = await getGoogleProviderToken();
+      if (!token) {
+        localStorage.setItem(PENDING_GOOGLE_LOCAL_SYNC_KEY, raw);
+        googlePendingRecoveryInFlightRef.current = false;
+        return;
+      }
+
+      clearGoogleTokenExpiredFlag();
+
+      try {
+        const pending = JSON.parse(raw) as CalendarMetadata;
+        setGoogleSyncModalMode('sync');
+        setGoogleAuthNoticeMessage(undefined);
+        await handleSyncToGoogle(pending);
+      } catch (e) {
+        console.warn('[Google] pending 로컬 캘린더 동기화 복구 실패:', e);
+      } finally {
+        googlePendingRecoveryInFlightRef.current = false;
+      }
+    };
+
+    const handleVisibility = () => {
+      if (document.visibilityState === 'visible') {
+        void tryResumePendingGoogleLocalSync();
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibility);
+    window.addEventListener('focus', handleVisibility);
+    void tryResumePendingGoogleLocalSync();
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibility);
+      window.removeEventListener('focus', handleVisibility);
+    };
+  }, [handleSyncToGoogle, clearGoogleTokenExpiredFlag]);
 
   // ── 모달 콜백 (useCallback으로 참조 안정화 → AppModals/CalendarListPopup memo() 유효화) ─
 
@@ -1186,10 +1301,14 @@ export const MainLayout = ({
       // 언마운트 시 clearTimeout으로 정리되는 안전한 타이머
       pendingSyncTimerRef.current = setTimeout(() => handleSyncToMac(cal), 500);
     }
+    setCalDAVAuthNoticeMessage(undefined);
   }, [loadData, refreshMetadataWithServerList, refreshMetadata, pendingSyncCalendar, handleSyncToMac, triggerCalDAVSync]);
 
   const handleGoogleSyncComplete = useCallback(async (selectedMeta: CalendarMetadata[]) => {
     setIsGoogleSyncModalOpen(false);
+    setGoogleSyncModalMode('sync');
+    setGoogleAuthNoticeMessage(undefined);
+    clearGoogleTokenExpiredFlag();
     // 재동기화된 구글 캘린더를 exclude 목록에서 제거 (즉시 표시되도록)
     selectedMeta.forEach(m => {
       if (m.googleCalendarId) {
@@ -1199,7 +1318,7 @@ export const MainLayout = ({
     });
     await syncGoogleCalendar(selectedMeta);
     setToast({ message: 'Google 캘린더 동기화에 성공했습니다.', type: 'success' });
-  }, [syncGoogleCalendar]);
+  }, [syncGoogleCalendar, clearGoogleTokenExpiredFlag]);
 
   const handleGoogleDisconnect = useCallback(async () => {
     const { deleteAllGoogleData } = await import('../services/api');
@@ -1340,15 +1459,22 @@ export const MainLayout = ({
               onUpdateLocalCalendar={handleUpdateLocalCalendar}
               onDeleteCalendar={handleDeleteCalendar}
               onSyncToMac={handleSyncToMac}
+              onSyncToGoogle={handleSyncToGoogle}
               onOpenCalDAVModal={() => {
                 setCalDAVModalMode('sync');
+                setCalDAVAuthNoticeMessage(undefined);
                 setIsCalDAVModalOpen(true);
               }}
               onOpenSubscribeModal={() => {
                 setIsSubscribeModalOpen(true);
               }}
-              onOpenGoogleSync={() => setIsGoogleSyncModalOpen(true)}
+              onOpenGoogleSync={() => {
+                setGoogleSyncModalMode('sync');
+                setGoogleAuthNoticeMessage(undefined);
+                setIsGoogleSyncModalOpen(true);
+              }}
               isSyncingGoogle={isSyncingGoogle}
+              isGoogleTokenExpired={isGoogleTokenExpired}
               isCalDAVAuthError={isCalDAVAuthError}
               onShowToast={(message, type) => setToast({ message, type })}
             />
@@ -1434,11 +1560,15 @@ export const MainLayout = ({
           onUpdateRoutine={updateRoutine}
           onCloseCalDAVModal={() => setIsCalDAVModalOpen(false)}
           calDAVMode={calDAVModalMode}
+          calDAVAuthNoticeMessage={calDAVAuthNoticeMessage}
           onSyncComplete={handleSyncComplete}
           onCloseGoogleSyncModal={() => setIsGoogleSyncModalOpen(false)}
           onGoogleSyncComplete={handleGoogleSyncComplete}
           onGoogleDisconnect={handleGoogleDisconnect}
           googleCalendars={googleCalendars}
+          googleSyncMode={googleSyncModalMode}
+          googleAuthNoticeMessage={googleAuthNoticeMessage}
+          onGoogleTokenRecovered={clearGoogleTokenExpiredFlag}
           onCloseSettings={() => setIsSettingsModalOpen(false)}
           onSettingsSaved={({ avatarUrl: u, weekOrder: w }) => { setAvatarUrl(u); setWeekOrder(w); }}
         />
@@ -1503,7 +1633,7 @@ export const MainLayout = ({
         message={
           calDeleteState?.isUnsync
             ? `'${calDeleteState?.name}' 동기화를 해제합니다. Riff에 저장된 해당 캘린더의 일정도 모두 삭제됩니다.`
-            : (calDeleteState?.isCalDAV ? undefined : `'${calDeleteState?.name}'를 삭제하시겠습니까?`)
+            : ((calDeleteState?.isCalDAV || calDeleteState?.isGoogle) ? undefined : `'${calDeleteState?.name}'를 삭제하시겠습니까?`)
         }
         confirmText="확인"
         cancelText="취소"
@@ -1511,7 +1641,7 @@ export const MainLayout = ({
         onCancel={() => setCalDeleteState(null)}
         onClose={() => setCalDeleteState(null)}
       >
-        {calDeleteState?.isCalDAV && !calDeleteState?.isUnsync && (
+        {(calDeleteState?.isCalDAV || calDeleteState?.isGoogle) && !calDeleteState?.isUnsync && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', marginTop: '4px', marginBottom: '8px' }}>
             <p style={{ margin: 0, fontSize: '0.95rem', color: '#111827', fontWeight: 500, whiteSpace: 'pre-wrap' }}>
               '{calDeleteState.name}'를 삭제하시겠습니까?
@@ -1534,7 +1664,7 @@ export const MainLayout = ({
                 onChange={() => setCalDeleteOption('remote')}
                 style={{ width: '16px', height: '16px', accentColor: '#ff3b30' }}
               />
-              iCloud까지 모두 삭제
+              {calDeleteState?.isGoogle ? 'Google 캘린더에서도 삭제' : 'iCloud까지 모두 삭제'}
             </label>
           </div>
         )}

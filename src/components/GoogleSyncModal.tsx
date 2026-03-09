@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { getGoogleProviderToken, fetchGoogleCalendarList, GoogleCalendar } from '../lib/googleCalendar';
 import { CalendarMetadata } from '../services/api';
 import styles from './CalDAVSyncModal.module.css';
@@ -9,6 +9,9 @@ interface GoogleSyncModalProps {
   onSyncComplete: (selectedCalendars: CalendarMetadata[]) => void;
   onDisconnect: () => void;
   existingGoogleCalendars: CalendarMetadata[];
+  mode?: 'sync' | 'auth-only';
+  authNoticeMessage?: string;
+  onTokenRecovered?: () => void;
 }
 
 export function GoogleSyncModal({
@@ -16,6 +19,9 @@ export function GoogleSyncModal({
   onSyncComplete,
   onDisconnect,
   existingGoogleCalendars,
+  mode = 'sync',
+  authNoticeMessage,
+  onTokenRecovered,
 }: GoogleSyncModalProps) {
   const [calendars, setCalendars] = useState<GoogleCalendar[]>([]);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
@@ -24,37 +30,57 @@ export function GoogleSyncModal({
   const [error, setError] = useState<string | null>(null);
   const hasExistingSync = existingGoogleCalendars.length > 0;
 
+  const loadCalendars = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const token = await getGoogleProviderToken();
+      if (!token) {
+        setError('require_auth');
+        setLoading(false);
+        return;
+      }
+      onTokenRecovered?.();
+      if (mode === 'auth-only') {
+        onClose();
+        return;
+      }
+      const list = await fetchGoogleCalendarList(token);
+      setCalendars(list);
+
+      // Pre-select already-synced calendars
+      const existingIds = new Set(existingGoogleCalendars.map(c => c.googleCalendarId!));
+      if (existingIds.size > 0) {
+        setSelectedIds(existingIds);
+      } else {
+        // First time: select all by default
+        setSelectedIds(new Set(list.map(c => c.id)));
+      }
+    } catch (err: any) {
+      setError('캘린더 목록을 불러오지 못했습니다: ' + (err?.message ?? ''));
+    } finally {
+      setLoading(false);
+    }
+  }, [existingGoogleCalendars, mode, onClose, onTokenRecovered]);
+
   // Auto-fetch calendar list on mount
   useEffect(() => {
-    const load = async () => {
-      setLoading(true);
-      setError(null);
-      try {
-        const token = await getGoogleProviderToken();
-        if (!token) {
-          setError('require_auth');
-          setLoading(false);
-          return;
-        }
-        const list = await fetchGoogleCalendarList(token);
-        setCalendars(list);
+    void loadCalendars();
+  }, [loadCalendars]);
 
-        // Pre-select already-synced calendars
-        const existingIds = new Set(existingGoogleCalendars.map(c => c.googleCalendarId!));
-        if (existingIds.size > 0) {
-          setSelectedIds(existingIds);
-        } else {
-          // First time: select all by default
-          setSelectedIds(new Set(list.map(c => c.id)));
-        }
-      } catch (err: any) {
-        setError('캘린더 목록을 불러오지 못했습니다: ' + (err?.message ?? ''));
-      } finally {
-        setLoading(false);
+  useEffect(() => {
+    const handleVisibility = () => {
+      if (document.visibilityState === 'visible' && error === 'require_auth') {
+        void loadCalendars();
       }
     };
-    load();
-  }, []);
+    document.addEventListener('visibilitychange', handleVisibility);
+    window.addEventListener('focus', handleVisibility);
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibility);
+      window.removeEventListener('focus', handleVisibility);
+    };
+  }, [error, loadCalendars]);
 
   const toggleCalendar = (id: string) => {
     setSelectedIds(prev => {
@@ -122,20 +148,25 @@ export function GoogleSyncModal({
           ) : error === 'require_auth' ? (
             <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '1.5rem', padding: '2rem 0' }}>
               <div className={styles.errorMessage} style={{ textAlign: 'center' }}>
-                구글 캘린더 동기화를 위해 구글 계정 연결이 필요합니다.
+                {authNoticeMessage || '구글 캘린더 동기화를 위해 구글 계정 연결이 필요합니다.'}
               </div>
               <button
                 onClick={async () => {
                   try {
                     const { supabase } = await import('../lib/supabase');
-                    await supabase.auth.signInWithOAuth({
+                    const { data, error } = await supabase.auth.signInWithOAuth({
                       provider: 'google',
                       options: {
                         redirectTo: window.location.origin,
                         queryParams: { access_type: 'offline', prompt: 'consent' },
                         scopes: 'https://www.googleapis.com/auth/calendar',
+                        skipBrowserRedirect: true,
                       },
                     });
+                    if (error) throw error;
+                    if (data?.url) {
+                      window.open(data.url, '_blank', 'noopener,noreferrer');
+                    }
                   } catch (e) {
                     console.error('Google Auth Failed:', e);
                   }

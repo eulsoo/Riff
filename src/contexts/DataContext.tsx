@@ -77,6 +77,8 @@ interface DataContextType {
   // Google Calendar
   googleCalendars: CalendarMetadata[];
   isSyncingGoogle: boolean;
+  isGoogleTokenExpired: boolean;
+  clearGoogleTokenExpiredFlag: () => void;
   syncGoogleCalendar: (selectedMeta: CalendarMetadata[]) => Promise<void>;
   removeGoogleCalendar: (calendarId: string) => void;
   selectedGoogleCalendarIds: string[];
@@ -145,6 +147,9 @@ export const DataProvider = ({
     } catch { return []; }
   });
   const [isSyncingGoogle, setIsSyncingGoogle] = useState(false);
+  const [isGoogleTokenExpired, setIsGoogleTokenExpired] = useState(
+    () => localStorage.getItem('googleTokenExpired') === 'true'
+  );
   const googleSyncTokensRef = useRef<Record<string, string>>(loadGoogleSyncTokens());
   const selectedGoogleIdsRef = useRef(selectedGoogleCalendarIds);
   selectedGoogleIdsRef.current = selectedGoogleCalendarIds;
@@ -161,6 +166,11 @@ export const DataProvider = ({
     setSelectedGoogleCalendarIds(ids);
     selectedGoogleIdsRef.current = ids;
     localStorage.setItem(GOOGLE_SELECTED_CALENDARS_KEY, JSON.stringify(ids));
+  }, []);
+
+  const clearGoogleTokenExpiredFlag = useCallback(() => {
+    localStorage.removeItem('googleTokenExpired');
+    setIsGoogleTokenExpired(false);
   }, []);
 
   useEffect(() => {
@@ -219,13 +229,14 @@ export const DataProvider = ({
       // 자동 동기화만 있는 경우(selectedMeta 없음): 연결된 캘린더가 있으면 플래그 저장
       if (!selectedMeta && googleCalendarsRef.current.length > 0) {
         localStorage.setItem('googleTokenExpired', 'true');
+        setIsGoogleTokenExpired(true);
         console.warn('[Google] provider_token이 만료되었습니다. Google 섹션에서 재연결이 필요합니다.');
       }
       return;
     }
 
     // 토큰이 다시 유효해지면 만료 플래그 제거
-    localStorage.removeItem('googleTokenExpired');
+    clearGoogleTokenExpiredFlag();
 
     setIsSyncingGoogle(true);
     try {
@@ -328,7 +339,7 @@ export const DataProvider = ({
     } finally {
       setIsSyncingGoogle(false);
     }
-  }, [loadData, persistGoogleCalendars, persistSelectedGoogleCalendarIds]);
+  }, [loadData, persistGoogleCalendars, persistSelectedGoogleCalendarIds, clearGoogleTokenExpiredFlag]);
 
 
   const removeGoogleCalendar = useCallback((calendarId: string) => {
@@ -804,7 +815,7 @@ export const DataProvider = ({
     recordAction, registerCategoryHandlers, canUndo, canRedo,
     loadData,
     // Google Calendar
-    googleCalendars, isSyncingGoogle, syncGoogleCalendar,
+    googleCalendars, isSyncingGoogle, isGoogleTokenExpired, clearGoogleTokenExpiredFlag, syncGoogleCalendar,
     removeGoogleCalendar, selectedGoogleCalendarIds, toggleGoogleCalendarSelected,
   };
 

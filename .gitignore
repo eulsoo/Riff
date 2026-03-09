@@ -33,3 +33,5 @@ dist-ssr
 
 # Supabase
 supabase/.temp
+dump.sql
+supabase_migration_001.sql

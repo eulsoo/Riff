@@ -41,6 +41,10 @@ interface AppModalsProps {
   onGoogleSyncComplete: (selected: CalendarMetadata[]) => void;
   onGoogleDisconnect: () => void;
   googleCalendars: CalendarMetadata[];
+  calDAVAuthNoticeMessage?: string;
+  googleSyncMode?: 'sync' | 'auth-only';
+  googleAuthNoticeMessage?: string;
+  onGoogleTokenRecovered?: () => void;
 }
 
 export function AppModals({
@@ -77,6 +81,10 @@ export function AppModals({
   onGoogleSyncComplete,
   onGoogleDisconnect,
   googleCalendars,
+  calDAVAuthNoticeMessage,
+  googleSyncMode = 'sync',
+  googleAuthNoticeMessage,
+  onGoogleTokenRecovered,
 }: AppModalsProps & { calDAVMode?: 'sync' | 'auth-only' }) {
   return (
     <>
@@ -115,6 +123,7 @@ export function AppModals({
           onSyncComplete={onSyncComplete}
           mode={calDAVMode}
           existingCalendars={calendars}
+          authNoticeMessage={calDAVAuthNoticeMessage}
         />
       )}
 
@@ -124,6 +133,9 @@ export function AppModals({
           onSyncComplete={onGoogleSyncComplete}
           onDisconnect={onGoogleDisconnect}
           existingGoogleCalendars={googleCalendars}
+          mode={googleSyncMode}
+          authNoticeMessage={googleAuthNoticeMessage}
+          onTokenRecovered={onGoogleTokenRecovered}
         />
       )}
 

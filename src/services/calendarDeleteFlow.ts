@@ -31,7 +31,17 @@ export const buildCalendarDeleteState = (
         isGoogle: true,
       };
     }
-    return null; // Google은 삭제 미지원
+    if (actionType === 'delete') {
+      return {
+        isOpen: true,
+        url,
+        name,
+        isCalDAV: false,
+        isUnsync: false,
+        isGoogle: true,
+      };
+    }
+    return null;
   }
 
   const calendar = calendarMetadata.find(c => c.url === url);
@@ -123,13 +133,33 @@ interface DeleteFlowParams {
   url: string;
   deleteFromServer: boolean;
   deleteCalendar: (url: string) => void;
+  isGoogle?: boolean;
+  deleteGoogleCalendarById?: (calendarId: string) => Promise<void>;
 }
 
 export const runCalendarDeleteFlow = async ({
   url,
   deleteFromServer,
   deleteCalendar,
+  isGoogle,
+  deleteGoogleCalendarById,
 }: DeleteFlowParams): Promise<void> => {
+  if (isGoogle) {
+    if (deleteFromServer && deleteGoogleCalendarById) {
+      const calendarId = url.replace('google:', '');
+      try {
+        await deleteGoogleCalendarById(calendarId);
+      } catch (e) {
+        console.error('Google 캘린더 원격 삭제 실패:', e);
+        alert(`Google 캘린더 삭제 중 오류가 발생했습니다.\nRiff 목록에서만 제거됩니다.\n${e instanceof Error ? e.message : String(e)}`);
+      }
+    }
+
+    deleteCalendar(url);
+    await deleteEventsByCalendarUrl(url);
+    return;
+  }
+
   if (deleteFromServer) {
     try {
       const settings = await getCalDAVSyncSettings();
