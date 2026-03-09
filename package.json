@@ -50,7 +50,10 @@
             "sonner": "^2.0.3",
             "vaul": "^1.1.2"
       },
-      "devDependencies": {
+      "overrides": {
+    "xmldom": "^0.5.0"
+  },
+  "devDependencies": {
             "@types/crypto-js": "^4.2.2",
             "@types/node": "^20.10.0",
             "@types/react": "^19.2.8",
