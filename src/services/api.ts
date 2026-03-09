@@ -47,8 +47,8 @@ export const saveCalendarMetadata = (metadata: CalendarMetadata[]) => {
         acc[normalizedUrl] = { 
           ...item, 
           url: normalizedUrl,
-          // 새 데이터에 createdFromApp이 없으면 기존 값 유지
-          createdFromApp: item.createdFromApp ?? existingMeta?.createdFromApp
+          // Riff에서 Google로 보낸 캘린더(google: url)는 createdFromApp 유지
+          createdFromApp: item.createdFromApp ?? existingMeta?.createdFromApp ?? (normalizedUrl.startsWith('google:') ? true : undefined)
         };
         return acc;
       }, {} as Record<string, CalendarMetadata>);
@@ -211,7 +211,7 @@ const dbRowToCalendarMetadata = (row: any): CalendarMetadata => ({
   isSubscription: row.is_subscription ?? false,
   isShared: row.is_shared ?? false,
   readOnly: row.read_only ?? false,
-  createdFromApp: row.created_from_app ?? false,
+  createdFromApp: row.created_from_app ?? (row.url?.startsWith?.('google:') ? true : false),
   googleCalendarId: row.google_calendar_id ?? undefined,
   subscriptionUrl: row.subscription_url ?? undefined,
   originalCalDAVUrl: row.original_caldav_url ?? undefined,
