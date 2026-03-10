@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import shared from './SharedModal.module.css';
 import styles from './SettingsModal.module.css';
 import { WeekOrder } from '../types';
@@ -12,12 +12,28 @@ interface SettingsModalProps {
   onSaved: (data: { avatarUrl: string | null; weekOrder: WeekOrder }) => void;
 }
 
-const VIEW_SIZE = 120; // 프리뷰 정사각 크기
-const OUTPUT_SIZE = 200; // 최종 썸네일 크기
-const MAX_DIMENSION = 512; // 업로드 이미지 리사이즈 최대 크기
+const VIEW_SIZE = 120;
+const OUTPUT_SIZE = 200;
+const MAX_DIMENSION = 512;
+
+// 프리뷰와 저장이 공유하는 단 하나의 크롭 계산 함수
+function getSourceRect(
+  img: HTMLImageElement,
+  userScale: number,
+  offset: { x: number; y: number }
+) {
+  const base = VIEW_SIZE / Math.min(img.naturalWidth, img.naturalHeight);
+  const renderScale = base * userScale;
+  const sw = VIEW_SIZE / renderScale;
+  const sh = VIEW_SIZE / renderScale;
+  const sx = -(VIEW_SIZE / 2 + offset.x) / renderScale + img.naturalWidth / 2;
+  const sy = -(VIEW_SIZE / 2 + offset.y) / renderScale + img.naturalHeight / 2;
+  return { sx, sy, sw, sh };
+}
 
 export function SettingsModal({ onClose, initialAvatarUrl, initialWeekOrder, onSaved }: SettingsModalProps) {
-  const [imageSrc, setImageSrc] = useState<string | null>(initialAvatarUrl || null);
+  const [displayAvatarUrl] = useState<string | null>(initialAvatarUrl || null);
+  const [imageSrc, setImageSrc] = useState<string | null>(null);
   const [weekOrder, setWeekOrder] = useState<WeekOrder>(initialWeekOrder);
   const [avatarChanged, setAvatarChanged] = useState(false);
   const [dragging, setDragging] = useState(false);
@@ -25,13 +41,67 @@ export function SettingsModal({ onClose, initialAvatarUrl, initialWeekOrder, onS
   const [startPos, setStartPos] = useState({ x: 0, y: 0 });
   const [startOffset, setStartOffset] = useState({ x: 0, y: 0 });
   const [scale, setScale] = useState(1);
-  const [imgSize, setImgSize] = useState({ w: 0, h: 0 });
+
   const fileInputRef = useRef<HTMLInputElement>(null);
   const imgRef = useRef<HTMLImageElement>(null);
+  const canvasRef = useRef<HTMLCanvasElement>(null);
   const offsetRef = useRef(offset);
   const scaleRef = useRef(scale);
   offsetRef.current = offset;
   scaleRef.current = scale;
+
+  const drawPreview = useCallback(() => {
+    const canvas = canvasRef.current;
+    const img = imgRef.current;
+    if (!canvas || !img || !img.naturalWidth) return;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+
+    const dpr = window.devicePixelRatio || 1;
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.save();
+    ctx.scale(dpr, dpr);
+
+    const { sx, sy, sw, sh } = getSourceRect(img, scaleRef.current, offsetRef.current);
+    ctx.drawImage(img, sx, sy, sw, sh, 0, 0, VIEW_SIZE, VIEW_SIZE);
+    ctx.restore();
+  }, []);
+
+  // offset이나 scale이 바뀔 때 canvas 갱신
+  useEffect(() => {
+    if (imageSrc) drawPreview();
+  }, [offset.x, offset.y, scale, imageSrc, drawPreview]);
+
+  const clampOffset = (
+    candidate: { x: number; y: number },
+    nextScale: number,
+    imgEl: HTMLImageElement | null
+  ) => {
+    const w = imgEl?.naturalWidth || 0;
+    const h = imgEl?.naturalHeight || 0;
+    if (!w || !h) return candidate;
+    const base = VIEW_SIZE / Math.min(w, h);
+    const renderScale = base * nextScale;
+    const maxX = Math.max(0, (w * renderScale - VIEW_SIZE) / 2);
+    const maxY = Math.max(0, (h * renderScale - VIEW_SIZE) / 2);
+    return {
+      x: Math.min(Math.max(candidate.x, -maxX), maxX),
+      y: Math.min(Math.max(candidate.y, -maxY), maxY),
+    };
+  };
+
+  const resetTransform = useCallback(() => {
+    const zero = { x: 0, y: 0 };
+    setScale(1);
+    setOffset(zero);
+    scaleRef.current = 1;
+    offsetRef.current = zero;
+  }, []);
+
+  const handleImageLoad = useCallback(() => {
+    resetTransform();
+    // resetTransform은 state 업데이트 → useEffect가 drawPreview를 호출함
+  }, [resetTransform]);
 
   const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -42,24 +112,15 @@ export function SettingsModal({ onClose, initialAvatarUrl, initialWeekOrder, onS
     }
     const resized = await resizeToMax(file, MAX_DIMENSION);
     const dataUrl = await blobToDataUrl(resized);
+    resetTransform();
     setImageSrc(dataUrl);
     setAvatarChanged(true);
-    resetTransform();
-  };
-
-  const resetTransform = () => {
-    const zero = { x: 0, y: 0 };
-    setScale(1);
-    setOffset(zero);
-    scaleRef.current = 1;
-    offsetRef.current = zero;
   };
 
   const handleMouseDown = (e: React.MouseEvent<HTMLDivElement>) => {
-    if (!imageSrc) return;
     setDragging(true);
     setStartPos({ x: e.clientX, y: e.clientY });
-    setStartOffset(offset);
+    setStartOffset(offsetRef.current);
   };
 
   const handleMouseMove = (e: React.MouseEvent<HTMLDivElement>) => {
@@ -67,7 +128,7 @@ export function SettingsModal({ onClose, initialAvatarUrl, initialWeekOrder, onS
     const dx = e.clientX - startPos.x;
     const dy = e.clientY - startPos.y;
     const candidate = { x: startOffset.x + dx, y: startOffset.y + dy };
-    const next = clampOffset(candidate, scale, imgRef.current, imgSize);
+    const next = clampOffset(candidate, scaleRef.current, imgRef.current);
     setOffset(next);
     offsetRef.current = next;
     setAvatarChanged(true);
@@ -76,54 +137,14 @@ export function SettingsModal({ onClose, initialAvatarUrl, initialWeekOrder, onS
   const handleMouseUp = () => setDragging(false);
 
   const handleWheel = (e: React.WheelEvent<HTMLDivElement>) => {
-    if (!imageSrc) return;
     e.preventDefault();
-    const delta = -e.deltaY;
-    const nextScale = Math.min(Math.max(0.5, scale + delta * 0.0015), 3);
-    const nextOffset = clampOffset(offset, nextScale, imgRef.current, imgSize);
+    const nextScale = Math.min(Math.max(0.5, scaleRef.current + (-e.deltaY) * 0.0015), 3);
+    const nextOffset = clampOffset(offsetRef.current, nextScale, imgRef.current);
     setScale(nextScale);
     setOffset(nextOffset);
     scaleRef.current = nextScale;
     offsetRef.current = nextOffset;
     setAvatarChanged(true);
-  };
-
-  const computeBaseScale = () => {
-    if (!imgRef.current) return 1;
-    const w = imgRef.current.naturalWidth;
-    const h = imgRef.current.naturalHeight;
-    const base = VIEW_SIZE / Math.min(w, h);
-    return base;
-  };
-
-  const clampOffset = (
-    candidate: { x: number; y: number },
-    nextScale: number,
-    imgEl: HTMLImageElement | null,
-    size: { w: number; h: number }
-  ) => {
-    const w = size.w || imgEl?.naturalWidth || 0;
-    const h = size.h || imgEl?.naturalHeight || 0;
-    if (!w || !h) return candidate;
-    const base = VIEW_SIZE / Math.min(w, h);
-    const renderScale = base * nextScale;
-    const renderW = w * renderScale;
-    const renderH = h * renderScale;
-    const maxX = Math.max(0, (renderW - VIEW_SIZE) / 2);
-    const maxY = Math.max(0, (renderH - VIEW_SIZE) / 2);
-    return {
-      x: Math.min(Math.max(candidate.x, -maxX), maxX),
-      y: Math.min(Math.max(candidate.y, -maxY), maxY),
-    };
-  };
-
-  const handleImageLoad = () => {
-    if (!imgRef.current) return;
-    setImgSize({
-      w: imgRef.current.naturalWidth,
-      h: imgRef.current.naturalHeight,
-    });
-    resetTransform();
   };
 
   const handleSave = async () => {
@@ -139,37 +160,18 @@ export function SettingsModal({ onClose, initialAvatarUrl, initialWeekOrder, onS
       return;
     }
 
-    // 미리보기(120px)와 100% 동일한 좌표계로 그린 뒤 200px로 확대
-    const baseScale = computeBaseScale();
-    const currentScale = scaleRef.current;
-    const currentOffset = offsetRef.current;
-    const renderScale = baseScale * currentScale;
     const img = imgRef.current;
-
-    const previewCanvas = document.createElement('canvas');
-    previewCanvas.width = VIEW_SIZE;
-    previewCanvas.height = VIEW_SIZE;
-    const ctx = previewCanvas.getContext('2d');
-    if (!ctx) return;
-
-    ctx.fillStyle = '#ffffff';
-    ctx.fillRect(0, 0, VIEW_SIZE, VIEW_SIZE);
-
-    // CSS와 동일: translate(중심+offset) → scale(renderScale)
-    const centerX = VIEW_SIZE / 2 + currentOffset.x;
-    const centerY = VIEW_SIZE / 2 + currentOffset.y;
-    ctx.save();
-    ctx.translate(centerX, centerY);
-    ctx.scale(renderScale, renderScale);
-    ctx.drawImage(img, -img.naturalWidth / 2, -img.naturalHeight / 2);
-    ctx.restore();
+    const { sx, sy, sw, sh } = getSourceRect(img, scaleRef.current, offsetRef.current);
 
     const finalCanvas = document.createElement('canvas');
     finalCanvas.width = OUTPUT_SIZE;
     finalCanvas.height = OUTPUT_SIZE;
-    const fctx = finalCanvas.getContext('2d');
-    if (!fctx) return;
-    fctx.drawImage(previewCanvas, 0, 0, VIEW_SIZE, VIEW_SIZE, 0, 0, OUTPUT_SIZE, OUTPUT_SIZE);
+    const ctx = finalCanvas.getContext('2d');
+    if (!ctx) return;
+
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(0, 0, OUTPUT_SIZE, OUTPUT_SIZE);
+    ctx.drawImage(img, sx, sy, sw, sh, 0, 0, OUTPUT_SIZE, OUTPUT_SIZE);
 
     let blob: Blob | null = null;
     try {
@@ -180,7 +182,7 @@ export function SettingsModal({ onClose, initialAvatarUrl, initialWeekOrder, onS
           reject(e);
         }
       });
-    } catch (error) {
+    } catch {
       alert('이미지 처리 중 오류가 발생했습니다. 주간 순서만 저장됩니다.');
       onSaved({ avatarUrl: initialAvatarUrl || null, weekOrder });
       onClose();
@@ -208,6 +210,8 @@ export function SettingsModal({ onClose, initialAvatarUrl, initialWeekOrder, onS
     onClose();
   };
 
+  const dpr = window.devicePixelRatio || 1;
+
   return (
     <div className={shared.modalOverlay}>
       <div className={shared.modalBackdrop} onClick={onClose} />
@@ -230,30 +234,43 @@ export function SettingsModal({ onClose, initialAvatarUrl, initialWeekOrder, onS
           <div className={shared.section}>
             <p className={shared.sectionTitle}>프로필 이미지</p>
             <div className={styles.avatarSection}>
+
+              {/* 이미지 로딩 전용 hidden img */}
+              {imageSrc && (
+                <img
+                  ref={imgRef}
+                  src={imageSrc}
+                  style={{ display: 'none' }}
+                  crossOrigin="anonymous"
+                  onLoad={handleImageLoad}
+                  alt=""
+                />
+              )}
+
               <div className={styles.avatarPreview}>
                 {imageSrc ? (
-                  <img
-                    ref={imgRef}
-                    src={imageSrc}
-                    alt="avatar"
-                    crossOrigin="anonymous"
-                    style={{
-                      transform: `translate(-50%, -50%) translate(${offset.x}px, ${offset.y}px) scale(${computeBaseScale() * scale})`,
-                    }}
-                    className={styles.previewImage}
-                    onLoad={handleImageLoad}
+                  <canvas
+                    ref={canvasRef}
+                    width={VIEW_SIZE * dpr}
+                    height={VIEW_SIZE * dpr}
+                    style={{ width: VIEW_SIZE, height: VIEW_SIZE }}
+                    className={styles.previewCanvas}
                   />
+                ) : displayAvatarUrl ? (
+                  <img src={displayAvatarUrl} className={styles.savedAvatarDisplay} alt="현재 프로필" />
                 ) : (
                   <div className={styles.placeholder}>No Image</div>
                 )}
-                <div
-                  className={styles.dragLayer}
-                  onMouseDown={handleMouseDown}
-                  onMouseMove={handleMouseMove}
-                  onMouseUp={handleMouseUp}
-                  onMouseLeave={handleMouseUp}
-                  onWheel={handleWheel}
-                />
+                {imageSrc && (
+                  <div
+                    className={styles.dragLayer}
+                    onMouseDown={handleMouseDown}
+                    onMouseMove={handleMouseMove}
+                    onMouseUp={handleMouseUp}
+                    onMouseLeave={handleMouseUp}
+                    onWheel={handleWheel}
+                  />
+                )}
               </div>
 
               <div className={styles.avatarControls}>
@@ -271,9 +288,11 @@ export function SettingsModal({ onClose, initialAvatarUrl, initialWeekOrder, onS
                     className={styles.hiddenInput}
                     onChange={handleFileSelect}
                   />
-                  <button className={styles.resetButton} onClick={resetTransform}>
-                    위치 초기화
-                  </button>
+                  {imageSrc && (
+                    <button className={styles.resetButton} onClick={resetTransform}>
+                      위치 초기화
+                    </button>
+                  )}
                 </div>
 
                 {imageSrc && (
@@ -288,7 +307,7 @@ export function SettingsModal({ onClose, initialAvatarUrl, initialWeekOrder, onS
                       className={styles.zoomSlider}
                       onChange={(e) => {
                         const next = Number(e.target.value);
-                        const nextOffset = clampOffset(offset, next, imgRef.current, imgSize);
+                        const nextOffset = clampOffset(offsetRef.current, next, imgRef.current);
                         setScale(next);
                         setOffset(nextOffset);
                         scaleRef.current = next;
