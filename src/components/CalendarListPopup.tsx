@@ -17,6 +17,8 @@ export interface CalendarListPopupProps {
   onOpenCalDAVModal?: () => void;
   onOpenSubscribeModal?: () => void;
   onOpenGoogleSync?: () => void;
+  onReconnectCalDAV?: () => void;
+  onReconnectGoogle?: () => void;
   isSyncingGoogle?: boolean;
   isGoogleTokenExpired?: boolean;
   isCalDAVAuthError?: boolean;
@@ -73,7 +75,9 @@ const renderCalendarItem = (
   setEditingId: (id: string | null) => void,
   setEditingName: (name: string) => void,
   handleNameSave: () => void,
-  handleKeyDown: (e: React.KeyboardEvent) => void
+  handleKeyDown: (e: React.KeyboardEvent) => void,
+  isGoogleCloudOff: boolean,
+  isCalDAVCloudOff: boolean
 ) => {
   const normalizedUrl = cal.url.replace(/\/+$/, '') || cal.url;
   const isVisible = visibleUrlSet.has(normalizedUrl);
@@ -134,14 +138,21 @@ const renderCalendarItem = (
       </div>
 
       <div className={styles.shareStatus}>
-        {(cal.createdFromApp || (isLocalSection && cal.url?.startsWith('google:'))) && (
-          <>
-            <span className="material-symbols-rounded" style={{ fontSize: '14px', color: '#888' }}>
-              {!cal.isLocal ? 'sync' : 'sync_disabled'}
-            </span>
-            <span>{cal.type === 'google' || cal.url?.startsWith('google:') ? 'Google' : 'iCloud'}</span>
-          </>
-        )}
+        {(cal.createdFromApp || (isLocalSection && cal.url?.startsWith('google:'))) && (() => {
+          const isGoogle = cal.type === 'google' || cal.url?.startsWith('google:');
+          // cloud_off 상태이면 해당 서비스로 동기화 안 됨 → ! 배지 표시
+          const hasError = isGoogle ? isGoogleCloudOff : (isCalDAVCloudOff && !cal.isLocal);
+          return (
+            <>
+              <span className="material-symbols-rounded" style={{ fontSize: '14px', color: hasError ? '#f59e0b' : '#888' }}>
+                {hasError ? 'priority_high' : 'arrow_right_alt'}
+              </span>
+              <span style={{ color: hasError ? '#f59e0b' : undefined }}>
+                {isGoogle ? 'Google' : 'iCloud'}
+              </span>
+            </>
+          );
+        })()}
       </div>
     </div>
   );
@@ -160,6 +171,8 @@ function CalendarListPopupComponent({
   onOpenCalDAVModal,
   onOpenSubscribeModal,
   onOpenGoogleSync,
+  onReconnectCalDAV,
+  onReconnectGoogle,
   isSyncingGoogle,
   isGoogleTokenExpired = false,
   isCalDAVAuthError = false,
@@ -317,6 +330,10 @@ function CalendarListPopupComponent({
 
   const currentCalColor = calendars.find(c => c.url === contextMenu?.calendarUrl)?.color || '#3b82f6';
 
+  // cloud_off 조건: sync가 활성화되지 않은 모든 상태 (미설정 + 연결 끊김)
+  const isGoogleCloudOff = groups.google.length === 0 || isGoogleTokenExpired;
+  const isCalDAVCloudOff = groups.riffFromIcloud.length === 0 || isCalDAVAuthError;
+
   return (
     <>
       <div className={styles.popupContainer} ref={popupRef}>
@@ -336,7 +353,8 @@ function CalendarListPopupComponent({
                 {groups.riff.map(cal => renderCalendarItem(
                   cal, true, visibleUrlSet, editingId, selectedId,
                   inputRef, onToggle, handleContextMenu, setSelectedId,
-                  setEditingId, setEditingName, handleNameSave, handleKeyDown
+                  setEditingId, setEditingName, handleNameSave, handleKeyDown,
+                  isGoogleCloudOff, isCalDAVCloudOff
                 ))}
               </div>
 
@@ -351,25 +369,24 @@ function CalendarListPopupComponent({
                     style={{
                       fontSize: '16px',
                       cursor: 'pointer',
-                      color: isCalDAVAuthError ? '#f59e0b' : undefined,
+                      color: isCalDAVCloudOff ? '#9ca3af' : undefined,
                       fontVariationSettings: "'FILL' 0, 'wght' 400",
                     }}
                     onClick={onOpenCalDAVModal}
-                    title={isCalDAVAuthError ? 'iCloud 인증 실패 — 재연결 필요' : 'Mac 캘린더 동기화'}
-                  >{isCalDAVAuthError ? 'cloud_alert' : 'cloud'}</span>
+                    title="Mac 캘린더 동기화"
+                  >{isCalDAVCloudOff ? 'cloud_off' : 'cloud_sync'}</span>
                 </div>
                 {groups.riffFromIcloud.length > 0 ? (
                   groups.riffFromIcloud.map(cal => renderCalendarItem(
                     cal, false, visibleUrlSet, editingId, selectedId,
                     inputRef, onToggle, handleContextMenu, setSelectedId,
-                    setEditingId, setEditingName, handleNameSave, handleKeyDown
+                    setEditingId, setEditingName, handleNameSave, handleKeyDown,
+                    isGoogleCloudOff, isCalDAVCloudOff
                   ))
                 ) : (
-                  !isCalDAVAuthError && (
-                    <div style={{ padding: '0.5rem 0.75rem', fontSize: '0.8rem', color: '#9ca3af' }}>
-                      동기화된 캘린더가 없습니다.
-                    </div>
-                  )
+                  <div style={{ padding: '0.5rem 0.75rem', fontSize: '0.8rem', color: '#9ca3af' }}>
+                    동기화된 캘린더가 없습니다.
+                  </div>
                 )}
               </div>
 
@@ -385,17 +402,13 @@ function CalendarListPopupComponent({
                       style={{
                         fontSize: '16px',
                         cursor: 'pointer',
-                        color: isGoogleTokenExpired ? '#f59e0b' : undefined,
+                        color: (!isSyncingGoogle && isGoogleCloudOff) ? '#9ca3af' : undefined,
                         fontVariationSettings: isSyncingGoogle ? undefined : "'FILL' 0, 'wght' 400",
                       }}
                       onClick={onOpenGoogleSync}
-                    >{isGoogleTokenExpired ? 'cloud_alert' : isSyncingGoogle ? 'sync' : 'cloud'}</span>
+                    >{isSyncingGoogle ? 'sync' : isGoogleCloudOff ? 'cloud_off' : 'cloud_sync'}</span>
                     <div className={styles.iconTooltip}>
-                      {isGoogleTokenExpired
-                        ? 'Google 연결 만료 — 재연결 필요'
-                        : isSyncingGoogle
-                          ? '동기화 중...'
-                          : 'Google 캘린더 동기화'}
+                      {isSyncingGoogle ? '동기화 중...' : 'Google 캘린더 동기화'}
                     </div>
                   </div>
                 </div>
@@ -403,14 +416,13 @@ function CalendarListPopupComponent({
                   groups.google.map(cal => renderCalendarItem(
                     cal, false, visibleUrlSet, editingId, selectedId,
                     inputRef, onToggle, handleContextMenu, setSelectedId,
-                    setEditingId, setEditingName, handleNameSave, handleKeyDown
+                    setEditingId, setEditingName, handleNameSave, handleKeyDown,
+                    isGoogleCloudOff, isCalDAVCloudOff
                   ))
                 ) : (
-                  !isGoogleTokenExpired && (
-                    <div style={{ padding: '0.5rem 0.75rem', fontSize: '0.8rem', color: '#9ca3af' }}>
-                      동기화된 캘린더가 없습니다.
-                    </div>
-                  )
+                  <div style={{ padding: '0.5rem 0.75rem', fontSize: '0.8rem', color: '#9ca3af' }}>
+                    동기화된 캘린더가 없습니다.
+                  </div>
                 )}
               </div>
 
@@ -429,7 +441,8 @@ function CalendarListPopupComponent({
                   groups.subscription.map(cal => renderCalendarItem(
                     cal, false, visibleUrlSet, editingId, selectedId,
                     inputRef, onToggle, handleContextMenu, setSelectedId,
-                    setEditingId, setEditingName, handleNameSave, handleKeyDown
+                    setEditingId, setEditingName, handleNameSave, handleKeyDown,
+                    isGoogleCloudOff, isCalDAVCloudOff
                   ))
                 ) : (
                   <div style={{ padding: '0.5rem 0.75rem', fontSize: '0.8rem', color: '#9ca3af' }}>
@@ -542,9 +555,27 @@ function CalendarListPopupComponent({
                   const isReadonly = cal.readOnly || cal.isSubscription || cal.type === 'subscription';
                   const isGoogle = cal.type === 'google';
                   const isExternalSync = !isLocal && !isReadonly && !isGoogle; // i.e., CalDAV/iCloud
+                  const hasCalDAVError = isExternalSync && isCalDAVAuthError;
+                  const hasGoogleError = isGoogle && isGoogleTokenExpired;
+                  const hasError = hasCalDAVError || hasGoogleError;
 
                   return (
                     <>
+                      {/* 재연결: 연결 오류 상태에서만 표시 */}
+                      {hasError && (
+                        <button
+                          className={styles.contextMenuItem}
+                          onClick={() => {
+                            if (hasCalDAVError && onReconnectCalDAV) onReconnectCalDAV();
+                            else if (hasGoogleError && onReconnectGoogle) onReconnectGoogle();
+                            setContextMenu(null);
+                          }}
+                        >
+                          <span className="material-symbols-rounded" style={{ fontSize: '14px', color: '#f59e0b' }}>wifi_tethering</span>
+                          <span style={{ color: '#f59e0b' }}>재연결</span>
+                        </button>
+                      )}
+
                       {/* 동기화 해제: 구글과 외부 연동 캘린더에만 보임 */}
                       {(isGoogle || isExternalSync) && (
                         <button className={`${styles.contextMenuItem} ${styles.contextMenuItemDelete}`} onClick={() => handleDelete('unsync')}>
@@ -553,7 +584,7 @@ function CalendarListPopupComponent({
                         </button>
                       )}
 
-                      {/* 로컬/앱에서생성된연동캘린더는 삭제, 읽기 전용은 구독 취소 */}
+                      {/* 삭제: 연결 오류 상태에서는 "삭제(로컬만)", 정상 상태에서는 "삭제" */}
                       {(isLocal || isReadonly || (isExternalSync && cal.createdFromApp) || (isGoogle && cal.createdFromApp)) && (
                         <button className={`${styles.contextMenuItem} ${styles.contextMenuItemDelete}`} onClick={() => handleDelete('delete')}>
                           <span
@@ -567,7 +598,10 @@ function CalendarListPopupComponent({
                             {isLocal || (isExternalSync && cal.createdFromApp) || (isGoogle && cal.createdFromApp) ? 'delete' : 'cloud_alert'}
                           </span>
                           <span>
-                            {isLocal || (isExternalSync && cal.createdFromApp) || (isGoogle && cal.createdFromApp) ? '삭제' : '구독 취소'}
+                            {isLocal ? '삭제'
+                              : (isExternalSync && cal.createdFromApp) || (isGoogle && cal.createdFromApp)
+                                ? (hasError ? '삭제(로컬만)' : '삭제')
+                                : '구독 취소'}
                           </span>
                         </button>
                       )}
