@@ -305,6 +305,41 @@ export const deleteCalendarMetadataFromDB = async (url: string): Promise<boolean
   return true;
 };
 
+/**
+ * 특정 CalDAV URL을 localStorage(caldavCalendarMetadata)에서 즉시 삭제.
+ * saveCalendarMetadata 안전장치(createdFromApp 보존 로직)가 stale CalDAV URL을
+ * 재복원하는 것을 방지하기 위해, DB 삭제와 함께 반드시 호출해야 함.
+ */
+export const deleteCalendarMetadataFromLocalStorage = (url: string) => {
+  if (typeof window === 'undefined') return;
+  const normalized = normalizeCalendarUrl(url) || url;
+
+  // caldavCalendarMetadata에서 삭제
+  const rawCalDAV = window.localStorage.getItem(CALENDAR_METADATA_KEY);
+  if (rawCalDAV) {
+    try {
+      const map: Record<string, CalendarMetadata> = JSON.parse(rawCalDAV);
+      if (map[normalized] || map[url]) {
+        delete map[normalized];
+        delete map[url];
+        window.localStorage.setItem(CALENDAR_METADATA_KEY, JSON.stringify(map));
+      }
+    } catch { /* ignore */ }
+  }
+
+  // localCalendarMetadata에서도 혹시 있으면 삭제
+  const rawLocal = window.localStorage.getItem(LOCAL_CALENDAR_METADATA_KEY);
+  if (rawLocal) {
+    try {
+      const list: CalendarMetadata[] = JSON.parse(rawLocal);
+      const filtered = list.filter(c => c.url !== url && c.url !== normalized);
+      if (filtered.length !== list.length) {
+        window.localStorage.setItem(LOCAL_CALENDAR_METADATA_KEY, JSON.stringify(filtered));
+      }
+    } catch { /* ignore */ }
+  }
+};
+
 import { META_ID, serializeMemo, parseMemo } from './memoUtils';
 
 // Events
