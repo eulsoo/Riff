@@ -20,6 +20,7 @@ export interface CalendarListPopupProps {
   onReconnectCalDAV?: () => void;
   onReconnectGoogle?: () => void;
   isSyncingGoogle?: boolean;
+  hasGoogleProvider?: boolean;
   isGoogleTokenExpired?: boolean;
   isCalDAVAuthError?: boolean;
   onShowToast?: (message: string, type: 'success' | 'error') => void;
@@ -174,6 +175,7 @@ function CalendarListPopupComponent({
   onReconnectCalDAV,
   onReconnectGoogle,
   isSyncingGoogle,
+  hasGoogleProvider = false,
   isGoogleTokenExpired = false,
   isCalDAVAuthError = false,
   onShowToast,
@@ -331,7 +333,7 @@ function CalendarListPopupComponent({
   const currentCalColor = calendars.find(c => c.url === contextMenu?.calendarUrl)?.color || '#3b82f6';
 
   // cloud_off 조건: sync가 활성화되지 않은 모든 상태 (미설정 + 연결 끊김)
-  const isGoogleCloudOff = groups.google.length === 0 || isGoogleTokenExpired;
+  const isGoogleCloudOff = !hasGoogleProvider && groups.google.length === 0;
   const isCalDAVCloudOff = groups.riffFromIcloud.length === 0 || isCalDAVAuthError;
 
   return (

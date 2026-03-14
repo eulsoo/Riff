@@ -76,6 +76,7 @@ interface DataContextType {
 
   // Google Calendar
   googleCalendars: CalendarMetadata[];
+  hasGoogleProvider: boolean;
   isSyncingGoogle: boolean;
   isGoogleTokenExpired: boolean;
   clearGoogleTokenExpiredFlag: () => void;
@@ -831,6 +832,7 @@ export const DataProvider = ({
     recordAction, registerCategoryHandlers, canUndo, canRedo,
     loadData,
     // Google Calendar
+    hasGoogleProvider: !!(session?.user?.app_metadata?.providers?.includes('google') || session?.user?.app_metadata?.provider === 'google'),
     googleCalendars, isSyncingGoogle, isGoogleTokenExpired, clearGoogleTokenExpiredFlag, syncGoogleCalendar,
     removeGoogleCalendar, selectedGoogleCalendarIds, toggleGoogleCalendarSelected,
     // External Calendar Deletion
