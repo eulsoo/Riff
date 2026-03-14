@@ -242,12 +242,20 @@ export const MainLayout = ({
         const serverCalendars = await getCalendars(config);
         localStorage.removeItem('caldavAuthError');
         setIsCalDAVAuthError(false);
-        const { urlRemap } = refreshMetadataWithServerList(serverCalendars); // displayName도 같이 전달
+        const { urlRemap, deletedCalendars, restoredCalendars } = refreshMetadataWithServerList(serverCalendars); // displayName도 같이 전달
 
         // 이벤트 re-link (CalDAV URL → 새 로컬 URL)
         if (urlRemap.size > 0) {
           await relinkEventsByCalendarUrl(urlRemap, '[PopupCheck]');
           loadData(true);
+        }
+
+        // 외부 삭제 토스트 알림
+        for (const name of restoredCalendars) {
+          setToast({ message: `iCloud 캘린더(${name})가 삭제되어 Riff 로컬 캘린더로 전환됐습니다.`, type: 'info' });
+        }
+        for (const name of deletedCalendars) {
+          setToast({ message: `iCloud에서 삭제된 캘린더(${name})를 Riff에서도 제거했습니다.`, type: 'info' });
         }
       } catch (e: any) {
         console.warn('[PopupCheck] Server calendar check failed:', e);
@@ -434,12 +442,20 @@ export const MainLayout = ({
           settingId: settings.id
         };
         const serverCalendars = await getCalendars(config);
-        const { urlRemap } = refreshMetadataWithServerList(serverCalendars); // displayName도 같이 전달
+        const { urlRemap, deletedCalendars, restoredCalendars } = refreshMetadataWithServerList(serverCalendars); // displayName도 같이 전달
 
         // 이벤트 re-link: 로컬 전환된 캘린더의 이벤트 calendar_url 업데이트
         if (urlRemap.size > 0) {
           await relinkEventsByCalendarUrl(urlRemap, '[Metadata]');
           loadData(true);
+        }
+
+        // 외부 삭제 토스트 알림
+        for (const name of restoredCalendars) {
+          setToast({ message: `iCloud 캘린더(${name})가 삭제되어 Riff 로컬 캘린더로 전환됐습니다.`, type: 'info' });
+        }
+        for (const name of deletedCalendars) {
+          setToast({ message: `iCloud에서 삭제된 캘린더(${name})를 Riff에서도 제거했습니다.`, type: 'info' });
         }
       } catch (e) {
         console.warn('[MainLayout] Metadata validation failed:', e);
@@ -1525,6 +1541,11 @@ export const MainLayout = ({
               onOpenGoogleSync={() => {
                 setGoogleSyncModalMode('sync');
                 setGoogleAuthNoticeMessage(undefined);
+                setIsGoogleSyncModalOpen(true);
+              }}
+              onReconnectGoogle={() => {
+                setGoogleSyncModalMode('auth-only');
+                setGoogleAuthNoticeMessage('Google 계정 연결이 만료되었습니다. 다시 연결해주세요.');
                 setIsGoogleSyncModalOpen(true);
               }}
               isSyncingGoogle={isSyncingGoogle}

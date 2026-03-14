@@ -89,7 +89,8 @@ export default function App() {
           // OAuth 팝업 창인 경우: 부모 탭에 완료 알림 후 닫기
           if (window.opener) {
             const bc = new BroadcastChannel('google-oauth');
-            bc.postMessage('oauth-complete');
+            // refresh token을 부모 창으로 전달해 부모에서 저장 (팝업 닫힘으로 인한 fetch 취소 이중 방지)
+            bc.postMessage({ type: 'oauth-complete', refreshToken: session.provider_refresh_token ?? null });
             bc.close();
             window.close();
           }
