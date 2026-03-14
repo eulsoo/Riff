@@ -229,20 +229,26 @@ Deno.serve(async (req) => {
           .single();
 
        if (settingsError || !settings) {
-          console.error('설정 조회 실패:', settingsError);
-          return new Response(
-            JSON.stringify({ error: '설정 정보를 찾을 수 없습니다.' }),
-            { status: 404, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-          );
+          // settingId 조회 실패 시: 직접 자격증명이 모두 있으면 fallback, 없으면 404
+          if (requestData.serverUrl && requestData.username && requestData.password) {
+            console.warn('settingId 조회 실패, 직접 자격증명으로 fallback:', settingId);
+            // serverUrl/username/password는 이미 requestData에서 할당됨 — 그대로 진행
+          } else {
+            console.error('설정 조회 실패:', settingsError);
+            return new Response(
+              JSON.stringify({ error: '설정 정보를 찾을 수 없습니다.' }),
+              { status: 404, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+            );
+          }
+       } else {
+         serverUrl = settings.server_url;
+         username = settings.username;
        }
-       
-       serverUrl = settings.server_url;
-       username = settings.username;
        
        // 요청에 비밀번호가 명시적으로 포함되어 있다면 저장된 비밀번호보다 우선 사용
        if (requestData.password) {
          console.log('요청에 포함된 새 비밀번호를 사용합니다.');
-       } else {
+       } else if (settings) {
          // 저장된 비밀번호 복호화
          // 만약 암호화되지 않은 구형 데이터라면 그대로 사용 (호환성)
          if (settings.password && settings.password.includes(':')) {

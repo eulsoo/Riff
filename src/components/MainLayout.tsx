@@ -1300,14 +1300,9 @@ export const MainLayout = ({
       });
     }
     // 메타데이터를 먼저 갱신 (모달에서 저장한 새 캘린더 반영)
-    if (syncedCalendarUrls && syncedCalendarUrls.length > 0) {
-      const { urlRemap } = refreshMetadataWithServerList(syncedCalendarUrls);
-      if (urlRemap.size > 0) {
-        await relinkEventsByCalendarUrl(urlRemap, '[Sync]');
-      }
-    } else {
-      refreshMetadata();
-    }
+    // 주의: refreshMetadataWithServerList(syncedCalendarUrls)를 쓰면 createdFromApp 캘린더가
+    // syncedCalendarUrls에 없어서 "서버에서 삭제됨"으로 잘못 처리됨 → refreshMetadata()만 호출
+    refreshMetadata();
     await loadData(true);
     // 메타데이터 갱신 후 다음 틱에 sync 트리거 (모달 sync가 syncInFlight로 차단됐을 때 백업)
     setTimeout(() => triggerCalDAVSync(), 0);
@@ -1319,7 +1314,7 @@ export const MainLayout = ({
       pendingSyncTimerRef.current = setTimeout(() => handleSyncToMac(cal), 500);
     }
     setCalDAVAuthNoticeMessage(undefined);
-  }, [loadData, refreshMetadataWithServerList, refreshMetadata, pendingSyncCalendar, handleSyncToMac, triggerCalDAVSync]);
+  }, [loadData, refreshMetadata, pendingSyncCalendar, handleSyncToMac, triggerCalDAVSync]);
 
   const handleGoogleSyncComplete = useCallback(async (selectedMeta: CalendarMetadata[]) => {
     setIsGoogleSyncModalOpen(false);
