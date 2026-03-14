@@ -8,7 +8,16 @@ import {
   fetchCalendarMetadataFromDB,
   saveCalendarMetadataToDB,
   deleteCalendarMetadataFromDB,
+  deleteEventsByCalendarUrl,
 } from '../services/api';
+
+export interface RefreshMetadataResult {
+  urlRemap: Map<string, string>;
+  /** iCloud→Riff 캘린더 (createdFromApp=false) 중 서버에서 삭제된 캘린더 이름 목록 */
+  deletedCalendars: string[];
+  /** Riff→iCloud 캘린더 (createdFromApp=true) 중 서버에서 삭제되어 로컬로 복원된 캘린더 이름 목록 */
+  restoredCalendars: string[];
+}
 
 /** isVisible이 true인 캘린더 URL Set 생성 (local 기본 포함) */
 const buildVisibleUrlSet = (list: CalendarMetadata[]): Set<string> => {
@@ -162,8 +171,10 @@ export const useCalendarMetadata = () => {
   // 서버 캘린더 목록과 비교하여 createdFromApp 플래그 정리
   const refreshMetadataWithServerList = useCallback((
     serverCalendarsOrUrls: { url: string; displayName?: string }[] | string[]
-  ): Map<string, string> => {
+  ): RefreshMetadataResult => {
     const urlRemap = new Map<string, string>();
+    const deletedCalendars: string[] = [];
+    const restoredCalendars: string[] = [];
 
     const serverCalendars: { url: string; displayName?: string }[] =
       serverCalendarsOrUrls.length > 0 && typeof serverCalendarsOrUrls[0] === 'string'
@@ -203,7 +214,6 @@ export const useCalendarMetadata = () => {
 
         if (!origExists) {
           console.log(`캘린더 "${cal.displayName}" - Mac에서도 삭제 확인 → 완전히 로컬로 전환`);
-          hasChanges = true;
           acc.push({ ...cal, createdFromApp: false, originalCalDAVUrl: undefined });
         } else {
           acc.push(cal);
@@ -265,6 +275,13 @@ export const useCalendarMetadata = () => {
           type: 'local' as const,
           color: cal.color,
         });
+        restoredCalendars.push(cal.displayName || cal.url);
+      } else {
+        // iCloud→Riff 캘린더가 서버에서 삭제됨 → 이벤트도 정리
+        deletedCalendars.push(cal.displayName || cal.url);
+        deleteEventsByCalendarUrl(cal.url).catch(err =>
+          console.error('[useCalendarMetadata] 외부 삭제된 CalDAV 캘린더 이벤트 정리 실패:', err)
+        );
       }
 
       return acc;
@@ -274,7 +291,7 @@ export const useCalendarMetadata = () => {
     persistAll(updatedList);
     setCalendarMetadata(updatedList);
 
-    return urlRemap;
+    return { urlRemap, deletedCalendars, restoredCalendars };
   }, [persistAll]);
 
   const toggleCalendarVisibility = useCallback((url: string) => {
@@ -326,11 +343,37 @@ export const useCalendarMetadata = () => {
   const convertLocalToGoogle = useCallback((oldUrl: string, newCalendar: CalendarMetadata) => {
     setCalendarMetadata(prev => {
       const filtered = prev.filter(c => c.url !== oldUrl);
-      const next = [...filtered, { ...newCalendar, isLocal: false, type: 'google', createdFromApp: true }];
+      const next: CalendarMetadata[] = [...filtered, { ...newCalendar, isLocal: false, type: 'google' as const, createdFromApp: true }];
       persistAll(next);
       deleteCalendarMetadataFromDB(oldUrl).catch(console.error);
       return next;
     });
+  }, [persistAll]);
+
+  const convertGoogleToLocal = useCallback((oldUrl: string): string => {
+    const newLocalUrl = `local-unsynced-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+    setCalendarMetadata(prev => {
+      const target = prev.find(c => c.url === oldUrl);
+      if (!target) return prev;
+      const converted: CalendarMetadata = {
+        ...target,
+        url: newLocalUrl,
+        isLocal: true,
+        type: 'local' as const,
+        createdFromApp: false,
+      };
+      const next: CalendarMetadata[] = prev.map(c => c.url === oldUrl ? converted : c);
+      persistAll(next);
+      deleteCalendarMetadataFromDB(oldUrl).catch(console.error);
+      return next;
+    });
+    setVisibleCalendarUrlSet(prev => {
+      const next = new Set(prev);
+      next.delete(oldUrl);
+      next.add(newLocalUrl);
+      return next;
+    });
+    return newLocalUrl;
   }, [persistAll]);
 
   const convertCalDAVToLocal = useCallback((oldUrl: string): string => {
@@ -343,8 +386,8 @@ export const useCalendarMetadata = () => {
         url: newLocalUrl,
         isLocal: true,
         type: 'local' as const,
-        createdFromApp: true,
-        originalCalDAVUrl: normalizeCalendarUrl(oldUrl) || oldUrl,
+        createdFromApp: false,
+        originalCalDAVUrl: undefined,
       };
       const next = prev.map(c => c.url === oldUrl ? converted : c);
       persistAll(next);
@@ -388,6 +431,7 @@ export const useCalendarMetadata = () => {
     convertLocalToCalDAV,
     convertLocalToGoogle,
     convertCalDAVToLocal,
+    convertGoogleToLocal,
     deleteCalendar,
     refreshMetadata,
     refreshMetadataWithServerList,
