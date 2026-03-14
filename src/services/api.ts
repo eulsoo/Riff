@@ -179,6 +179,7 @@ export const saveGoogleRefreshToken = async (refreshToken: string, accessToken?:
   try {
     const resp = await fetch(`${SUPABASE_FUNCTIONS_URL}/refresh-google-token`, {
       method: 'POST',
+      keepalive: true, // 팝업 창이 닫혀도 요청이 완료될 수 있도록 유지
       headers: {
         'Content-Type': 'application/json',
         'Authorization': `Bearer ${token}`,
