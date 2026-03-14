@@ -75,6 +75,7 @@ export const useCalendarMetadata = () => {
         });
 
         const merged = [...dbList, ...localOnlyItems];
+
         setCalendarMetadata(merged);
         saveCalendarMetadata(merged.filter(c => !c.isLocal));
         saveLocalCalendarMetadata(merged);
@@ -262,20 +263,33 @@ export const useCalendarMetadata = () => {
       }
 
       if (cal.createdFromApp) {
-        const newLocalUrl = `local-restored-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
-        urlRemap.set(cal.url, newLocalUrl);
-        const norm = normalizeCalendarUrl(cal.url);
-        if (norm && norm !== cal.url) urlRemap.set(norm, newLocalUrl);
+        // 같은 displayName의 로컬 항목이 이미 acc에 있으면 해당 URL로 리맵만 하고 중복 생성 방지
+        const existingLocal = acc.find(a => a.isLocal && a.displayName === cal.displayName);
+        if (existingLocal) {
+          urlRemap.set(cal.url, existingLocal.url);
+          const norm = normalizeCalendarUrl(cal.url);
+          if (norm && norm !== cal.url) urlRemap.set(norm, existingLocal.url);
+          // 구 CalDAV URL은 DB에서도 삭제 (누적 방지)
+          deleteCalendarMetadataFromDB(cal.url).catch(console.error);
+        } else {
+          const newLocalUrl = `local-restored-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+          urlRemap.set(cal.url, newLocalUrl);
+          const norm = normalizeCalendarUrl(cal.url);
+          if (norm && norm !== cal.url) urlRemap.set(norm, newLocalUrl);
 
-        acc.push({
-          ...cal,
-          url: newLocalUrl,
-          createdFromApp: false,
-          isLocal: true,
-          type: 'local' as const,
-          color: cal.color,
-        });
-        restoredCalendars.push(cal.displayName || cal.url);
+          // 구 CalDAV URL을 DB에서 삭제하고 새 로컬 URL로 교체
+          deleteCalendarMetadataFromDB(cal.url).catch(console.error);
+
+          acc.push({
+            ...cal,
+            url: newLocalUrl,
+            createdFromApp: false,
+            isLocal: true,
+            type: 'local' as const,
+            color: cal.color,
+          });
+          restoredCalendars.push(cal.displayName || cal.url);
+        }
       } else {
         // iCloud→Riff 캘린더가 서버에서 삭제됨 → 이벤트도 정리
         deletedCalendars.push(cal.displayName || cal.url);
