@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { getGoogleProviderToken, fetchGoogleCalendarList, GoogleCalendar } from '../lib/googleCalendar';
 import { CalendarMetadata } from '../services/api';
 import styles from './CalDAVSyncModal.module.css';
@@ -29,6 +29,7 @@ export function GoogleSyncModal({
   const [syncing, setSyncing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const hasExistingSync = existingGoogleCalendars.length > 0;
+  const tokenRecoveredCalledRef = useRef(false);
 
   const loadCalendars = useCallback(async () => {
     setLoading(true);
@@ -40,8 +41,11 @@ export function GoogleSyncModal({
         setLoading(false);
         return;
       }
-      onTokenRecovered?.();
       if (mode === 'auth-only') {
+        if (!tokenRecoveredCalledRef.current) {
+          tokenRecoveredCalledRef.current = true;
+          onTokenRecovered?.();
+        }
         onClose();
         return;
       }
@@ -165,7 +169,22 @@ export function GoogleSyncModal({
                     });
                     if (error) throw error;
                     if (data?.url) {
-                      window.open(data.url, '_blank', 'noopener,noreferrer');
+                      // 팝업 창으로 열어 OAuth 완료 후 두 번째 탭 생성 방지
+                      const popup = window.open(data.url, 'google-oauth', 'popup,width=520,height=640');
+                      const bc = new BroadcastChannel('google-oauth');
+                      bc.onmessage = (event) => {
+                        if (event.data === 'oauth-complete') {
+                          bc.close();
+                          void loadCalendars();
+                        }
+                      };
+                      // 팝업을 완료 없이 닫은 경우 채널 정리
+                      const checkClosed = setInterval(() => {
+                        if (popup?.closed) {
+                          clearInterval(checkClosed);
+                          bc.close();
+                        }
+                      }, 1000);
                     }
                   } catch (e) {
                     console.error('Google Auth Failed:', e);

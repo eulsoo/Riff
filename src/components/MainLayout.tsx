@@ -17,6 +17,7 @@ import { buildCalDAVConfigFromSettings, getCalDAVSyncTargets, isCalDAVAuthErrorM
 import { relinkEventsByCalendarUrl } from '../services/calendarEventRelink';
 import { syncRemoteEventCreateInBackground, syncRemoteEventDeleteInBackground, syncRemoteEventUpdateInBackground } from '../services/remoteEventSync';
 import { buildCalendarDeleteState, runCalendarDeleteFlow, runCalendarUnsyncFlow } from '../services/calendarDeleteFlow';
+import { handleGoogleExternalDelete } from '../services/calendarExternalDeleteFlow';
 import { syncCalendarNameToRemote, syncLocalCalendarToMac } from '../services/calendarMacSyncFlow';
 import { deleteGoogleCalendarById, syncLocalCalendarToGoogle } from '../services/calendarGoogleSyncFlow';
 import { getWeekStartForDate, getTodoWeekStart, formatLocalDate } from '../utils/dateUtils';
@@ -63,6 +64,7 @@ export const MainLayout = ({
     fetchDiary, saveDiary, deleteDiary, setEmotion,
     loadData, // Add loadData for auto-sync refresh
     syncGoogleCalendar, isSyncingGoogle, isGoogleTokenExpired, clearGoogleTokenExpiredFlag, googleCalendars, removeGoogleCalendar,
+    externallyDeletedCalendars, clearExternallyDeletedCalendars,
   } = useData();
 
   const {
@@ -81,6 +83,7 @@ export const MainLayout = ({
     convertLocalToCalDAV,
     convertLocalToGoogle,
     convertCalDAVToLocal,
+    convertGoogleToLocal,
     deleteCalendar,
     refreshMetadata,
     refreshMetadataWithServerList
@@ -239,7 +242,7 @@ export const MainLayout = ({
         const serverCalendars = await getCalendars(config);
         localStorage.removeItem('caldavAuthError');
         setIsCalDAVAuthError(false);
-        const urlRemap = refreshMetadataWithServerList(serverCalendars); // displayName도 같이 전달
+        const { urlRemap } = refreshMetadataWithServerList(serverCalendars); // displayName도 같이 전달
 
         // 이벤트 re-link (CalDAV URL → 새 로컬 URL)
         if (urlRemap.size > 0) {
@@ -334,8 +337,19 @@ export const MainLayout = ({
   } | null>(null);
   const [calDeleteOption, setCalDeleteOption] = useState<'local' | 'remote'>('local');
 
+  // Server Delete Failed Dialog
+  const [serverDeleteFailedDialog, setServerDeleteFailedDialog] = useState<{
+    isOpen: boolean;
+    calName: string;
+    localDelete?: () => Promise<void>;
+  }>({ isOpen: false, calName: '' });
+
+  // Post-Auth Sync Suggestion Dialog
+  const [isPostAuthSyncDialogOpen, setIsPostAuthSyncDialogOpen] = useState(false);
+  const [postAuthSyncService, setPostAuthSyncService] = useState<'caldav' | 'google'>('caldav');
+
   // Toast State
-  const [toast, setToast] = useState<{ message: string; type: 'loading' | 'success' | 'error' } | null>(null);
+  const [toast, setToast] = useState<{ message: string; type: 'loading' | 'success' | 'error' | 'info' } | null>(null);
 
   useEffect(() => {
     if (toast && toast.type !== 'loading') {
@@ -420,7 +434,7 @@ export const MainLayout = ({
           settingId: settings.id
         };
         const serverCalendars = await getCalendars(config);
-        const urlRemap = refreshMetadataWithServerList(serverCalendars); // displayName도 같이 전달
+        const { urlRemap } = refreshMetadataWithServerList(serverCalendars); // displayName도 같이 전달
 
         // 이벤트 re-link: 로컬 전환된 캘린더의 이벤트 calendar_url 업데이트
         if (urlRemap.size > 0) {
@@ -1113,14 +1127,17 @@ export const MainLayout = ({
       return;
     }
 
-    const deleteFromServer = (isCalDAV || isGoogle) && calDeleteOption === 'remote';
-    await runCalendarDeleteFlow({
+    const deleteFromServer = !!(isCalDAV || isGoogle) && calDeleteOption === 'remote';
+    const result = await runCalendarDeleteFlow({
       url,
       deleteFromServer,
       deleteCalendar,
       isGoogle,
       deleteGoogleCalendarById,
     });
+    if (result.serverDeleteFailed && result.localDelete) {
+      setServerDeleteFailedDialog({ isOpen: true, calName: calDeleteState.name, localDelete: result.localDelete });
+    }
   }, [calDeleteState, calDeleteOption, deleteCalendar, loadData, removeGoogleCalendar]);
 
   // --- Sync Local Calendar to Mac/iCloud ---
@@ -1284,7 +1301,7 @@ export const MainLayout = ({
     }
     // 메타데이터를 먼저 갱신 (모달에서 저장한 새 캘린더 반영)
     if (syncedCalendarUrls && syncedCalendarUrls.length > 0) {
-      const urlRemap = refreshMetadataWithServerList(syncedCalendarUrls);
+      const { urlRemap } = refreshMetadataWithServerList(syncedCalendarUrls);
       if (urlRemap.size > 0) {
         await relinkEventsByCalendarUrl(urlRemap, '[Sync]');
       }
@@ -1334,6 +1351,48 @@ export const MainLayout = ({
       setToast({ message: 'Google 연동 해제 중 오류가 발생했습니다.', type: 'error' });
     }
   }, [loadData]);
+
+  const handleGoogleTokenRecovered = useCallback(() => {
+    clearGoogleTokenExpiredFlag();
+    const hasExistingGoogleCals = calendarMetadata.some(c => c.type === 'google');
+    if (!hasExistingGoogleCals) {
+      setPostAuthSyncService('google');
+      setIsPostAuthSyncDialogOpen(true);
+    }
+  }, [clearGoogleTokenExpiredFlag, calendarMetadata]);
+
+  const handleCalDAVAuthSuccess = useCallback(() => {
+    setIsCalDAVAuthError(false);
+    setToast({ message: 'iCloud와 다시 연결되었습니다.', type: 'success' });
+    const hasExistingCalDAVCals = calendarMetadata.some(c => c.type === 'caldav');
+    if (!hasExistingCalDAVCals) {
+      setPostAuthSyncService('caldav');
+      setIsPostAuthSyncDialogOpen(true);
+    }
+  }, [calendarMetadata]);
+
+  const handleGoogleCalendarDeletedExternally = useCallback(async (calId: string, createdFromApp: boolean) => {
+    const url = `google:${calId}`;
+    const cal = calendarMetadata.find(c => c.url === url);
+    const name = cal?.displayName ?? calId;
+    const result = await handleGoogleExternalDelete(calId, createdFromApp, {
+      calendarName: name,
+      convertGoogleToLocal,
+      relinkEventsByCalendarUrl,
+      removeGoogleCalendar,
+      deleteEventsByCalendarUrl: async (u: string) => { await deleteEventsByCalendarUrl(u); },
+    });
+    setToast({ message: result.message, type: result.type as 'info' });
+    loadData(true);
+  }, [calendarMetadata, convertGoogleToLocal, relinkEventsByCalendarUrl, removeGoogleCalendar, loadData]);
+
+  useEffect(() => {
+    if (externallyDeletedCalendars.length === 0) return;
+    clearExternallyDeletedCalendars();
+    externallyDeletedCalendars.forEach(({ calId, createdFromApp }) => {
+      void handleGoogleCalendarDeletedExternally(calId, createdFromApp);
+    });
+  }, [externallyDeletedCalendars, clearExternallyDeletedCalendars, handleGoogleCalendarDeletedExternally]);
 
   const handleSelectionDeleteShortcut = useCallback(() => {
     if (selectedEventIds.length === 0) return;
@@ -1568,7 +1627,8 @@ export const MainLayout = ({
           googleCalendars={googleCalendars}
           googleSyncMode={googleSyncModalMode}
           googleAuthNoticeMessage={googleAuthNoticeMessage}
-          onGoogleTokenRecovered={clearGoogleTokenExpiredFlag}
+          onCalDAVAuthSuccess={handleCalDAVAuthSuccess}
+          onGoogleTokenRecovered={handleGoogleTokenRecovered}
           onCloseSettings={() => setIsSettingsModalOpen(false)}
           onSettingsSaved={({ avatarUrl: u, weekOrder: w }) => { setAvatarUrl(u); setWeekOrder(w); }}
         />
@@ -1669,6 +1729,44 @@ export const MainLayout = ({
           </div>
         )}
       </ConfirmDialog>
+
+      {/* Server Delete Failed Dialog */}
+      <ConfirmDialog
+        isOpen={serverDeleteFailedDialog.isOpen}
+        title="서버 삭제 실패"
+        message={`'${serverDeleteFailedDialog.calName}' 서버 삭제에 실패했습니다. Riff에서만 삭제하시겠습니까?`}
+        confirmText="Riff에서만 삭제"
+        cancelText="취소"
+        onConfirm={async () => {
+          setServerDeleteFailedDialog({ isOpen: false, calName: '' });
+          await serverDeleteFailedDialog.localDelete?.();
+        }}
+        onCancel={() => setServerDeleteFailedDialog({ isOpen: false, calName: '' })}
+      />
+
+      {/* Post-Auth Sync Suggestion Dialog */}
+      <ConfirmDialog
+        isOpen={isPostAuthSyncDialogOpen}
+        title={postAuthSyncService === 'caldav' ? 'iCloud 캘린더 동기화' : 'Google 캘린더 동기화'}
+        message={postAuthSyncService === 'caldav'
+          ? '계속해서 iCloud 캘린더 동기화를 설정하시겠습니까?'
+          : '계속해서 Google 캘린더 동기화를 설정하시겠습니까?'}
+        confirmText="설정하기"
+        cancelText="취소"
+        onConfirm={() => {
+          setIsPostAuthSyncDialogOpen(false);
+          if (postAuthSyncService === 'caldav') {
+            setCalDAVModalMode('sync');
+            setCalDAVAuthNoticeMessage(undefined);
+            setIsCalDAVModalOpen(true);
+          } else {
+            setGoogleSyncModalMode('sync');
+            setGoogleAuthNoticeMessage(undefined);
+            setIsGoogleSyncModalOpen(true);
+          }
+        }}
+        onCancel={() => setIsPostAuthSyncDialogOpen(false)}
+      />
 
       {/* Toast Notification (Portal) */}
       {toast && createPortal(

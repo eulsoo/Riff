@@ -11,6 +11,7 @@ interface CalDAVSyncModalProps {
   mode?: 'sync' | 'auth-only';
   existingCalendars: CalendarMetadata[];
   authNoticeMessage?: string;
+  onCalDAVAuthSuccess?: () => void;
 }
 
 export function CalDAVSyncModal({
@@ -19,6 +20,7 @@ export function CalDAVSyncModal({
   mode = 'sync',
   existingCalendars,
   authNoticeMessage,
+  onCalDAVAuthSuccess,
 }: CalDAVSyncModalProps) {
   const [step, setStep] = useState<'credentials' | 'selection'>('credentials');
   const [serverUrl, setServerUrl] = useState('https://caldav.icloud.com');
@@ -167,12 +169,7 @@ export function CalDAVSyncModal({
 
       // 모드에 따른 분기
       if (mode === 'auth-only') {
-        // 인증(및 저장) 확인 완료 -> 닫기
-        if (typeof window !== 'undefined') {
-          // 사용자 피드백 없이 닫으면 사용자가 혼란스러울 수 있으나, MainLayout의 흐름에 맡김
-          // 혹은 Toast를 여기서 띄우는 방법도 있음.
-          window.alert('설정이 저장되었습니다.');
-        }
+        onCalDAVAuthSuccess?.();
         onClose();
         return;
       }

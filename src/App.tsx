@@ -86,6 +86,13 @@ export default function App() {
             sessionStorage.setItem(dedupeKey, '1');
             saveGoogleRefreshToken(session.provider_refresh_token, session.access_token).catch(console.error);
           }
+          // OAuth 팝업 창인 경우: 부모 탭에 완료 알림 후 닫기
+          if (window.opener) {
+            const bc = new BroadcastChannel('google-oauth');
+            bc.postMessage('oauth-complete');
+            bc.close();
+            window.close();
+          }
         }
       } else if (_event === 'SIGNED_OUT') {
         // Only clear session on explicit sign-out
