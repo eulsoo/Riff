@@ -53,14 +53,17 @@ export const saveCalendarMetadata = (metadata: CalendarMetadata[]) => {
         return acc;
       }, {} as Record<string, CalendarMetadata>);
 
-    // 안전장치: 기존에 저장된 구독 캘린더는 새 데이터에 없어도 항상 보존
-    // (CalDAV 동기화 시 구독 캘린더가 실수로 삭제되는 현상 방지)
+    // 안전장치: 기존에 저장된 구독 캘린더 및 createdFromApp 캘린더는 새 데이터에 없어도 항상 보존
+    // (CalDAV 동기화 시 구독 캘린더 또는 Riff→Google로 내보낸 캘린더가 실수로 삭제되는 현상 방지)
     for (const [url, cal] of Object.entries(existingMap)) {
       if (
         !map[url] && // 새 데이터에 없을 때만
-        (cal.type === 'subscription' || cal.isSubscription === true || (cal.url.startsWith('http') && cal.url.endsWith('.ics')))
+        (
+          cal.type === 'subscription' || cal.isSubscription === true || (cal.url.startsWith('http') && cal.url.endsWith('.ics')) ||
+          cal.createdFromApp === true // Riff에서 외부로 내보낸 캘린더 (Google 등)
+        )
       ) {
-        map[url] = cal; // 기존 구독 캘린더 보존
+        map[url] = cal;
       }
     }
 

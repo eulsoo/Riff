@@ -50,28 +50,19 @@ export function Login() {
 
   return (
     <div className={styles.loginContainer}>
-      <div className={styles.loginCard}>
+      <div className={styles.loginVisual}>
+        
         <div className={styles.loginHeader}>
-          <h1 className={styles.loginTitle}>Vivid Calendar</h1>
-          <p className={styles.loginSubtitle}>일정과 루틴을 스마트하게 관리하세요</p>
+          <h1 className={styles.loginTitle}>
+          <img src="/images/riff_logo.svg" alt="Riff" />
+          </h1>
+          <p className={styles.loginSubtitle}>
+            시간을 재즈처럼 흐르게.
+          </p>
         </div>
-
-        <div className={styles.loginIconContainer}>
-          <div className={styles.loginIconWrapper}>
-            <svg
-              className={styles.loginIcon}
-              fill="none"
-              stroke="currentColor"
-              viewBox="0 0 24 24"
-            >
-              <rect x="3" y="4" width="18" height="18" rx="2" ry="2" strokeWidth="2" />
-              <line x1="16" y1="2" x2="16" y2="6" strokeWidth="2" />
-              <line x1="8" y1="2" x2="8" y2="6" strokeWidth="2" />
-              <line x1="3" y1="10" x2="21" y2="10" strokeWidth="2" />
-            </svg>
-          </div>
-        </div>
-
+      </div>
+    
+      <div className={styles.loginCard}>
         <div className={styles.buttonStack}>
           <div className={styles.buttonWrapper}>
             {lastProvider === 'google' && (
@@ -107,7 +98,7 @@ export function Login() {
 
 
         <p className={styles.loginFooter}>
-          로그인하면 모든 기기에서 데이터가 동기화됩니다.
+          현재 Riff는 베타 테스트중입니다.
         </p>
       </div>
     </div>

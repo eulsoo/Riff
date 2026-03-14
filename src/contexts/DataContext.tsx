@@ -86,6 +86,10 @@ interface DataContextType {
 
   // Data Loading
   loadData: (force?: boolean, excludeCalendarUrls?: string[]) => Promise<void>;
+
+  // External Calendar Deletion (Google 404)
+  externallyDeletedCalendars: Array<{ calId: string; createdFromApp: boolean }>;
+  clearExternallyDeletedCalendars: () => void;
 }
 
 const DataContext = createContext<DataContextType | undefined>(undefined);
@@ -109,7 +113,7 @@ export const DataProvider = ({
   weekOrder,
   getWeekStartForDate,
   getCurrentTodoWeekStart,
-  formatLocalDate
+  formatLocalDate,
 }: DataProviderProps) => {
   const {
     events, setEvents,
@@ -147,6 +151,8 @@ export const DataProvider = ({
     } catch { return []; }
   });
   const [isSyncingGoogle, setIsSyncingGoogle] = useState(false);
+  const [externallyDeletedCalendars, setExternallyDeletedCalendars] = useState<Array<{ calId: string; createdFromApp: boolean }>>([]);
+  const clearExternallyDeletedCalendars = useCallback(() => setExternallyDeletedCalendars([]), []);
   const [isGoogleTokenExpired, setIsGoogleTokenExpired] = useState(
     () => localStorage.getItem('googleTokenExpired') === 'true'
   );
@@ -226,11 +232,18 @@ export const DataProvider = ({
 
     if (!token) {
       // provider_token 만료 (Supabase JWT 갱신 후 소멸되는 알려진 한계)
-      // 자동 동기화만 있는 경우(selectedMeta 없음): 연결된 캘린더가 있으면 플래그 저장
-      if (!selectedMeta && googleCalendarsRef.current.length > 0) {
-        localStorage.setItem('googleTokenExpired', 'true');
-        setIsGoogleTokenExpired(true);
-        console.warn('[Google] provider_token이 만료되었습니다. Google 섹션에서 재연결이 필요합니다.');
+      // 자동 동기화만 있는 경우(selectedMeta 없음): Google을 연동한 적 있는 유저면 플래그 저장
+      // googleCalendarsRef 대신 session.app_metadata.providers로 판단 —
+      // Riff→Google(createdFromApp) 캘린더만 있는 경우에도 올바르게 감지하기 위함
+      if (!selectedMeta) {
+        const hasGoogleProvider =
+          session?.user?.app_metadata?.providers?.includes('google') ||
+          session?.user?.app_metadata?.provider === 'google';
+        if (hasGoogleProvider) {
+          localStorage.setItem('googleTokenExpired', 'true');
+          setIsGoogleTokenExpired(true);
+          console.warn('[Google] provider_token이 만료되었습니다. Google 섹션에서 재연결이 필요합니다.');
+        }
       }
       return;
     }
@@ -326,6 +339,9 @@ export const DataProvider = ({
           if (err?.message === 'SYNC_TOKEN_INVALID') {
             clearGoogleSyncToken(calId);
             delete googleSyncTokensRef.current[calId];
+          } else if (err?.message?.includes('404')) {
+            // Google에서 캘린더가 외부 삭제됨
+            setExternallyDeletedCalendars(prev => [...prev, { calId, createdFromApp: calMeta.createdFromApp ?? false }]);
           } else {
             console.error(`Google sync error for calendar ${calId}:`, err);
           }
@@ -339,7 +355,7 @@ export const DataProvider = ({
     } finally {
       setIsSyncingGoogle(false);
     }
-  }, [loadData, persistGoogleCalendars, persistSelectedGoogleCalendarIds, clearGoogleTokenExpiredFlag]);
+  }, [loadData, persistGoogleCalendars, persistSelectedGoogleCalendarIds, clearGoogleTokenExpiredFlag, session]);
 
 
   const removeGoogleCalendar = useCallback((calendarId: string) => {
@@ -817,6 +833,8 @@ export const DataProvider = ({
     // Google Calendar
     googleCalendars, isSyncingGoogle, isGoogleTokenExpired, clearGoogleTokenExpiredFlag, syncGoogleCalendar,
     removeGoogleCalendar, selectedGoogleCalendarIds, toggleGoogleCalendarSelected,
+    // External Calendar Deletion
+    externallyDeletedCalendars, clearExternallyDeletedCalendars,
   };
 
   return <DataContext.Provider value={value}>{children}</DataContext.Provider>;

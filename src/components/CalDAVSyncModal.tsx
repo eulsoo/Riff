@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo } from 'react';
 import { Calendar, CalDAVConfig, getCalendars, syncSelectedCalendars, waitForSyncIdle } from '../services/caldav';
-import { saveCalDAVSyncSettings, getCalDAVSyncSettings, deleteAllCalDAVData, saveCalendarMetadata, deleteCalDAVSyncSettings, normalizeCalendarUrl, CalendarMetadata } from '../services/api';
+import { saveCalDAVSyncSettings, getCalDAVSyncSettings, deleteAllCalDAVData, saveCalendarMetadata, normalizeCalendarUrl, CalendarMetadata } from '../services/api';
 import { supabase } from '../lib/supabase';
 import styles from './CalDAVSyncModal.module.css';
 import shared from './SharedModal.module.css';
@@ -11,6 +11,7 @@ interface CalDAVSyncModalProps {
   mode?: 'sync' | 'auth-only';
   existingCalendars: CalendarMetadata[];
   authNoticeMessage?: string;
+  onCalDAVAuthSuccess?: () => void;
 }
 
 export function CalDAVSyncModal({
@@ -19,6 +20,7 @@ export function CalDAVSyncModal({
   mode = 'sync',
   existingCalendars,
   authNoticeMessage,
+  onCalDAVAuthSuccess,
 }: CalDAVSyncModalProps) {
   const [step, setStep] = useState<'credentials' | 'selection'>('credentials');
   const [serverUrl, setServerUrl] = useState('https://caldav.icloud.com');
@@ -167,12 +169,7 @@ export function CalDAVSyncModal({
 
       // 모드에 따른 분기
       if (mode === 'auth-only') {
-        // 인증(및 저장) 확인 완료 -> 닫기
-        if (typeof window !== 'undefined') {
-          // 사용자 피드백 없이 닫으면 사용자가 혼란스러울 수 있으나, MainLayout의 흐름에 맡김
-          // 혹은 Toast를 여기서 띄우는 방법도 있음.
-          window.alert('설정이 저장되었습니다.');
-        }
+        onCalDAVAuthSuccess?.();
         onClose();
         return;
       }
@@ -443,14 +440,8 @@ export function CalDAVSyncModal({
                       🔒 안전하게 저장된 암호 사용 중
                     </div>
                     <button
-                      onClick={async () => {
-                        // DB 설정 즉시 삭제
-                        try {
-                          await deleteCalDAVSyncSettings();
-                        } catch (e) {
-                          console.error('설정 삭제 중 오류 (무시됨):', e);
-                        }
-                        // 상태 초기화
+                      onClick={() => {
+                        setError(null);
                         setHasSavedPassword(false);
                         setSettingId(null);
                         setPassword('');
@@ -548,7 +539,7 @@ export function CalDAVSyncModal({
                 className={`${styles.syncButton} ${styles.syncButtonMargin}`}
               >
                 {syncing
-                  ? (syncProgress ? `캘린더 ${syncProgress.current}/${syncProgress.total} 가져오는 중...` : '동기화 중...')
+                  ? (syncProgress && syncProgress.total > 0 ? `동기화 중... ${Math.round((syncProgress.current / syncProgress.total) * 100)}%` : '동기화 중...')
                   : `선택한 ${selectedCalendars.size}개 캘린더 동기화`}
               </button>
             </div>

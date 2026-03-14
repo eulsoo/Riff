@@ -31,6 +31,7 @@ interface AppModalsProps {
   onDeleteRoutine: (routineId: string) => void;
   onUpdateRoutine: (routineId: string, updates: Partial<Omit<Routine, 'id'>>) => void;
   onCloseCalDAVModal: () => void;
+  onCalDAVAuthSuccess?: () => void;
   onSyncComplete: (count: number, syncedCalendarUrls?: string[]) => void;
   onCloseSettings: () => void;
   onSettingsSaved: (data: { avatarUrl: string | null; weekOrder: WeekOrder }) => void;
@@ -71,6 +72,7 @@ export function AppModals({
   onDeleteRoutine,
   onUpdateRoutine,
   onCloseCalDAVModal,
+  onCalDAVAuthSuccess,
   onSyncComplete,
   onCloseSettings,
   onSettingsSaved,
@@ -124,6 +126,7 @@ export function AppModals({
           mode={calDAVMode}
           existingCalendars={calendars}
           authNoticeMessage={calDAVAuthNoticeMessage}
+          onCalDAVAuthSuccess={onCalDAVAuthSuccess}
         />
       )}
 

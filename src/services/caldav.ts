@@ -723,7 +723,7 @@ export async function syncSelectedCalendars(
         urlsToSync.map(async (rawUrl, idx) => {
           const calendarUrl = normalizeCalendarUrl(rawUrl);
           const events = await fetchCalendarEvents(config, calendarUrl, fullStart, fullEnd);
-          onProgress?.(idx + 1, urlsToSync.length); // 각 캘린더 fetch 완료 시 진행 표시
+          onProgress?.(idx + 1, urlsToSync.length * 2); // 각 캘린더 fetch 완료 시 진행 표시 (total: fetch+process)
           return {
             calendarUrl,
             eventsToProcess: events,
@@ -753,6 +753,7 @@ export async function syncSelectedCalendars(
               );
 
         const processed = await processCalendarEvents(calendarUrl, workUnit.eventsToProcess);
+        onProgress?.(urlsToSync.length + i + 1, urlsToSync.length * 2); // 처리 단계 진행 표시
         const calendarSyncedCount = processed.syncedCount;
         const calendarSkippedCount = processed.skippedCount;
         
