@@ -63,7 +63,7 @@ export const MainLayout = ({
     addRoutine, deleteRoutine, updateRoutine,
     fetchDiary, saveDiary, deleteDiary, setEmotion,
     loadData, // Add loadData for auto-sync refresh
-    syncGoogleCalendar, isSyncingGoogle, isGoogleTokenExpired, clearGoogleTokenExpiredFlag, googleCalendars, removeGoogleCalendar,
+    syncGoogleCalendar, isSyncingGoogle, isGoogleTokenExpired, hasGoogleProvider, clearGoogleTokenExpiredFlag, googleCalendars, removeGoogleCalendar,
     externallyDeletedCalendars, clearExternallyDeletedCalendars,
   } = useData();
 
@@ -1549,6 +1549,7 @@ export const MainLayout = ({
                 setIsGoogleSyncModalOpen(true);
               }}
               isSyncingGoogle={isSyncingGoogle}
+              hasGoogleProvider={hasGoogleProvider}
               isGoogleTokenExpired={isGoogleTokenExpired}
               isCalDAVAuthError={isCalDAVAuthError}
               onShowToast={(message, type) => setToast({ message, type })}
