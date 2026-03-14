@@ -8,6 +8,7 @@ import {
   fetchCalendarMetadataFromDB,
   saveCalendarMetadataToDB,
   deleteCalendarMetadataFromDB,
+  deleteCalendarMetadataFromLocalStorage,
   deleteEventsByCalendarUrl,
 } from '../services/api';
 
@@ -29,6 +30,48 @@ const buildVisibleUrlSet = (list: CalendarMetadata[]): Set<string> => {
   );
   if (!visible.has('local')) visible.add('local');
   return visible;
+};
+
+/**
+ * 같은 displayName을 가진 로컬/CalDAV(createdFromApp) 중복 항목 제거.
+ * local-* URL을 CalDAV URL보다 우선 유지하고, 제거된 URL 목록을 반환.
+ */
+const deduplicateLocalCalendars = (list: CalendarMetadata[]): {
+  result: CalendarMetadata[];
+  removedUrls: string[];
+} => {
+  const nameToEntry = new Map<string, { cal: CalendarMetadata; idx: number }>();
+  const toRemoveIndices = new Set<number>();
+  const removedUrls: string[] = [];
+
+  list.forEach((cal, idx) => {
+    if ((!cal.isLocal && !cal.createdFromApp) || !cal.displayName) return;
+
+    const existing = nameToEntry.get(cal.displayName);
+    if (!existing) {
+      nameToEntry.set(cal.displayName, { cal, idx });
+      return;
+    }
+
+    const calIsHttp = cal.url.startsWith('http');
+    const existingIsHttp = existing.cal.url.startsWith('http');
+
+    if (!calIsHttp && existingIsHttp) {
+      // 현재 항목(local-*)이 기존 항목(CalDAV)보다 우선 → 기존 제거
+      toRemoveIndices.add(existing.idx);
+      removedUrls.push(existing.cal.url);
+      nameToEntry.set(cal.displayName, { cal, idx });
+    } else {
+      // 현재 항목이 중복 → 제거
+      toRemoveIndices.add(idx);
+      removedUrls.push(cal.url);
+    }
+  });
+
+  return {
+    result: list.filter((_, idx) => !toRemoveIndices.has(idx)),
+    removedUrls,
+  };
 };
 
 export const useCalendarMetadata = () => {
@@ -74,7 +117,8 @@ export const useCalendarMetadata = () => {
           return !dbUrlSet.has(norm);
         });
 
-        const merged = [...dbList, ...localOnlyItems];
+        const { result: merged, removedUrls } = deduplicateLocalCalendars([...dbList, ...localOnlyItems]);
+        removedUrls.forEach(url => deleteCalendarMetadataFromDB(url).catch(console.error));
 
         setCalendarMetadata(merged);
         saveCalendarMetadata(merged.filter(c => !c.isLocal));
@@ -269,7 +313,8 @@ export const useCalendarMetadata = () => {
           urlRemap.set(cal.url, existingLocal.url);
           const norm = normalizeCalendarUrl(cal.url);
           if (norm && norm !== cal.url) urlRemap.set(norm, existingLocal.url);
-          // 구 CalDAV URL은 DB에서도 삭제 (누적 방지)
+          // 구 CalDAV URL을 DB + localStorage에서 즉시 삭제 (안전장치 재복원 방지)
+          deleteCalendarMetadataFromLocalStorage(cal.url);
           deleteCalendarMetadataFromDB(cal.url).catch(console.error);
         } else {
           const newLocalUrl = `local-restored-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
@@ -277,7 +322,8 @@ export const useCalendarMetadata = () => {
           const norm = normalizeCalendarUrl(cal.url);
           if (norm && norm !== cal.url) urlRemap.set(norm, newLocalUrl);
 
-          // 구 CalDAV URL을 DB에서 삭제하고 새 로컬 URL로 교체
+          // 구 CalDAV URL을 DB + localStorage에서 즉시 삭제 (안전장치 재복원 방지)
+          deleteCalendarMetadataFromLocalStorage(cal.url);
           deleteCalendarMetadataFromDB(cal.url).catch(console.error);
 
           acc.push({
