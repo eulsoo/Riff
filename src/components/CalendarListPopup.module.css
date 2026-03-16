@@ -365,12 +365,7 @@
 .shareStatus {
   display: flex;
   align-items: center;
-  gap: 4px;
-  font-size: 0.65rem;
-  font-weight: 500;
-  color: var(--color-gray-400, #9ca3af); 
   margin-left: 8px;
-  white-space: nowrap;
 }
 
 .actionIcon {
@@ -532,4 +527,89 @@
 
 .subscriptionCopyButton:active {
   background-color: #e5e7eb;
+}
+
+/* ── Sync Switch Row ── */
+.syncSwitchRow {
+  display: flex;
+  flex-direction: column;
+  padding: 4px 10px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background-color 0.1s;
+  user-select: none;
+}
+
+.syncSwitchRow:hover {
+  background-color: #f3f4f6;
+}
+
+.syncSwitchTop {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 32px;
+}
+
+.syncSwitchIcon {
+  height: 20px;
+  width: auto;
+  flex-shrink: 0;
+}
+
+.syncSwitchLabelText {
+  flex: 1;
+  font-size: 0.875rem;
+  color: #374151;
+  font-weight: 500;
+  min-width: 0;
+}
+
+.syncErrorMsg {
+  font-size: 0.72rem;
+  color: #f59e0b;
+  line-height: 1.4;
+  white-space: normal;
+  padding: 2px 0 5px 30px;
+}
+
+/* Toggle Switch (Radix UI) */
+.switchRoot {
+  width: 36px;
+  height: 20px;
+  background-color: #d1d5db;
+  border-radius: 10px;
+  position: relative;
+  border: none;
+  cursor: pointer;
+  flex-shrink: 0;
+  padding: 0;
+  transition: background-color 0.2s;
+  outline: none;
+}
+
+.switchRoot:focus-visible {
+  box-shadow: 0 0 0 2px #3b82f6;
+}
+
+.switchRoot[data-state='checked'] {
+  background-color: #34c759;
+}
+
+.switchThumb {
+  display: block;
+  width: 16px;
+  height: 16px;
+  background-color: white;
+  border-radius: 50%;
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  transition: transform 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
+  pointer-events: none;
+}
+
+.switchThumb[data-state='checked'] {
+  transform: translateX(16px);
 }

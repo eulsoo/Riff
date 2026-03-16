@@ -412,6 +412,9 @@ export const useCalendarMetadata = () => {
 
   const convertGoogleToLocal = useCallback((oldUrl: string): string => {
     const newLocalUrl = `local-unsynced-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+    // 안전장치가 실행되기 전에 동기적으로 localStorage에서 먼저 삭제
+    // (saveCalendarMetadata의 createdFromApp 보존 로직이 즉시 복원하는 것을 방지)
+    deleteCalendarMetadataFromLocalStorage(oldUrl);
     setCalendarMetadata(prev => {
       const target = prev.find(c => c.url === oldUrl);
       if (!target) return prev;
@@ -421,6 +424,8 @@ export const useCalendarMetadata = () => {
         isLocal: true,
         type: 'local' as const,
         createdFromApp: false,
+        googleCalendarId: undefined,
+        caldavSyncUrl: undefined,
       };
       const next: CalendarMetadata[] = prev.map(c => c.url === oldUrl ? converted : c);
       persistAll(next);
@@ -438,6 +443,9 @@ export const useCalendarMetadata = () => {
 
   const convertCalDAVToLocal = useCallback((oldUrl: string): string => {
     const newLocalUrl = `local-unsynced-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+    // 안전장치가 실행되기 전에 동기적으로 localStorage에서 먼저 삭제
+    // (saveCalendarMetadata의 createdFromApp 보존 로직이 즉시 복원하는 것을 방지)
+    deleteCalendarMetadataFromLocalStorage(oldUrl);
     setCalendarMetadata(prev => {
       const target = prev.find(c => c.url === oldUrl);
       if (!target) return prev;
@@ -448,6 +456,8 @@ export const useCalendarMetadata = () => {
         type: 'local' as const,
         createdFromApp: false,
         originalCalDAVUrl: undefined,
+        googleCalendarId: undefined,
+        caldavSyncUrl: undefined,
       };
       const next = prev.map(c => c.url === oldUrl ? converted : c);
       persistAll(next);
