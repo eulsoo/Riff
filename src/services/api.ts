@@ -26,6 +26,7 @@ export interface CalendarMetadata {
   createdFromApp?: boolean; // 앱에서 생성되어 외부로 동기화된 캘린더 식별
   googleCalendarId?: string; // Google Calendar 전용 캘린더 ID
   originalCalDAVUrl?: string; // unsync 시 원래 CalDAV URL 보존 (서버 삭제 여부 확인용)
+  caldavSyncUrl?: string; // 이중 동기화: Google-primary cal이 iCloud에도 동기화된 경우 CalDAV URL 저장
 }
 
 // CalDAV 메타데이터 저장 (로컬 캘린더 제외)
@@ -219,6 +220,7 @@ const dbRowToCalendarMetadata = (row: any): CalendarMetadata => ({
   googleCalendarId: row.google_calendar_id ?? undefined,
   subscriptionUrl: row.subscription_url ?? undefined,
   originalCalDAVUrl: row.original_caldav_url ?? undefined,
+  caldavSyncUrl: row.caldav_sync_url ?? undefined,
 });
 
 // CalendarMetadata → DB row 변환
@@ -237,6 +239,7 @@ const calendarMetadataToDbRow = (meta: CalendarMetadata, userId: string) => ({
   google_calendar_id: meta.googleCalendarId ?? null,
   subscription_url: meta.subscriptionUrl ?? null,
   original_caldav_url: meta.originalCalDAVUrl ?? null,
+  caldav_sync_url: meta.caldavSyncUrl ?? null,
   updated_at: new Date().toISOString(),
 });
 

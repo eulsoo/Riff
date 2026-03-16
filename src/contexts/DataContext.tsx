@@ -342,7 +342,11 @@ export const DataProvider = ({
             delete googleSyncTokensRef.current[calId];
           } else if (err?.message?.includes('404')) {
             // Google에서 캘린더가 외부 삭제됨
-            setExternallyDeletedCalendars(prev => [...prev, { calId, createdFromApp: calMeta.createdFromApp ?? false }]);
+            // 이중 동기화(caldavSyncUrl 보유)된 캘린더도 함께 처리 정보로 전달
+            setExternallyDeletedCalendars(prev => [...prev, {
+              calId,
+              createdFromApp: calMeta.createdFromApp ?? false,
+            }]);
           } else {
             console.error(`Google sync error for calendar ${calId}:`, err);
           }
