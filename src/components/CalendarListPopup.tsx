@@ -332,8 +332,8 @@ function CalendarListPopupComponent({
 
   const currentCalColor = calendars.find(c => c.url === contextMenu?.calendarUrl)?.color || '#3b82f6';
 
-  // cloud_off 조건: sync가 활성화되지 않은 모든 상태 (미설정 + 연결 끊김)
-  const isGoogleCloudOff = !hasGoogleProvider && groups.google.length === 0;
+  // isGoogleCloudOff: 미설정(hasGoogleProvider 없음 + 캘린더 0개) 또는 토큰 만료
+  const isGoogleCloudOff = (!hasGoogleProvider && groups.google.length === 0) || isGoogleTokenExpired;
   const isCalDAVCloudOff = groups.riffFromIcloud.length === 0 || isCalDAVAuthError;
 
   return (
