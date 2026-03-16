@@ -476,6 +476,10 @@ export const useCalendarMetadata = () => {
   }, [persistAll]);
 
   const deleteCalendar = useCallback((url: string) => {
+    // persistAll 이전에 동기적으로 localStorage에서 먼저 삭제
+    // (saveCalendarMetadata의 createdFromApp 보존 안전장치가 복원하는 것을 방지)
+    // 방지하지 않으면 refreshMetadata()가 localStorage를 읽어 React state에 재삽입 → DB 재저장 사이클 발생
+    deleteCalendarMetadataFromLocalStorage(url);
     setCalendarMetadata(prev => {
       const next = prev.filter(c => c.url !== url);
       persistAll(next);
