@@ -13,6 +13,7 @@ import {
   updateTodoPositions,
   fetchDiaryEntry, deleteDiaryEntry as apiDeleteDiaryEntry,
   upsertEvent, deleteEventByCaldavUid, bulkUpsertGoogleEvents, bulkDeleteEventsByCaldavUids, CalendarMetadata,
+  fetchEmotionEntriesByRange, upsertEmotionEntry, deleteEmotionEntry,
 } from '../services/api';
 import {
   getGoogleProviderToken,
@@ -181,7 +182,7 @@ export const DataProvider = ({
   }, []);
 
   useEffect(() => {
-    // Load emotions from local storage on mount
+    // 1. localStorage에서 즉시 렌더링 (깜빡임 방지)
     const saved = window.localStorage.getItem('user_emotions');
     if (saved) {
       try {
@@ -190,6 +191,25 @@ export const DataProvider = ({
         console.error('Failed to parse emotions from local storage');
       }
     }
+
+    // 2. DB에서 최근 1년치 감정 데이터 fetch하여 병합
+    const now = new Date();
+    const startDate = new Date(now);
+    startDate.setFullYear(startDate.getFullYear() - 1);
+    const startStr = startDate.toISOString().split('T')[0];
+    const endStr = new Date(now.getFullYear() + 1, 11, 31).toISOString().split('T')[0];
+
+    fetchEmotionEntriesByRange(startStr, endStr).then(dbEmotions => {
+      if (Object.keys(dbEmotions).length > 0) {
+        setEmotions(prev => {
+          const merged = { ...prev, ...dbEmotions };
+          window.localStorage.setItem('user_emotions', JSON.stringify(merged));
+          return merged;
+        });
+      }
+    }).catch(err => {
+      console.warn('[Emotion] DB fetch 실패, localStorage 유지:', err);
+    });
   }, []);
 
   const setEmotionStr = useCallback((date: string, emotion: string) => {
@@ -197,8 +217,14 @@ export const DataProvider = ({
       const next = { ...prev };
       if (emotion) {
         next[date] = emotion;
+        upsertEmotionEntry(date, emotion).catch(err =>
+          console.error('[Emotion] DB 저장 실패:', err)
+        );
       } else {
         delete next[date];
+        deleteEmotionEntry(date).catch(err =>
+          console.error('[Emotion] DB 삭제 실패:', err)
+        );
       }
       window.localStorage.setItem('user_emotions', JSON.stringify(next));
       return next;
