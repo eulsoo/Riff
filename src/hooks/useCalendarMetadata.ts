@@ -8,6 +8,7 @@ import {
   fetchCalendarMetadataFromDB,
   saveCalendarMetadataToDB,
   deleteCalendarMetadataFromDB,
+  batchDeleteCalendarMetadataFromDB,
   deleteCalendarMetadataFromLocalStorage,
   deleteEventsByCalendarUrl,
 } from '../services/api';
@@ -118,7 +119,7 @@ export const useCalendarMetadata = () => {
         });
 
         const { result: merged, removedUrls } = deduplicateLocalCalendars([...dbList, ...localOnlyItems]);
-        removedUrls.forEach(url => deleteCalendarMetadataFromDB(url).catch(console.error));
+        batchDeleteCalendarMetadataFromDB(removedUrls).catch(console.error);
 
         setCalendarMetadata(merged);
         saveCalendarMetadata(merged.filter(c => !c.isLocal));
@@ -243,6 +244,9 @@ export const useCalendarMetadata = () => {
       }
     });
 
+    // DB에서 배치 삭제할 URL 목록 (루프 내 개별 삭제 → N+1 방지)
+    const urlsToDeleteFromDB: string[] = [];
+
     const updatedList = metaList.reduce((acc, cal) => {
       const isHttp = cal.url.startsWith('http');
 
@@ -313,18 +317,16 @@ export const useCalendarMetadata = () => {
           urlRemap.set(cal.url, existingLocal.url);
           const norm = normalizeCalendarUrl(cal.url);
           if (norm && norm !== cal.url) urlRemap.set(norm, existingLocal.url);
-          // 구 CalDAV URL을 DB + localStorage에서 즉시 삭제 (안전장치 재복원 방지)
           deleteCalendarMetadataFromLocalStorage(cal.url);
-          deleteCalendarMetadataFromDB(cal.url).catch(console.error);
+          urlsToDeleteFromDB.push(cal.url);
         } else {
           const newLocalUrl = `local-restored-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
           urlRemap.set(cal.url, newLocalUrl);
           const norm = normalizeCalendarUrl(cal.url);
           if (norm && norm !== cal.url) urlRemap.set(norm, newLocalUrl);
 
-          // 구 CalDAV URL을 DB + localStorage에서 즉시 삭제 (안전장치 재복원 방지)
           deleteCalendarMetadataFromLocalStorage(cal.url);
-          deleteCalendarMetadataFromDB(cal.url).catch(console.error);
+          urlsToDeleteFromDB.push(cal.url);
 
           acc.push({
             ...cal,
@@ -346,6 +348,11 @@ export const useCalendarMetadata = () => {
 
       return acc;
     }, [] as CalendarMetadata[]);
+
+    // 배치 삭제 (루프 내 개별 삭제 대신 한 번의 IN 쿼리)
+    if (urlsToDeleteFromDB.length > 0) {
+      batchDeleteCalendarMetadataFromDB(urlsToDeleteFromDB).catch(console.error);
+    }
 
     // 항상 상태와 DB를 업데이트 (새로 추가된 CalDAV 캘린더도 반영되도록)
     persistAll(updatedList);

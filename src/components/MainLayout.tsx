@@ -537,15 +537,16 @@ export const MainLayout = ({
 
 
   // --- Data Processing (Weeks, Events By Week) ---
-  // --- Data Processing (Weeks, Events By Week) ---
   const filteredEvents = useMemo(() => {
-    // 메타데이터에 등록된 캘린더 URL 집합 (DB 로딩 완료 후 채워짐)
-    const knownUrls = new Set(calendarMetadata.map(c => normalizeCalendarUrl(c.url) || c.url));
+    // O(1) URL 룩업을 위한 Map 사전 빌드 (이벤트마다 find() 반복 O(n²) 제거)
+    const calMetaByNormUrl = new Map(
+      calendarMetadata.map(c => [normalizeCalendarUrl(c.url) || c.url, c])
+    );
+    const knownUrls = new Set(calMetaByNormUrl.keys());
 
     const list = events.filter(e => {
       if (selectedEvent && e.id === selectedEvent.id) return true;
 
-      // Handle local events (no calendarUrl)
       if (!e.calendarUrl) return true;
 
       const normalizedUrl = normalizeCalendarUrl(e.calendarUrl!) || '';
@@ -564,10 +565,9 @@ export const MainLayout = ({
       // 명시적으로 숨긴 경우만 제외, 나머지는 기본 표시
       return !hiddenCalendarUrls.has(normalizedUrl);
     }).map(e => {
-      // 캘린더 메타데이터의 색상을 이벤트에 실시간 반영
-      // (구독 캘린더 뿐 아니라 iCloud/로컬 캘린더 색상 변경도 즉시 적용)
+      // 캘린더 메타데이터의 색상을 이벤트에 실시간 반영 (Map O(1) 룩업)
       if (e.calendarUrl) {
-        const cal = calendarMetadata.find(c => normalizeCalendarUrl(c.url) === normalizeCalendarUrl(e.calendarUrl));
+        const cal = calMetaByNormUrl.get(normalizeCalendarUrl(e.calendarUrl) || e.calendarUrl);
         if (cal?.color) {
           return { ...e, color: cal.color };
         }
@@ -1202,7 +1202,7 @@ export const MainLayout = ({
     } catch (e) {
       console.error('Sync failed:', e);
       setToast(null);
-      alert('동기화 중 오류가 발생했습니다.');
+      setConfirmDialog({ isOpen: true, title: '오류', message: '동기화 중 오류가 발생했습니다.' });
     }
   }, [convertLocalToCalDAV]);
 
@@ -1569,9 +1569,7 @@ export const MainLayout = ({
 
   const handlePasteShortcut = useCallback(() => {
     if (!clipboardEvent || !hoveredDate) return;
-    const { id, caldavUid, ...rest } = clipboardEvent;
-    void id;
-    void caldavUid;
+    const { id: _id, caldavUid: _caldavUid, ...rest } = clipboardEvent;
     handleAddEventWrapper({
       ...rest,
       date: hoveredDate,

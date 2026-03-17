@@ -309,6 +309,28 @@ export const deleteCalendarMetadataFromDB = async (url: string): Promise<boolean
 };
 
 /**
+ * 여러 캘린더를 DB에서 한 번의 쿼리로 일괄 삭제 (N+1 방지)
+ */
+export const batchDeleteCalendarMetadataFromDB = async (urls: string[]): Promise<boolean> => {
+  if (urls.length === 0) return true;
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return false;
+
+  const normalizedUrls = urls.map(u => normalizeCalendarUrl(u) || u);
+  const { error } = await supabase
+    .from('calendar_metadata')
+    .delete()
+    .eq('user_id', user.id)
+    .in('url', normalizedUrls);
+
+  if (error) {
+    console.error('Error batch deleting calendar metadata from DB:', error);
+    return false;
+  }
+  return true;
+};
+
+/**
  * 특정 CalDAV URL을 localStorage(caldavCalendarMetadata)에서 즉시 삭제.
  * saveCalendarMetadata 안전장치(createdFromApp 보존 로직)가 stale CalDAV URL을
  * 재복원하는 것을 방지하기 위해, DB 삭제와 함께 반드시 호출해야 함.
