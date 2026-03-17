@@ -1337,6 +1337,53 @@ export const deleteDiaryEntry = async (date: string): Promise<boolean> => {
 
 
 
+// Emotion Entries
+export const fetchEmotionEntriesByRange = async (startDate: string, endDate: string): Promise<Record<string, string>> => {
+  const { data, error } = await supabase
+    .from('emotion_entries')
+    .select('date, emotion')
+    .gte('date', startDate)
+    .lte('date', endDate);
+
+  if (error) {
+    console.error('Error fetching emotion entries:', error);
+    return {};
+  }
+
+  return (data || []).reduce((acc: Record<string, string>, row: any) => {
+    acc[row.date] = row.emotion;
+    return acc;
+  }, {});
+};
+
+export const upsertEmotionEntry = async (date: string, emotion: string): Promise<boolean> => {
+  const { error } = await supabase
+    .from('emotion_entries')
+    .upsert(
+      { date, emotion, updated_at: new Date().toISOString() },
+      { onConflict: 'user_id,date' }
+    );
+
+  if (error) {
+    console.error('Error saving emotion entry:', error);
+    return false;
+  }
+  return true;
+};
+
+export const deleteEmotionEntry = async (date: string): Promise<boolean> => {
+  const { error } = await supabase
+    .from('emotion_entries')
+    .delete()
+    .eq('date', date);
+
+  if (error) {
+    console.error('Error deleting emotion entry:', error);
+    return false;
+  }
+  return true;
+};
+
 // CalDAV Sync Settings
 export interface CalDAVSyncSettings {
   id: string;
