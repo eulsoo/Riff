@@ -502,6 +502,16 @@ export function CalDAVSyncModal({
                   ※ <strong>앱 전용 비밀번호</strong>를 입력해주세요. (Apple ID 암호 아님)<br />
                   설정 → Apple ID → 로그인 및 보안 → 앱 수준 암호에서 생성
                 </p>
+                {!hasSavedPassword && (
+                  <a
+                    href="/guides/icloud-app-password.html"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className={styles.guideLink}
+                  >
+                    앱 비밀번호 발급 방법 보기
+                  </a>
+                )}
               </div>
               <button
                 onClick={handleFetchCalendars}
