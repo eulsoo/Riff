@@ -151,6 +151,21 @@
   margin-top: 0.25rem;
 }
 
+.guideLink {
+  display: inline-flex;
+  align-items: center;
+  margin-top: 0.5rem;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--color-green-primary-70, #16a34a);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.guideLink:hover {
+  color: var(--color-green-primary-60, #34c968);
+}
+
 .fetchButton {
   width: 100%;
   padding: 0.75rem 1rem;
