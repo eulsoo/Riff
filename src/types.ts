@@ -50,9 +50,20 @@ export interface DiaryEntry {
 
 export interface EmotionEntry {
   date: string;
-  emotion: string; // The selected emoji
+  emotion: string; // The selected emotion ID (formerly emoji string)
 }
 
+export type EmotionType = 'good' | 'curious' | 'normal' | 'sad' | 'angry' | string;
 
+export interface EmotionItem {
+  id: string;        // e.g. "em_emoji_good"
+  type: EmotionType; // e.g. "good"
+  imageUrl: string;  // e.g. "/images/em_emoji_good.png"
+}
+
+export interface EmotionSet {
+  setId: string;     // e.g. "emoji"
+  emotions: EmotionItem[];
+}
 
 export type WeekOrder = 'mon' | 'sun';

@@ -1,5 +1,6 @@
-import { useState, useRef, useEffect, useLayoutEffect } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import styles from './EmotionModal.module.css';
+import { EMOTION_SETS } from '../constants/emotions';
 
 export interface ModalPosition {
   top: number;
@@ -11,14 +12,13 @@ interface EmotionModalProps {
   date: string;
   position: ModalPosition | null;
   currentEmotion?: string;
-  onSelect: (emoji: string) => void;
+  onSelect: (id: string | null) => void;
   onClose: () => void;
 }
 
-const EMOJIS = ['😀', '🥰', '😎', '😅', '🥲', '😡', '😱', '😴'];
-
 export function EmotionModal({ date, position, currentEmotion, onSelect, onClose }: EmotionModalProps) {
   const modalRef = useRef<HTMLDivElement>(null);
+  const [selectedEmotionId, setSelectedEmotionId] = useState<string | null>(currentEmotion || null);
 
   // Close when clicking outside
   useEffect(() => {
@@ -44,19 +44,41 @@ export function EmotionModal({ date, position, currentEmotion, onSelect, onClose
         right: position.right,
       }}
     >
-      {EMOJIS.map(emoji => (
-        <button
-          key={emoji}
-          type="button"
-          className={`${styles.emojiButton} ${currentEmotion === emoji ? styles.selected : ''}`}
-          onClick={() => {
-            onSelect(emoji);
-            onClose();
-          }}
-        >
-          {emoji}
-        </button>
-      ))}
+      <div className={styles.setsContainer}>
+        {EMOTION_SETS.map((emotionSet) => (
+          <div key={emotionSet.setId} className={styles.emotionRow}>
+            {emotionSet.emotions.map((emotion) => (
+              <button
+                key={emotion.id}
+                type="button"
+                className={`${styles.emojiButton} ${selectedEmotionId === emotion.id ? styles.selected : ''}`}
+                onClick={() => {
+                  if (selectedEmotionId === emotion.id) {
+                    setSelectedEmotionId(null);
+                  } else {
+                    setSelectedEmotionId(emotion.id);
+                  }
+                }}
+              >
+                <img src={emotion.imageUrl} alt={emotion.type} className={styles.emotionImage} />
+              </button>
+            ))}
+          </div>
+        ))}
+        {/* Confirm Button Row */}
+        <div className={styles.actionRow}>
+          <button
+            type="button"
+            className={styles.confirmButton}
+            onClick={() => {
+              onSelect(selectedEmotionId);
+              onClose();
+            }}
+          >
+            확인
+          </button>
+        </div>
+      </div>
     </div>
   );
 }
