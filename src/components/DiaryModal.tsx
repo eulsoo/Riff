@@ -6,6 +6,7 @@ import { EmotionModal, ModalPosition } from './EmotionModal';
 import { ConfirmDialog } from './ConfirmDialog';
 import { RoutineIcon } from './RoutineIcon';
 import { useData } from '../contexts/DataContext';
+import { getEmotionImageById } from '../constants/emotions';
 import styles from './DiaryModal.module.css';
 
 interface DiaryModalProps {
@@ -515,15 +516,27 @@ export function DiaryModal({
                 className={styles.emotionButton}
                 onClick={(e) => {
                   const rect = e.currentTarget.getBoundingClientRect();
-                  setEmotionModalPosition({ top: rect.bottom + 10, left: rect.left });
+                  let position: ModalPosition = { top: rect.bottom + 10 };
+                  if (rect.left > window.innerWidth / 2) {
+                    position.right = document.documentElement.clientWidth - rect.right - 10;
+                    if (position.right < 20) position.right = 20;
+                  } else {
+                    position.left = rect.left;
+                  }
+                  setEmotionModalPosition(position);
                   setIsEmotionModalOpen(true);
                 }}
               >
-                {currentEmotion ? (
-                  <span className={styles.emotionDisplay}>{currentEmotion}</span>
-                ) : (
-                  <span className={`material-symbols-rounded ${styles.emotionIconEmpty}`}>sentiment_calm</span>
-                )}
+                {(() => {
+                  const emotionImageUrl = currentEmotion ? getEmotionImageById(currentEmotion) : null;
+                  if (emotionImageUrl) {
+                    return <img src={emotionImageUrl} alt="감정" style={{ width: '40px', height: '40px', objectFit: 'contain' }} />;
+                  } else if (currentEmotion) {
+                    return <span className={styles.emotionDisplay}>{currentEmotion}</span>;
+                  } else {
+                    return <span className={`material-symbols-rounded ${styles.emotionIconEmpty}`}>sentiment_calm</span>;
+                  }
+                })()}
               </button>
             </div>
             <div className={styles.dayMeta}>
@@ -629,7 +642,7 @@ export function DiaryModal({
               position={emotionModalPosition}
               currentEmotion={currentEmotion}
               onSelect={(emoji) => {
-                setEmotion(date, emoji);
+                setEmotion(date, emoji || '');
               }}
               onClose={() => setIsEmotionModalOpen(false)}
             />

@@ -1025,8 +1025,20 @@ export const MainLayout = ({
     // calculate top/left relative to container content
     let top = anchorRect.top - containerRect.top + containerRef.current.scrollTop + 30;
 
-    // Position logic to avoid overflow or adjust nicely
-    setEmotionModalPosition({ top, left: anchorRect.left - containerRect.left + 10, align: 'left' });
+    const isRightHalf = anchorRect.left - containerRect.left > containerRect.width / 2;
+
+    let left: number | undefined;
+    let right: number | undefined;
+
+    if (isRightHalf) {
+      // 우측 영역이면 오른쪽 끝을 기준으로 배치하여 벗어나지 않도록 함
+      right = containerRect.right - anchorRect.right - 20; 
+      if (right <= 0) right = 20;
+    } else {
+      left = anchorRect.left - containerRect.left + 10;
+    }
+
+    setEmotionModalPosition({ top, left, right, align: isRightHalf ? 'right' : 'left' });
     setEmotionModalDate(date);
     setIsEmotionModalOpen(true);
   }, []);
@@ -1648,7 +1660,7 @@ export const MainLayout = ({
               position={emotionModalPosition}
               currentEmotion={emotions?.[emotionModalDate]}
               onSelect={(emoji) => {
-                setEmotion(emotionModalDate, emoji);
+                setEmotion(emotionModalDate, emoji || '');
               }}
               onClose={() => setIsEmotionModalOpen(false)}
             />

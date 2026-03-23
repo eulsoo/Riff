@@ -34,7 +34,6 @@ export default function App() {
     'googleSelectedCalendarIds',    // 선택된 구글 캘린더 IDs
     'googleSyncTokens',             // 구글 동기화 토큰
     'googleTokenExpired',           // 구글 토큰 만료 플래그
-    'user_emotions',                // 감정 이모지 기록
     'holiday_synced_v2',            // 공휴일 동기화 여부
   ];
 
