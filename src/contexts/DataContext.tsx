@@ -13,6 +13,7 @@ import {
   updateTodoPositions,
   fetchDiaryEntry, deleteDiaryEntry as apiDeleteDiaryEntry,
   upsertEvent, deleteEventByCaldavUid, bulkUpsertGoogleEvents, bulkDeleteEventsByCaldavUids, CalendarMetadata,
+  fetchEmotionEntriesByRange, upsertEmotionEntry, deleteEmotionEntry,
 } from '../services/api';
 import {
   getGoogleProviderToken,
@@ -20,8 +21,9 @@ import {
   fetchGoogleCalendarList,
   mapGoogleEventToRiff,
   loadGoogleSyncTokens,
-  saveGoogleSyncTokens,
   clearGoogleSyncToken,
+  loadGoogleLastSyncTimes,
+  saveGoogleLastSyncTimes,
 } from '../lib/googleCalendar';
 
 // localStorage key for selected google calendar IDs
@@ -76,6 +78,7 @@ interface DataContextType {
 
   // Google Calendar
   googleCalendars: CalendarMetadata[];
+  hasGoogleProvider: boolean;
   isSyncingGoogle: boolean;
   isGoogleTokenExpired: boolean;
   clearGoogleTokenExpiredFlag: () => void;
@@ -180,7 +183,7 @@ export const DataProvider = ({
   }, []);
 
   useEffect(() => {
-    // Load emotions from local storage on mount
+    // 1. localStorage에서 즉시 렌더링 (깜빡임 방지)
     const saved = window.localStorage.getItem('user_emotions');
     if (saved) {
       try {
@@ -189,6 +192,25 @@ export const DataProvider = ({
         console.error('Failed to parse emotions from local storage');
       }
     }
+
+    // 2. DB에서 최근 1년치 감정 데이터 fetch하여 병합
+    const now = new Date();
+    const startDate = new Date(now);
+    startDate.setFullYear(startDate.getFullYear() - 1);
+    const startStr = startDate.toISOString().split('T')[0];
+    const endStr = new Date(now.getFullYear() + 1, 11, 31).toISOString().split('T')[0];
+
+    fetchEmotionEntriesByRange(startStr, endStr).then(dbEmotions => {
+      if (Object.keys(dbEmotions).length > 0) {
+        setEmotions(prev => {
+          const merged = { ...prev, ...dbEmotions };
+          window.localStorage.setItem('user_emotions', JSON.stringify(merged));
+          return merged;
+        });
+      }
+    }).catch(err => {
+      console.warn('[Emotion] DB fetch 실패, localStorage 유지:', err);
+    });
   }, []);
 
   const setEmotionStr = useCallback((date: string, emotion: string) => {
@@ -196,8 +218,14 @@ export const DataProvider = ({
       const next = { ...prev };
       if (emotion) {
         next[date] = emotion;
+        upsertEmotionEntry(date, emotion).catch(err =>
+          console.error('[Emotion] DB 저장 실패:', err)
+        );
       } else {
         delete next[date];
+        deleteEmotionEntry(date).catch(err =>
+          console.error('[Emotion] DB 삭제 실패:', err)
+        );
       }
       window.localStorage.setItem('user_emotions', JSON.stringify(next));
       return next;
@@ -304,13 +332,15 @@ export const DataProvider = ({
         const calId = calMeta.googleCalendarId!;
         if (!calId) continue;
         const color = calMeta.color;
-        const syncToken = googleSyncTokensRef.current[calId];
+        const lastSyncTime = lastSyncTimesRef.current[calId]; // 이전 sync 시각 (있으면 증분)
 
         try {
-          const { events: gEvents, nextSyncToken } = await fetchGoogleEvents(token, calId, {
-            timeMin: syncToken ? undefined : timeMin,
-            timeMax: syncToken ? undefined : timeMax,
-            syncToken,
+          const { events: gEvents } = await fetchGoogleEvents(token, calId, {
+            timeMin,
+            timeMax,
+            // lastSyncTime이 있으면 변경분만, 없으면 전체 fetch
+            // updatedMin + singleEvents=true 조합으로 nextSyncToken 미수신 문제 우회
+            updatedMin: lastSyncTime,
           });
 
           // N+1 방지: 개별 await 대신 bulk upsert/delete로 단일 DB 왕복
@@ -331,17 +361,20 @@ export const DataProvider = ({
             bulkDeleteEventsByCaldavUids(toDelete, `google:${calId}`),
           ]);
 
-          if (nextSyncToken) {
-            googleSyncTokensRef.current[calId] = nextSyncToken;
-            saveGoogleSyncTokens(googleSyncTokensRef.current);
-          }
+          // sync 성공 시각 저장 → 다음 sync에서 updatedMin으로 활용
+          lastSyncTimesRef.current[calId] = new Date().toISOString();
+          saveGoogleLastSyncTimes(lastSyncTimesRef.current);
         } catch (err: any) {
           if (err?.message === 'SYNC_TOKEN_INVALID') {
             clearGoogleSyncToken(calId);
             delete googleSyncTokensRef.current[calId];
           } else if (err?.message?.includes('404')) {
             // Google에서 캘린더가 외부 삭제됨
-            setExternallyDeletedCalendars(prev => [...prev, { calId, createdFromApp: calMeta.createdFromApp ?? false }]);
+            // 이중 동기화(caldavSyncUrl 보유)된 캘린더도 함께 처리 정보로 전달
+            setExternallyDeletedCalendars(prev => [...prev, {
+              calId,
+              createdFromApp: calMeta.createdFromApp ?? false,
+            }]);
           } else {
             console.error(`Google sync error for calendar ${calId}:`, err);
           }
@@ -382,15 +415,18 @@ export const DataProvider = ({
     });
   }, []);
 
-  // Re-sync on tab focus & periodically (1 minute)
-  // lastSyncAtRef: 30초 내 중복 발화(타이머 + 탭 포커스 동시 발생) 차단
+  // 캘린더별 마지막 sync 시각 (updatedMin 증분 동기화용)
+  const lastSyncTimesRef = useRef<Record<string, string>>(loadGoogleLastSyncTimes());
+
+  // Re-sync on tab focus & periodically (5 minutes)
+  // lastSyncAtRef: 60초 내 중복 발화(타이머 + 탭 포커스 동시 발생) 차단
   const lastSyncAtRef = useRef<number>(0);
 
   useEffect(() => {
     const triggerSync = () => {
       if (selectedGoogleIdsRef.current.length === 0) return;
       const now = Date.now();
-      if (now - lastSyncAtRef.current < 30_000) return; // 30초 내 중복 방지
+      if (now - lastSyncAtRef.current < 60_000) return; // 60초 내 중복 방지
       lastSyncAtRef.current = now;
       syncGoogleCalendar();
     };
@@ -401,8 +437,8 @@ export const DataProvider = ({
     };
     document.addEventListener('visibilitychange', handleVisibility);
 
-    // 2. Periodic background polling (60s)
-    const intervalId = setInterval(triggerSync, 60 * 1000);
+    // 2. Periodic background polling (5분 — 60초에서 변경, egress 절약)
+    const intervalId = setInterval(triggerSync, 5 * 60 * 1000);
 
     return () => {
       document.removeEventListener('visibilitychange', handleVisibility);
@@ -831,6 +867,7 @@ export const DataProvider = ({
     recordAction, registerCategoryHandlers, canUndo, canRedo,
     loadData,
     // Google Calendar
+    hasGoogleProvider: !!(session?.user?.app_metadata?.providers?.includes('google') || session?.user?.app_metadata?.provider === 'google'),
     googleCalendars, isSyncingGoogle, isGoogleTokenExpired, clearGoogleTokenExpiredFlag, syncGoogleCalendar,
     removeGoogleCalendar, selectedGoogleCalendarIds, toggleGoogleCalendarSelected,
     // External Calendar Deletion

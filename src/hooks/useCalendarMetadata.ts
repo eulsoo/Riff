@@ -8,6 +8,8 @@ import {
   fetchCalendarMetadataFromDB,
   saveCalendarMetadataToDB,
   deleteCalendarMetadataFromDB,
+  batchDeleteCalendarMetadataFromDB,
+  deleteCalendarMetadataFromLocalStorage,
   deleteEventsByCalendarUrl,
 } from '../services/api';
 
@@ -29,6 +31,48 @@ const buildVisibleUrlSet = (list: CalendarMetadata[]): Set<string> => {
   );
   if (!visible.has('local')) visible.add('local');
   return visible;
+};
+
+/**
+ * 같은 displayName을 가진 로컬/CalDAV(createdFromApp) 중복 항목 제거.
+ * local-* URL을 CalDAV URL보다 우선 유지하고, 제거된 URL 목록을 반환.
+ */
+const deduplicateLocalCalendars = (list: CalendarMetadata[]): {
+  result: CalendarMetadata[];
+  removedUrls: string[];
+} => {
+  const nameToEntry = new Map<string, { cal: CalendarMetadata; idx: number }>();
+  const toRemoveIndices = new Set<number>();
+  const removedUrls: string[] = [];
+
+  list.forEach((cal, idx) => {
+    if ((!cal.isLocal && !cal.createdFromApp) || !cal.displayName) return;
+
+    const existing = nameToEntry.get(cal.displayName);
+    if (!existing) {
+      nameToEntry.set(cal.displayName, { cal, idx });
+      return;
+    }
+
+    const calIsHttp = cal.url.startsWith('http');
+    const existingIsHttp = existing.cal.url.startsWith('http');
+
+    if (!calIsHttp && existingIsHttp) {
+      // 현재 항목(local-*)이 기존 항목(CalDAV)보다 우선 → 기존 제거
+      toRemoveIndices.add(existing.idx);
+      removedUrls.push(existing.cal.url);
+      nameToEntry.set(cal.displayName, { cal, idx });
+    } else {
+      // 현재 항목이 중복 → 제거
+      toRemoveIndices.add(idx);
+      removedUrls.push(cal.url);
+    }
+  });
+
+  return {
+    result: list.filter((_, idx) => !toRemoveIndices.has(idx)),
+    removedUrls,
+  };
 };
 
 export const useCalendarMetadata = () => {
@@ -74,7 +118,9 @@ export const useCalendarMetadata = () => {
           return !dbUrlSet.has(norm);
         });
 
-        const merged = [...dbList, ...localOnlyItems];
+        const { result: merged, removedUrls } = deduplicateLocalCalendars([...dbList, ...localOnlyItems]);
+        batchDeleteCalendarMetadataFromDB(removedUrls).catch(console.error);
+
         setCalendarMetadata(merged);
         saveCalendarMetadata(merged.filter(c => !c.isLocal));
         saveLocalCalendarMetadata(merged);
@@ -198,6 +244,9 @@ export const useCalendarMetadata = () => {
       }
     });
 
+    // DB에서 배치 삭제할 URL 목록 (루프 내 개별 삭제 → N+1 방지)
+    const urlsToDeleteFromDB: string[] = [];
+
     const updatedList = metaList.reduce((acc, cal) => {
       const isHttp = cal.url.startsWith('http');
 
@@ -262,20 +311,33 @@ export const useCalendarMetadata = () => {
       }
 
       if (cal.createdFromApp) {
-        const newLocalUrl = `local-restored-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
-        urlRemap.set(cal.url, newLocalUrl);
-        const norm = normalizeCalendarUrl(cal.url);
-        if (norm && norm !== cal.url) urlRemap.set(norm, newLocalUrl);
+        // 같은 displayName의 로컬 항목이 이미 acc에 있으면 해당 URL로 리맵만 하고 중복 생성 방지
+        const existingLocal = acc.find(a => a.isLocal && a.displayName === cal.displayName);
+        if (existingLocal) {
+          urlRemap.set(cal.url, existingLocal.url);
+          const norm = normalizeCalendarUrl(cal.url);
+          if (norm && norm !== cal.url) urlRemap.set(norm, existingLocal.url);
+          deleteCalendarMetadataFromLocalStorage(cal.url);
+          urlsToDeleteFromDB.push(cal.url);
+        } else {
+          const newLocalUrl = `local-restored-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+          urlRemap.set(cal.url, newLocalUrl);
+          const norm = normalizeCalendarUrl(cal.url);
+          if (norm && norm !== cal.url) urlRemap.set(norm, newLocalUrl);
 
-        acc.push({
-          ...cal,
-          url: newLocalUrl,
-          createdFromApp: false,
-          isLocal: true,
-          type: 'local' as const,
-          color: cal.color,
-        });
-        restoredCalendars.push(cal.displayName || cal.url);
+          deleteCalendarMetadataFromLocalStorage(cal.url);
+          urlsToDeleteFromDB.push(cal.url);
+
+          acc.push({
+            ...cal,
+            url: newLocalUrl,
+            createdFromApp: false,
+            isLocal: true,
+            type: 'local' as const,
+            color: cal.color,
+          });
+          restoredCalendars.push(cal.displayName || cal.url);
+        }
       } else {
         // iCloud→Riff 캘린더가 서버에서 삭제됨 → 이벤트도 정리
         deletedCalendars.push(cal.displayName || cal.url);
@@ -286,6 +348,11 @@ export const useCalendarMetadata = () => {
 
       return acc;
     }, [] as CalendarMetadata[]);
+
+    // 배치 삭제 (루프 내 개별 삭제 대신 한 번의 IN 쿼리)
+    if (urlsToDeleteFromDB.length > 0) {
+      batchDeleteCalendarMetadataFromDB(urlsToDeleteFromDB).catch(console.error);
+    }
 
     // 항상 상태와 DB를 업데이트 (새로 추가된 CalDAV 캘린더도 반영되도록)
     persistAll(updatedList);
@@ -352,6 +419,9 @@ export const useCalendarMetadata = () => {
 
   const convertGoogleToLocal = useCallback((oldUrl: string): string => {
     const newLocalUrl = `local-unsynced-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+    // 안전장치가 실행되기 전에 동기적으로 localStorage에서 먼저 삭제
+    // (saveCalendarMetadata의 createdFromApp 보존 로직이 즉시 복원하는 것을 방지)
+    deleteCalendarMetadataFromLocalStorage(oldUrl);
     setCalendarMetadata(prev => {
       const target = prev.find(c => c.url === oldUrl);
       if (!target) return prev;
@@ -361,6 +431,8 @@ export const useCalendarMetadata = () => {
         isLocal: true,
         type: 'local' as const,
         createdFromApp: false,
+        googleCalendarId: undefined,
+        caldavSyncUrl: undefined,
       };
       const next: CalendarMetadata[] = prev.map(c => c.url === oldUrl ? converted : c);
       persistAll(next);
@@ -378,6 +450,9 @@ export const useCalendarMetadata = () => {
 
   const convertCalDAVToLocal = useCallback((oldUrl: string): string => {
     const newLocalUrl = `local-unsynced-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+    // 안전장치가 실행되기 전에 동기적으로 localStorage에서 먼저 삭제
+    // (saveCalendarMetadata의 createdFromApp 보존 로직이 즉시 복원하는 것을 방지)
+    deleteCalendarMetadataFromLocalStorage(oldUrl);
     setCalendarMetadata(prev => {
       const target = prev.find(c => c.url === oldUrl);
       if (!target) return prev;
@@ -388,6 +463,8 @@ export const useCalendarMetadata = () => {
         type: 'local' as const,
         createdFromApp: false,
         originalCalDAVUrl: undefined,
+        googleCalendarId: undefined,
+        caldavSyncUrl: undefined,
       };
       const next = prev.map(c => c.url === oldUrl ? converted : c);
       persistAll(next);
@@ -406,6 +483,10 @@ export const useCalendarMetadata = () => {
   }, [persistAll]);
 
   const deleteCalendar = useCallback((url: string) => {
+    // persistAll 이전에 동기적으로 localStorage에서 먼저 삭제
+    // (saveCalendarMetadata의 createdFromApp 보존 안전장치가 복원하는 것을 방지)
+    // 방지하지 않으면 refreshMetadata()가 localStorage를 읽어 React state에 재삽입 → DB 재저장 사이클 발생
+    deleteCalendarMetadataFromLocalStorage(url);
     setCalendarMetadata(prev => {
       const next = prev.filter(c => c.url !== url);
       persistAll(next);

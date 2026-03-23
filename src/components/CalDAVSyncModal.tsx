@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useRef, useMemo } from 'react';
 import { Calendar, CalDAVConfig, getCalendars, syncSelectedCalendars, waitForSyncIdle } from '../services/caldav';
 import { saveCalDAVSyncSettings, getCalDAVSyncSettings, deleteAllCalDAVData, saveCalendarMetadata, normalizeCalendarUrl, CalendarMetadata } from '../services/api';
 import { supabase } from '../lib/supabase';
@@ -41,6 +41,7 @@ export function CalDAVSyncModal({
     serverUrl?: string;
     username?: string;
   } | null>(null);
+  const autoFetchedRef = useRef(false);
 
   // Riff 섹션에서 iCloud로 연동된(createdFromApp) 캘린더는 iCloud 선택 목록에서 제외
   const selectableCalendars = useMemo(() => {
@@ -106,6 +107,20 @@ export function CalDAVSyncModal({
     loadSettings();
   }, []);
 
+  // sync 모드 + 저장된 자격증명이 있으면 credentials 단계를 건너뛰고 바로 캘린더 목록 fetch
+  useEffect(() => {
+    if (
+      mode === 'sync' &&
+      hasSavedPassword &&
+      settingId &&
+      step === 'credentials' &&
+      !autoFetchedRef.current
+    ) {
+      autoFetchedRef.current = true;
+      handleFetchCalendars();
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hasSavedPassword, settingId]);
 
   // Step 1: 인증 및 캘린더 목록 가져오기
   const handleFetchCalendars = async () => {
@@ -374,7 +389,7 @@ export function CalDAVSyncModal({
       <div className={shared.modal}>
         <div className={shared.modalHeader}>
           <div className={shared.modalHeaderSpacer}>
-            {step === 'selection' && (
+            {step === 'selection' && !autoFetchedRef.current && (
               <button onClick={() => setStep('credentials')} className={shared.backButton} aria-label="뒤로">
                 <span className={`material-symbols-rounded ${shared.backIcon}`}>arrow_back_ios</span>
               </button>
@@ -396,7 +411,13 @@ export function CalDAVSyncModal({
               {authNoticeMessage}
             </div>
           )}
-          {step === 'credentials' ? (
+          {step === 'credentials' && mode === 'sync' && loading && hasSavedPassword ? (
+            /* 저장된 자격증명으로 자동 연결 중 */
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '12px', padding: '40px 0', color: '#6b7280' }}>
+              <div className={styles.spinner} />
+              <span style={{ fontSize: '0.9rem' }}>캘린더 목록 불러오는 중...</span>
+            </div>
+          ) : step === 'credentials' ? (
             /* Step 1: Credentials Form */
             <form
               className={`${styles.section} ${styles.credentialsForm}`}
@@ -481,6 +502,16 @@ export function CalDAVSyncModal({
                   ※ <strong>앱 전용 비밀번호</strong>를 입력해주세요. (Apple ID 암호 아님)<br />
                   설정 → Apple ID → 로그인 및 보안 → 앱 수준 암호에서 생성
                 </p>
+                {!hasSavedPassword && (
+                  <a
+                    href="/guides/icloud-app-password.html"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className={styles.guideLink}
+                  >
+                    앱 비밀번호 발급 방법 보기
+                  </a>
+                )}
               </div>
               <button
                 onClick={handleFetchCalendars}

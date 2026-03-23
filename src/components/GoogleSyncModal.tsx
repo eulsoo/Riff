@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { getGoogleProviderToken, fetchGoogleCalendarList, GoogleCalendar } from '../lib/googleCalendar';
-import { CalendarMetadata } from '../services/api';
+import { CalendarMetadata, saveGoogleRefreshToken } from '../services/api';
 import styles from './CalDAVSyncModal.module.css';
 import shared from './SharedModal.module.css';
 
@@ -173,8 +173,14 @@ export function GoogleSyncModal({
                       const popup = window.open(data.url, 'google-oauth', 'popup,width=520,height=640');
                       const bc = new BroadcastChannel('google-oauth');
                       bc.onmessage = (event) => {
-                        if (event.data === 'oauth-complete') {
+                        const msg = event.data;
+                        const isComplete = msg === 'oauth-complete' || msg?.type === 'oauth-complete';
+                        if (isComplete) {
                           bc.close();
+                          // 팝업에서 전달된 refresh token을 부모 창에서 저장 (팝업 닫힘으로 fetch 취소 방지)
+                          if (msg?.refreshToken) {
+                            saveGoogleRefreshToken(msg.refreshToken).catch(console.error);
+                          }
                           void loadCalendars();
                         }
                       };

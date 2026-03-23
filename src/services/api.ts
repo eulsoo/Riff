@@ -26,6 +26,7 @@ export interface CalendarMetadata {
   createdFromApp?: boolean; // 앱에서 생성되어 외부로 동기화된 캘린더 식별
   googleCalendarId?: string; // Google Calendar 전용 캘린더 ID
   originalCalDAVUrl?: string; // unsync 시 원래 CalDAV URL 보존 (서버 삭제 여부 확인용)
+  caldavSyncUrl?: string; // 이중 동기화: Google-primary cal이 iCloud에도 동기화된 경우 CalDAV URL 저장
 }
 
 // CalDAV 메타데이터 저장 (로컬 캘린더 제외)
@@ -179,6 +180,7 @@ export const saveGoogleRefreshToken = async (refreshToken: string, accessToken?:
   try {
     const resp = await fetch(`${SUPABASE_FUNCTIONS_URL}/refresh-google-token`, {
       method: 'POST',
+      keepalive: true, // 팝업 창이 닫혀도 요청이 완료될 수 있도록 유지
       headers: {
         'Content-Type': 'application/json',
         'Authorization': `Bearer ${token}`,
@@ -218,6 +220,7 @@ const dbRowToCalendarMetadata = (row: any): CalendarMetadata => ({
   googleCalendarId: row.google_calendar_id ?? undefined,
   subscriptionUrl: row.subscription_url ?? undefined,
   originalCalDAVUrl: row.original_caldav_url ?? undefined,
+  caldavSyncUrl: row.caldav_sync_url ?? undefined,
 });
 
 // CalendarMetadata → DB row 변환
@@ -236,6 +239,7 @@ const calendarMetadataToDbRow = (meta: CalendarMetadata, userId: string) => ({
   google_calendar_id: meta.googleCalendarId ?? null,
   subscription_url: meta.subscriptionUrl ?? null,
   original_caldav_url: meta.originalCalDAVUrl ?? null,
+  caldav_sync_url: meta.caldavSyncUrl ?? null,
   updated_at: new Date().toISOString(),
 });
 
@@ -302,6 +306,63 @@ export const deleteCalendarMetadataFromDB = async (url: string): Promise<boolean
     return false;
   }
   return true;
+};
+
+/**
+ * 여러 캘린더를 DB에서 한 번의 쿼리로 일괄 삭제 (N+1 방지)
+ */
+export const batchDeleteCalendarMetadataFromDB = async (urls: string[]): Promise<boolean> => {
+  if (urls.length === 0) return true;
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return false;
+
+  const normalizedUrls = urls.map(u => normalizeCalendarUrl(u) || u);
+  const { error } = await supabase
+    .from('calendar_metadata')
+    .delete()
+    .eq('user_id', user.id)
+    .in('url', normalizedUrls);
+
+  if (error) {
+    console.error('Error batch deleting calendar metadata from DB:', error);
+    return false;
+  }
+  return true;
+};
+
+/**
+ * 특정 CalDAV URL을 localStorage(caldavCalendarMetadata)에서 즉시 삭제.
+ * saveCalendarMetadata 안전장치(createdFromApp 보존 로직)가 stale CalDAV URL을
+ * 재복원하는 것을 방지하기 위해, DB 삭제와 함께 반드시 호출해야 함.
+ */
+export const deleteCalendarMetadataFromLocalStorage = (url: string) => {
+  if (typeof window === 'undefined') return;
+  const normalized = normalizeCalendarUrl(url) || url;
+
+  // caldavCalendarMetadata에서 삭제
+  const rawCalDAV = window.localStorage.getItem(CALENDAR_METADATA_KEY);
+  if (rawCalDAV) {
+    try {
+      const map: Record<string, CalendarMetadata> = JSON.parse(rawCalDAV);
+      if (map[normalized] || map[url]) {
+        delete map[normalized];
+        delete map[url];
+        window.localStorage.setItem(CALENDAR_METADATA_KEY, JSON.stringify(map));
+      }
+    } catch { /* ignore */ }
+  }
+
+  // localCalendarMetadata에서도 혹시 있으면 삭제
+  const rawLocal = window.localStorage.getItem(LOCAL_CALENDAR_METADATA_KEY);
+  if (rawLocal) {
+    try {
+      const list: CalendarMetadata[] = JSON.parse(rawLocal);
+      const filtered = list.filter(c => c.url !== url && c.url !== normalized);
+      if (filtered.length !== list.length) {
+        window.localStorage.setItem(LOCAL_CALENDAR_METADATA_KEY, JSON.stringify(filtered));
+      }
+    } catch { /* ignore */ }
+  }
 };
 
 import { META_ID, serializeMemo, parseMemo } from './memoUtils';
@@ -1297,6 +1358,53 @@ export const deleteDiaryEntry = async (date: string): Promise<boolean> => {
 };
 
 
+
+// Emotion Entries
+export const fetchEmotionEntriesByRange = async (startDate: string, endDate: string): Promise<Record<string, string>> => {
+  const { data, error } = await supabase
+    .from('emotion_entries')
+    .select('date, emotion')
+    .gte('date', startDate)
+    .lte('date', endDate);
+
+  if (error) {
+    console.error('Error fetching emotion entries:', error);
+    return {};
+  }
+
+  return (data || []).reduce((acc: Record<string, string>, row: any) => {
+    acc[row.date] = row.emotion;
+    return acc;
+  }, {});
+};
+
+export const upsertEmotionEntry = async (date: string, emotion: string): Promise<boolean> => {
+  const { error } = await supabase
+    .from('emotion_entries')
+    .upsert(
+      { date, emotion, updated_at: new Date().toISOString() },
+      { onConflict: 'user_id,date' }
+    );
+
+  if (error) {
+    console.error('Error saving emotion entry:', error);
+    return false;
+  }
+  return true;
+};
+
+export const deleteEmotionEntry = async (date: string): Promise<boolean> => {
+  const { error } = await supabase
+    .from('emotion_entries')
+    .delete()
+    .eq('date', date);
+
+  if (error) {
+    console.error('Error deleting emotion entry:', error);
+    return false;
+  }
+  return true;
+};
 
 // CalDAV Sync Settings
 export interface CalDAVSyncSettings {

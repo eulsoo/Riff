@@ -1,6 +1,7 @@
-import { useState, useRef, useEffect, useMemo, memo } from 'react';
+import { useState, useRef, useEffect, useMemo, memo, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import { HexColorPicker } from 'react-colorful';
+import * as Switch from '@radix-ui/react-switch';
 import { CalendarMetadata } from '../services/api';
 import styles from './CalendarListPopup.module.css';
 
@@ -19,7 +20,9 @@ export interface CalendarListPopupProps {
   onOpenGoogleSync?: () => void;
   onReconnectCalDAV?: () => void;
   onReconnectGoogle?: () => void;
+  onSyncSwitchToggle?: (cal: CalendarMetadata, service: 'icloud' | 'google', action: 'sync' | 'unsync' | 'reconnect') => void;
   isSyncingGoogle?: boolean;
+  hasGoogleProvider?: boolean;
   isGoogleTokenExpired?: boolean;
   isCalDAVAuthError?: boolean;
   onShowToast?: (message: string, type: 'success' | 'error') => void;
@@ -61,49 +64,101 @@ function pickUnusedColors(usedColors: Set<string>, count: number, exclude: strin
   return result;
 }
 
-// 캘린더 아이템 렌더링 함수
-const renderCalendarItem = (
-  cal: CalendarMetadata,
-  isLocalSection: boolean,
-  visibleUrlSet: Set<string>,
-  editingId: string | null,
-  selectedId: string | null,
-  inputRef: React.RefObject<HTMLSpanElement | null>,
-  onToggle: (url: string) => void,
-  handleContextMenu: (e: React.MouseEvent, cal: CalendarMetadata) => void,
-  setSelectedId: (id: string | null) => void,
-  setEditingId: (id: string | null) => void,
-  setEditingName: (name: string) => void,
-  handleNameSave: () => void,
-  handleKeyDown: (e: React.KeyboardEvent) => void,
-  isGoogleCloudOff: boolean,
-  isCalDAVCloudOff: boolean
-) => {
+// 동기화 서비스별 토글 스위치 행
+const SyncSwitchRow = ({
+  service,
+  isOn,
+  imgSrc,
+  label,
+  errorMsg,
+  onToggle,
+}: {
+  service: 'icloud' | 'google';
+  isOn: boolean;
+  imgSrc: string;
+  label: string;
+  errorMsg?: string;
+  onToggle: () => void;
+}) => (
+  <div className={styles.syncSwitchRow} onClick={onToggle}>
+    <div className={styles.syncSwitchTop}>
+      <img src={imgSrc} alt={service} className={styles.syncSwitchIcon} />
+      <span className={styles.syncSwitchLabelText}>{label}</span>
+      <Switch.Root
+        className={styles.switchRoot}
+        checked={isOn}
+        onClick={(e) => e.stopPropagation()}
+        onCheckedChange={onToggle}
+      >
+        <Switch.Thumb className={styles.switchThumb} />
+      </Switch.Root>
+    </div>
+    {errorMsg && (
+      <div className={styles.syncErrorMsg}>{errorMsg}</div>
+    )}
+  </div>
+);
+
+interface CalendarItemProps {
+  cal: CalendarMetadata;
+  isLocalSection: boolean;
+  visibleUrlSet: Set<string>;
+  editingId: string | null;
+  selectedId: string | null;
+  inputRef: React.RefObject<HTMLSpanElement | null>;
+  onToggle: (url: string) => void;
+  onContextMenu: (e: React.MouseEvent, cal: CalendarMetadata) => void;
+  onSelectId: (id: string | null) => void;
+  onSetEditingId: (id: string | null) => void;
+  onSetEditingName: (name: string) => void;
+  onNameSave: () => void;
+  onKeyDown: (e: React.KeyboardEvent) => void;
+  isCalDAVAuthError: boolean;
+  isGoogleTokenExpired: boolean;
+}
+
+const CalendarItem = memo(({
+  cal,
+  isLocalSection,
+  visibleUrlSet,
+  editingId,
+  selectedId,
+  inputRef,
+  onToggle,
+  onContextMenu,
+  onSelectId,
+  onSetEditingId,
+  onSetEditingName,
+  onNameSave,
+  onKeyDown,
+  isCalDAVAuthError,
+  isGoogleTokenExpired,
+}: CalendarItemProps) => {
   const normalizedUrl = cal.url.replace(/\/+$/, '') || cal.url;
   const isVisible = visibleUrlSet.has(normalizedUrl);
   const isEditing = editingId === cal.url;
   const isSelected = selectedId === cal.url;
 
+  const showICloud = cal.createdFromApp && (cal.type === 'caldav' || (cal.type === 'google' && !!cal.caldavSyncUrl));
+  const showGoogle = cal.createdFromApp && (cal.type === 'google' || (cal.type === 'caldav' && !!cal.googleCalendarId));
+
   return (
     <div
-      key={cal.url}
       className={styles.calendarItem}
       style={{ backgroundColor: isSelected ? 'rgba(0, 0, 0, 0.05)' : undefined }}
-      onContextMenu={(e) => handleContextMenu(e, cal)}
+      onContextMenu={(e) => onContextMenu(e, cal)}
       onClick={() => {
         if (isLocalSection && (cal.isLocal || cal.createdFromApp)) {
-          // Riff 섹션: 첫 클릭 → 선택, 두 번째 클릭 → 이름 수정
           if (isEditing) return;
           if (isSelected) {
-            setEditingId(cal.url);
-            setEditingName(cal.displayName);
+            onSetEditingId(cal.url);
+            onSetEditingName(cal.displayName);
           } else {
-            setSelectedId(cal.url);
+            onSelectId(cal.url);
           }
           return;
         }
-        // iCloud, Google, 구독: 선택만 (이름 수정 없음)
-        setSelectedId(cal.url);
+        onSelectId(cal.url);
       }}
     >
       <input
@@ -122,14 +177,14 @@ const renderCalendarItem = (
           contentEditable={isEditing}
           suppressContentEditableWarning
           style={{ userSelect: isEditing ? 'text' : 'none' }}
-          onBlur={isEditing ? handleNameSave : undefined}
-          onKeyDown={isEditing ? handleKeyDown : undefined}
+          onBlur={isEditing ? onNameSave : undefined}
+          onKeyDown={isEditing ? onKeyDown : undefined}
           onClick={(e) => isEditing && e.stopPropagation()}
           onDoubleClick={(e) => {
             e.stopPropagation();
             if (isLocalSection && (cal.isLocal || cal.createdFromApp)) {
-              setEditingId(cal.url);
-              setEditingName(cal.displayName);
+              onSetEditingId(cal.url);
+              onSetEditingName(cal.displayName);
             }
           }}
         >
@@ -137,26 +192,27 @@ const renderCalendarItem = (
         </span>
       </div>
 
-      <div className={styles.shareStatus}>
-        {(cal.createdFromApp || (isLocalSection && cal.url?.startsWith('google:'))) && (() => {
-          const isGoogle = cal.type === 'google' || cal.url?.startsWith('google:');
-          // cloud_off 상태이면 해당 서비스로 동기화 안 됨 → ! 배지 표시
-          const hasError = isGoogle ? isGoogleCloudOff : (isCalDAVCloudOff && !cal.isLocal);
-          return (
-            <>
-              <span className="material-symbols-rounded" style={{ fontSize: '14px', color: hasError ? '#f59e0b' : '#888' }}>
-                {hasError ? 'priority_high' : 'arrow_right_alt'}
-              </span>
-              <span style={{ color: hasError ? '#f59e0b' : undefined }}>
-                {isGoogle ? 'Google' : 'iCloud'}
-              </span>
-            </>
-          );
-        })()}
-      </div>
+      {(showICloud || showGoogle) && (
+        <div className={styles.shareStatus}>
+          {showICloud && (
+            <img
+              src={isCalDAVAuthError ? '/images/iCloud_alert.png' : '/images/iCloud.png'}
+              alt="iCloud"
+              style={{ height: '16px', width: 'auto', display: 'block' }}
+            />
+          )}
+          {showGoogle && (
+            <img
+              src={isGoogleTokenExpired ? '/images/google_alert.png' : '/images/GoogleCalendar.png'}
+              alt="Google"
+              style={{ height: '16px', width: 'auto', display: 'block', marginLeft: showICloud ? '3px' : '0' }}
+            />
+          )}
+        </div>
+      )}
     </div>
   );
-};
+});
 
 function CalendarListPopupComponent({
   calendars,
@@ -166,14 +222,12 @@ function CalendarListPopupComponent({
   onAddLocalCalendar,
   onUpdateLocalCalendar,
   onDeleteCalendar,
-  onSyncToMac,
-  onSyncToGoogle,
   onOpenCalDAVModal,
   onOpenSubscribeModal,
   onOpenGoogleSync,
-  onReconnectCalDAV,
-  onReconnectGoogle,
+  onSyncSwitchToggle,
   isSyncingGoogle,
+  hasGoogleProvider = false,
   isGoogleTokenExpired = false,
   isCalDAVAuthError = false,
   onShowToast,
@@ -234,32 +288,32 @@ function CalendarListPopupComponent({
     }
   }, [editingId]);
 
-  const handleContextMenu = (e: React.MouseEvent, cal: CalendarMetadata) => {
+  const handleContextMenu = useCallback((e: React.MouseEvent, cal: CalendarMetadata) => {
     e.preventDefault();
     setSelectedId(cal.url);
     setContextMenu({ x: e.clientX, y: e.clientY, calendarUrl: cal.url });
-  };
+  }, []);
 
-  const handleAddClick = () => {
+  const handleAddClick = useCallback(() => {
     if (onAddLocalCalendar) {
       const newUrl = onAddLocalCalendar('무제', '#ff3b30');
       setEditingId(newUrl);
       setEditingName('무제');
     }
-  };
+  }, [onAddLocalCalendar]);
 
-  const handleNameSave = () => {
+  const handleNameSave = useCallback(() => {
     if (editingId && onUpdateLocalCalendar) {
       const newName = inputRef.current?.textContent?.trim() || editingName;
       if (newName) onUpdateLocalCalendar(editingId, { displayName: newName });
     }
     setEditingId(null);
-  };
+  }, [editingId, editingName, onUpdateLocalCalendar, inputRef]);
 
-  const handleKeyDown = (e: React.KeyboardEvent) => {
+  const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
     if (e.key === 'Enter') handleNameSave();
     else if (e.key === 'Escape') setEditingId(null);
-  };
+  }, [handleNameSave]);
 
   const handleDelete = (actionType?: 'unsync' | 'delete') => {
     if (contextMenu && onDeleteCalendar) {
@@ -330,8 +384,8 @@ function CalendarListPopupComponent({
 
   const currentCalColor = calendars.find(c => c.url === contextMenu?.calendarUrl)?.color || '#3b82f6';
 
-  // cloud_off 조건: sync가 활성화되지 않은 모든 상태 (미설정 + 연결 끊김)
-  const isGoogleCloudOff = groups.google.length === 0 || isGoogleTokenExpired;
+  // 섹션 헤더 아이콘용 (2-state: 연결됨 vs 미연결/오류)
+  const isGoogleCloudOff = (!hasGoogleProvider && groups.google.length === 0) || isGoogleTokenExpired;
   const isCalDAVCloudOff = groups.riffFromIcloud.length === 0 || isCalDAVAuthError;
 
   return (
@@ -350,11 +404,25 @@ function CalendarListPopupComponent({
                   <span>Riff</span>
                   <span className={`material-symbols-rounded ${styles.actionIcon}`} style={{ fontVariationSettings: "'wght' 700" }} onClick={handleAddClick}>add_2</span>
                 </div>
-                {groups.riff.map(cal => renderCalendarItem(
-                  cal, true, visibleUrlSet, editingId, selectedId,
-                  inputRef, onToggle, handleContextMenu, setSelectedId,
-                  setEditingId, setEditingName, handleNameSave, handleKeyDown,
-                  isGoogleCloudOff, isCalDAVCloudOff
+                {groups.riff.map(cal => (
+                  <CalendarItem
+                    key={cal.url}
+                    cal={cal}
+                    isLocalSection
+                    visibleUrlSet={visibleUrlSet}
+                    editingId={editingId}
+                    selectedId={selectedId}
+                    inputRef={inputRef}
+                    onToggle={onToggle}
+                    onContextMenu={handleContextMenu}
+                    onSelectId={setSelectedId}
+                    onSetEditingId={setEditingId}
+                    onSetEditingName={setEditingName}
+                    onNameSave={handleNameSave}
+                    onKeyDown={handleKeyDown}
+                    isCalDAVAuthError={isCalDAVAuthError}
+                    isGoogleTokenExpired={isGoogleTokenExpired}
+                  />
                 ))}
               </div>
 
@@ -377,11 +445,25 @@ function CalendarListPopupComponent({
                   >{isCalDAVCloudOff ? 'cloud_off' : 'cloud_sync'}</span>
                 </div>
                 {groups.riffFromIcloud.length > 0 ? (
-                  groups.riffFromIcloud.map(cal => renderCalendarItem(
-                    cal, false, visibleUrlSet, editingId, selectedId,
-                    inputRef, onToggle, handleContextMenu, setSelectedId,
-                    setEditingId, setEditingName, handleNameSave, handleKeyDown,
-                    isGoogleCloudOff, isCalDAVCloudOff
+                  groups.riffFromIcloud.map(cal => (
+                    <CalendarItem
+                      key={cal.url}
+                      cal={cal}
+                      isLocalSection={false}
+                      visibleUrlSet={visibleUrlSet}
+                      editingId={editingId}
+                      selectedId={selectedId}
+                      inputRef={inputRef}
+                      onToggle={onToggle}
+                      onContextMenu={handleContextMenu}
+                      onSelectId={setSelectedId}
+                      onSetEditingId={setEditingId}
+                      onSetEditingName={setEditingName}
+                      onNameSave={handleNameSave}
+                      onKeyDown={handleKeyDown}
+                      isCalDAVAuthError={isCalDAVAuthError}
+                      isGoogleTokenExpired={isGoogleTokenExpired}
+                    />
                   ))
                 ) : (
                   <div style={{ padding: '0.5rem 0.75rem', fontSize: '0.8rem', color: '#9ca3af' }}>
@@ -413,11 +495,25 @@ function CalendarListPopupComponent({
                   </div>
                 </div>
                 {groups.google.length > 0 ? (
-                  groups.google.map(cal => renderCalendarItem(
-                    cal, false, visibleUrlSet, editingId, selectedId,
-                    inputRef, onToggle, handleContextMenu, setSelectedId,
-                    setEditingId, setEditingName, handleNameSave, handleKeyDown,
-                    isGoogleCloudOff, isCalDAVCloudOff
+                  groups.google.map(cal => (
+                    <CalendarItem
+                      key={cal.url}
+                      cal={cal}
+                      isLocalSection={false}
+                      visibleUrlSet={visibleUrlSet}
+                      editingId={editingId}
+                      selectedId={selectedId}
+                      inputRef={inputRef}
+                      onToggle={onToggle}
+                      onContextMenu={handleContextMenu}
+                      onSelectId={setSelectedId}
+                      onSetEditingId={setEditingId}
+                      onSetEditingName={setEditingName}
+                      onNameSave={handleNameSave}
+                      onKeyDown={handleKeyDown}
+                      isCalDAVAuthError={isCalDAVAuthError}
+                      isGoogleTokenExpired={isGoogleTokenExpired}
+                    />
                   ))
                 ) : (
                   <div style={{ padding: '0.5rem 0.75rem', fontSize: '0.8rem', color: '#9ca3af' }}>
@@ -438,11 +534,25 @@ function CalendarListPopupComponent({
                   >cloud</span>
                 </div>
                 {groups.subscription.length > 0 ? (
-                  groups.subscription.map(cal => renderCalendarItem(
-                    cal, false, visibleUrlSet, editingId, selectedId,
-                    inputRef, onToggle, handleContextMenu, setSelectedId,
-                    setEditingId, setEditingName, handleNameSave, handleKeyDown,
-                    isGoogleCloudOff, isCalDAVCloudOff
+                  groups.subscription.map(cal => (
+                    <CalendarItem
+                      key={cal.url}
+                      cal={cal}
+                      isLocalSection={false}
+                      visibleUrlSet={visibleUrlSet}
+                      editingId={editingId}
+                      selectedId={selectedId}
+                      inputRef={inputRef}
+                      onToggle={onToggle}
+                      onContextMenu={handleContextMenu}
+                      onSelectId={setSelectedId}
+                      onSetEditingId={setEditingId}
+                      onSetEditingName={setEditingName}
+                      onNameSave={handleNameSave}
+                      onKeyDown={handleKeyDown}
+                      isCalDAVAuthError={isCalDAVAuthError}
+                      isGoogleTokenExpired={isGoogleTokenExpired}
+                    />
                   ))
                 ) : (
                   <div style={{ padding: '0.5rem 0.75rem', fontSize: '0.8rem', color: '#9ca3af' }}>
@@ -487,10 +597,14 @@ function CalendarListPopupComponent({
                   </button>
                 </div>
 
-                {/* 구독 설정 */}
+                {/* 구독 설정 / 동기화 스위치 행 */}
                 {(() => {
                   const cal = calendars.find(c => c.url === contextMenu.calendarUrl);
-                  const isSub = cal?.type === 'subscription' || cal?.isSubscription || cal?.url.endsWith('.ics') || cal?.url.includes('holidays');
+                  if (!cal) return null;
+
+                  const isSub = cal.type === 'subscription' || cal.isSubscription || cal.url.endsWith('.ics') || cal.url.includes('holidays');
+
+                  // 구독 캘린더: 설정 버튼만 표시
                   if (isSub) {
                     return (
                       <button
@@ -505,103 +619,102 @@ function CalendarListPopupComponent({
                       </button>
                     );
                   }
-                  return null;
+
+                  // Riff-origin이거나, 해당 서비스 type(또는 type 미지정 non-google)인 경우에만 스위치 표시
+                  // Google-origin(type='google', !createdFromApp)에는 iCloud 스위치 숨김
+                  // iCloud-origin(type!='google', !createdFromApp)에는 Google 스위치 숨김
+                  const isRiffOrigin = !!(cal.isLocal || cal.createdFromApp);
+                  const showICloud = isRiffOrigin || cal.type !== 'google';
+                  const showGoogle = isRiffOrigin || cal.type === 'google';
+
+                  // iCloud 동기화 상태
+                  const iCloudConnected =
+                    cal.type === 'caldav' ||
+                    (!isRiffOrigin && cal.type !== 'google') || // iCloud섹션 캘린더(type 미지정 포함)
+                    !!(cal.createdFromApp && cal.caldavSyncUrl); // 이중동기화(Google-primary+iCloud)
+                  const iCloudSwitchOn = iCloudConnected && !isCalDAVAuthError;
+
+                  // Google 동기화 상태
+                  const googleConnected =
+                    cal.type === 'google' ||
+                    !!(cal.type === 'caldav' && cal.createdFromApp && cal.googleCalendarId);
+                  const googleSwitchOn = googleConnected && !isGoogleTokenExpired;
+
+                  const getICloudAction = (): 'sync' | 'unsync' | 'reconnect' => {
+                    if (isCalDAVAuthError) return 'reconnect';
+                    if (iCloudConnected) return 'unsync';
+                    return 'sync';
+                  };
+
+                  const getGoogleAction = (): 'sync' | 'unsync' | 'reconnect' => {
+                    if (isGoogleTokenExpired) return 'reconnect';
+                    if (googleConnected) return 'unsync';
+                    return 'sync';
+                  };
+
+                  return (
+                    <>
+                      <div className={styles.contextMenuDivider} />
+                      {showICloud && (
+                        <SyncSwitchRow
+                          service="icloud"
+                          isOn={iCloudSwitchOn}
+                          imgSrc={isCalDAVAuthError ? '/images/iCloud_alert.png' : '/images/iCloud.png'}
+                          label="iCloud에 동기화"
+                          errorMsg={isCalDAVAuthError ? 'iCloud 계정 연결이 끊겼습니다. 탭하여 다시 연결하세요.' : undefined}
+                          onToggle={() => {
+                            if (onSyncSwitchToggle) onSyncSwitchToggle(cal, 'icloud', getICloudAction());
+                            setContextMenu(null);
+                          }}
+                        />
+                      )}
+                      {showICloud && showGoogle && (
+                        <div className={styles.contextMenuDivider} />
+                      )}
+                      {showGoogle && (
+                        <SyncSwitchRow
+                          service="google"
+                          isOn={googleSwitchOn}
+                          imgSrc={isGoogleTokenExpired ? '/images/google_alert.png' : '/images/GoogleCalendar.png'}
+                          label="Google에 동기화"
+                          errorMsg={isGoogleTokenExpired ? '구글 계정 연결이 끊겼습니다. 탭하여 다시 연결하세요.' : undefined}
+                          onToggle={() => {
+                            if (onSyncSwitchToggle) onSyncSwitchToggle(cal, 'google', getGoogleAction());
+                            setContextMenu(null);
+                          }}
+                        />
+                      )}
+                    </>
+                  );
                 })()}
 
-                <div className={styles.contextMenuDivider} />
-
-                {/* 외부 캘린더에 추가 */}
-                {(() => {
-                  const cal = calendars.find(c => c.url === contextMenu.calendarUrl);
-                  const isLocalOnly = cal?.isLocal && !cal?.isSubscription && cal?.type !== 'caldav';
-                  if (isLocalOnly && (onSyncToMac || onSyncToGoogle)) {
-                    return (
-                      <>
-                        {onSyncToMac && (
-                          <button
-                            className={styles.contextMenuItem}
-                            onClick={() => {
-                              onSyncToMac(cal);
-                              setContextMenu(null);
-                            }}
-                          >
-                            <span className="material-symbols-rounded" style={{ fontSize: '14px' }}>upload</span>
-                            <span>iCloud에 추가</span>
-                          </button>
-                        )}
-                        {onSyncToGoogle && (
-                          <button
-                            className={styles.contextMenuItem}
-                            onClick={() => {
-                              onSyncToGoogle(cal);
-                              setContextMenu(null);
-                            }}
-                          >
-                            <span className="material-symbols-rounded" style={{ fontSize: '14px' }}>upload</span>
-                            <span>Google 캘린더에 추가</span>
-                          </button>
-                        )}
-                      </>
-                    );
-                  }
-                  return null;
-                })()}
-
+                {/* 삭제: Riff-origin 캘린더에만 표시 */}
                 {(() => {
                   const cal = calendars.find(c => c.url === contextMenu.calendarUrl);
                   if (!cal) return null;
 
-                  const isLocal = cal.isLocal;
-                  const isReadonly = cal.readOnly || cal.isSubscription || cal.type === 'subscription';
-                  const isGoogle = cal.type === 'google';
-                  const isExternalSync = !isLocal && !isReadonly && !isGoogle; // i.e., CalDAV/iCloud
-                  const hasCalDAVError = isExternalSync && isCalDAVAuthError;
-                  const hasGoogleError = isGoogle && isGoogleTokenExpired;
-                  const hasError = hasCalDAVError || hasGoogleError;
+                  const isSub = cal.type === 'subscription' || cal.isSubscription || cal.url.endsWith('.ics') || cal.url.includes('holidays');
+                  const isRiffOrigin = cal.isLocal || cal.createdFromApp;
+
+                  if (!isSub && !isRiffOrigin) return null;
+
+                  const isLocal = cal.isLocal && !cal.createdFromApp;
+                  const isSyncedCal = cal.createdFromApp;
+                  const hasAnyError = isCalDAVAuthError || isGoogleTokenExpired;
 
                   return (
                     <>
-                      {/* 재연결: 연결 오류 상태에서만 표시 */}
-                      {hasError && (
-                        <button
-                          className={styles.contextMenuItem}
-                          onClick={() => {
-                            if (hasCalDAVError && onReconnectCalDAV) onReconnectCalDAV();
-                            else if (hasGoogleError && onReconnectGoogle) onReconnectGoogle();
-                            setContextMenu(null);
-                          }}
-                        >
-                          <span className="material-symbols-rounded" style={{ fontSize: '14px', color: '#f59e0b' }}>wifi_tethering</span>
-                          <span style={{ color: '#f59e0b' }}>재연결</span>
-                        </button>
-                      )}
-
-                      {/* 동기화 해제: 구글과 외부 연동 캘린더에만 보임 */}
-                      {(isGoogle || isExternalSync) && (
+                      <div className={styles.contextMenuDivider} />
+                      {isSub ? (
                         <button className={`${styles.contextMenuItem} ${styles.contextMenuItemDelete}`} onClick={() => handleDelete('unsync')}>
-                          <span className="material-symbols-rounded" style={{ fontSize: '14px' }}>sync_disabled</span>
-                          <span>동기화 해제</span>
+                          <span className="material-symbols-rounded" style={{ fontSize: '14px', fontVariationSettings: "'FILL' 0, 'wght' 400" }}>cloud_alert</span>
+                          <span>구독 취소</span>
                         </button>
-                      )}
-
-                      {/* 삭제: 연결 오류 상태에서는 "삭제(로컬만)", 정상 상태에서는 "삭제" */}
-                      {(isLocal || isReadonly || (isExternalSync && cal.createdFromApp) || (isGoogle && cal.createdFromApp)) && (
+                      ) : (
                         <button className={`${styles.contextMenuItem} ${styles.contextMenuItemDelete}`} onClick={() => handleDelete('delete')}>
-                          <span
-                            className="material-symbols-rounded"
-                            style={{
-                              fontSize: '14px',
-                              ...((isLocal || (isExternalSync && cal.createdFromApp) || (isGoogle && cal.createdFromApp))
-                                ? {} : { fontVariationSettings: "'FILL' 0, 'wght' 400" }),
-                            }}
-                          >
-                            {isLocal || (isExternalSync && cal.createdFromApp) || (isGoogle && cal.createdFromApp) ? 'delete' : 'cloud_alert'}
-                          </span>
+                          <span className="material-symbols-rounded" style={{ fontSize: '14px' }}>delete</span>
                           <span>
-                            {isLocal ? '삭제'
-                              : (isExternalSync && cal.createdFromApp) || (isGoogle && cal.createdFromApp)
-                                ? (hasError ? '삭제(로컬만)' : '삭제')
-                                : '구독 취소'}
+                            {isLocal ? '삭제' : isSyncedCal && hasAnyError ? '삭제(로컬만)' : '삭제'}
                           </span>
                         </button>
                       )}

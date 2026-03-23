@@ -41,6 +41,7 @@ export interface GoogleEventsResponse {
 // ─────────────────────────────────────────────────────────────
 
 const GOOGLE_SYNC_TOKENS_KEY = 'googleSyncTokens'; // calendarId -> syncToken map
+const GOOGLE_LAST_SYNC_TIMES_KEY = 'googleLastSyncTimes'; // calendarId -> ISO timestamp
 
 export const loadGoogleSyncTokens = (): Record<string, string> => {
   try {
@@ -54,6 +55,25 @@ export const loadGoogleSyncTokens = (): Record<string, string> => {
 export const saveGoogleSyncTokens = (tokens: Record<string, string>) => {
   try {
     localStorage.setItem(GOOGLE_SYNC_TOKENS_KEY, JSON.stringify(tokens));
+  } catch {
+    // ignore
+  }
+};
+
+/** 마지막 구글 캘린더 sync 시각 로드 (calendarId → ISO timestamp) */
+export const loadGoogleLastSyncTimes = (): Record<string, string> => {
+  try {
+    const raw = localStorage.getItem(GOOGLE_LAST_SYNC_TIMES_KEY);
+    return raw ? JSON.parse(raw) : {};
+  } catch {
+    return {};
+  }
+};
+
+/** 마지막 구글 캘린더 sync 시각 저장 */
+export const saveGoogleLastSyncTimes = (times: Record<string, string>) => {
+  try {
+    localStorage.setItem(GOOGLE_LAST_SYNC_TIMES_KEY, JSON.stringify(times));
   } catch {
     // ignore
   }
@@ -254,9 +274,10 @@ export const fetchGoogleEvents = async (
   token: string,
   calendarId: string,
   params: {
-    timeMin?: string;    // ISO 8601 (used for full fetch)
-    timeMax?: string;    // ISO 8601
-    syncToken?: string;  // if present, ignores timeMin/timeMax
+    timeMin?: string;     // ISO 8601 (used for full fetch)
+    timeMax?: string;     // ISO 8601
+    syncToken?: string;   // if present, ignores timeMin/timeMax
+    updatedMin?: string;  // ISO 8601 — 이 시각 이후 변경된 이벤트만 반환 (증분 동기화)
   }
 ): Promise<GoogleEventsResponse> => {
   const baseUrl = `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(calendarId)}/events`;
@@ -272,6 +293,8 @@ export const fetchGoogleEvents = async (
   } else {
     if (params.timeMin) query.set('timeMin', params.timeMin);
     if (params.timeMax) query.set('timeMax', params.timeMax);
+    // updatedMin: 마지막 sync 이후 변경된 이벤트만 fetch (full sync 반복 방지)
+    if (params.updatedMin) query.set('updatedMin', params.updatedMin);
   }
 
   let allEvents: GoogleEvent[] = [];
