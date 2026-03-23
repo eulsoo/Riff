@@ -8,6 +8,7 @@ import { useHover, useSelection } from '../contexts/SelectionContext';
 import { useDrag, addDays } from '../contexts/DragContext';
 import { useAllDayEventLayout } from '../hooks/useAllDayEventLayout';
 import { buildEventsByDate, formatDateKey } from '../lib/eventLayout';
+import { getEmotionImageById } from '../constants/emotions';
 import styles from './WeekCard.module.css';
 
 interface WeekCardProps {
@@ -240,6 +241,7 @@ export const WeekCard = memo(function WeekCard({
               <div className={styles.headerSpecials}>
                 {sortedSpecialRoutines.map(item => {
                   if (item.type === 'emotion') {
+                    const emotionImageUrl = currentEmotion ? getEmotionImageById(currentEmotion) : null;
                     return (
                       <div
                         key="emotion"
@@ -249,12 +251,14 @@ export const WeekCard = memo(function WeekCard({
                           onClick={(e) => onOpenEmotion?.(dateStr, e.currentTarget)}
                           className={`${styles.emotionIconButton} ${currentEmotion ? styles.emotionIconCompleted : styles.emotionIconIncomplete}`}
                           style={{ backgroundColor: 'transparent', color: currentEmotion ? '#f59e0b' : '#d1d5db' }}
-                          title={currentEmotion ? '기분 남기기' : '기분 남기기'}
+                          title="기분 남기기"
                         >
                           {!currentEmotion ? (
                             <span className="material-symbols-rounded" style={{ fontSize: '20px', fontWeight: 500, fontVariationSettings: `'FILL' 0, 'wght' 500, 'GRAD' 0, 'opsz' 24` }}>
                               {EMOTION_ROUTINE.icon}
                             </span>
+                          ) : emotionImageUrl ? (
+                            <img src={emotionImageUrl} alt="감정" style={{ width: '20px', height: '20px', objectFit: 'contain' }} />
                           ) : (
                             <span style={{ fontSize: '20px', lineHeight: 1 }}>{currentEmotion}</span>
                           )}
