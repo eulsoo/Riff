@@ -21,8 +21,9 @@ import {
   fetchGoogleCalendarList,
   mapGoogleEventToRiff,
   loadGoogleSyncTokens,
-  saveGoogleSyncTokens,
   clearGoogleSyncToken,
+  loadGoogleLastSyncTimes,
+  saveGoogleLastSyncTimes,
 } from '../lib/googleCalendar';
 
 // localStorage key for selected google calendar IDs
@@ -331,13 +332,15 @@ export const DataProvider = ({
         const calId = calMeta.googleCalendarId!;
         if (!calId) continue;
         const color = calMeta.color;
-        const syncToken = googleSyncTokensRef.current[calId];
+        const lastSyncTime = lastSyncTimesRef.current[calId]; // 이전 sync 시각 (있으면 증분)
 
         try {
-          const { events: gEvents, nextSyncToken } = await fetchGoogleEvents(token, calId, {
-            timeMin: syncToken ? undefined : timeMin,
-            timeMax: syncToken ? undefined : timeMax,
-            syncToken,
+          const { events: gEvents } = await fetchGoogleEvents(token, calId, {
+            timeMin,
+            timeMax,
+            // lastSyncTime이 있으면 변경분만, 없으면 전체 fetch
+            // updatedMin + singleEvents=true 조합으로 nextSyncToken 미수신 문제 우회
+            updatedMin: lastSyncTime,
           });
 
           // N+1 방지: 개별 await 대신 bulk upsert/delete로 단일 DB 왕복
@@ -358,10 +361,9 @@ export const DataProvider = ({
             bulkDeleteEventsByCaldavUids(toDelete, `google:${calId}`),
           ]);
 
-          if (nextSyncToken) {
-            googleSyncTokensRef.current[calId] = nextSyncToken;
-            saveGoogleSyncTokens(googleSyncTokensRef.current);
-          }
+          // sync 성공 시각 저장 → 다음 sync에서 updatedMin으로 활용
+          lastSyncTimesRef.current[calId] = new Date().toISOString();
+          saveGoogleLastSyncTimes(lastSyncTimesRef.current);
         } catch (err: any) {
           if (err?.message === 'SYNC_TOKEN_INVALID') {
             clearGoogleSyncToken(calId);
@@ -413,15 +415,18 @@ export const DataProvider = ({
     });
   }, []);
 
-  // Re-sync on tab focus & periodically (1 minute)
-  // lastSyncAtRef: 30초 내 중복 발화(타이머 + 탭 포커스 동시 발생) 차단
+  // 캘린더별 마지막 sync 시각 (updatedMin 증분 동기화용)
+  const lastSyncTimesRef = useRef<Record<string, string>>(loadGoogleLastSyncTimes());
+
+  // Re-sync on tab focus & periodically (5 minutes)
+  // lastSyncAtRef: 60초 내 중복 발화(타이머 + 탭 포커스 동시 발생) 차단
   const lastSyncAtRef = useRef<number>(0);
 
   useEffect(() => {
     const triggerSync = () => {
       if (selectedGoogleIdsRef.current.length === 0) return;
       const now = Date.now();
-      if (now - lastSyncAtRef.current < 30_000) return; // 30초 내 중복 방지
+      if (now - lastSyncAtRef.current < 60_000) return; // 60초 내 중복 방지
       lastSyncAtRef.current = now;
       syncGoogleCalendar();
     };
@@ -432,8 +437,8 @@ export const DataProvider = ({
     };
     document.addEventListener('visibilitychange', handleVisibility);
 
-    // 2. Periodic background polling (60s)
-    const intervalId = setInterval(triggerSync, 60 * 1000);
+    // 2. Periodic background polling (5분 — 60초에서 변경, egress 절약)
+    const intervalId = setInterval(triggerSync, 5 * 60 * 1000);
 
     return () => {
       document.removeEventListener('visibilitychange', handleVisibility);
