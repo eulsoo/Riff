@@ -367,7 +367,7 @@
 
 .emotionIconCompleted {
   opacity: 1;
-  transform: scale(1.8) translate(5px,0);
+  transform: scale(1.5) translate(3px,0);
   transform-origin: right bottom;
 }
 

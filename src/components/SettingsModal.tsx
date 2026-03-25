@@ -32,7 +32,7 @@ function getSourceRect(
 }
 
 export function SettingsModal({ onClose, initialAvatarUrl, initialWeekOrder, onSaved }: SettingsModalProps) {
-  const [displayAvatarUrl] = useState<string | null>(initialAvatarUrl || null);
+  const [displayAvatarUrl, setDisplayAvatarUrl] = useState<string | null>(initialAvatarUrl || null);
   const [imageSrc, setImageSrc] = useState<string | null>(null);
   const [weekOrder, setWeekOrder] = useState<WeekOrder>(initialWeekOrder);
   const [avatarChanged, setAvatarChanged] = useState(false);
@@ -103,6 +103,13 @@ export function SettingsModal({ onClose, initialAvatarUrl, initialWeekOrder, onS
     // resetTransform은 state 업데이트 → useEffect가 drawPreview를 호출함
   }, [resetTransform]);
 
+  const handleDeleteAvatar = useCallback(() => {
+    setImageSrc(null);
+    setDisplayAvatarUrl(null);
+    setAvatarChanged(true);
+    resetTransform();
+  }, [resetTransform]);
+
   const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -155,7 +162,22 @@ export function SettingsModal({ onClose, initialAvatarUrl, initialWeekOrder, onS
     }
 
     if (!imageSrc || !imgRef.current) {
-      onSaved({ avatarUrl: initialAvatarUrl || null, weekOrder });
+      if (displayAvatarUrl === null) {
+        // User clicked delete
+        const { data: { user } } = await supabase.auth.getUser();
+        if (!user) {
+          alert('로그인 후 이용해주세요.');
+          return;
+        }
+        const saved = await saveUserAvatar(null);
+        if (saved) {
+          onSaved({ avatarUrl: null, weekOrder });
+        } else {
+          alert('저장 중 오류가 발생했습니다.');
+        }
+      } else {
+        onSaved({ avatarUrl: initialAvatarUrl || null, weekOrder });
+      }
       onClose();
       return;
     }
@@ -288,6 +310,11 @@ export function SettingsModal({ onClose, initialAvatarUrl, initialWeekOrder, onS
                     className={styles.hiddenInput}
                     onChange={handleFileSelect}
                   />
+                  {(imageSrc || displayAvatarUrl) && (
+                    <button className={styles.deleteButton} onClick={handleDeleteAvatar}>
+                      이미지 삭제
+                    </button>
+                  )}
                   {imageSrc && (
                     <button className={styles.resetButton} onClick={resetTransform}>
                       위치 초기화
