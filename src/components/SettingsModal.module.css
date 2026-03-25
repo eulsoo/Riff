@@ -98,6 +98,22 @@
   background: rgba(0, 0, 0, 0.08);
 }
 
+.deleteButton {
+  padding: 0.4rem 0.85rem;
+  background: rgba(239, 68, 68, 0.1);
+  color: #ef4444;
+  border: none;
+  border-radius: 0.4rem;
+  font-size: 0.8rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.deleteButton:hover {
+  background: rgba(239, 68, 68, 0.2);
+}
+
 .hiddenInput {
   display: none;
 }
