@@ -127,7 +127,7 @@ export const uploadAvatar = async (file: File, userId: string): Promise<string |
   return data?.publicUrl || null;
 };
 
-export const saveUserAvatar = async (avatarUrl: string): Promise<boolean> => {
+export const saveUserAvatar = async (avatarUrl: string | null): Promise<boolean> => {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return false;
 
