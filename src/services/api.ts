@@ -1379,10 +1379,12 @@ export const fetchEmotionEntriesByRange = async (startDate: string, endDate: str
 };
 
 export const upsertEmotionEntry = async (date: string, emotion: string): Promise<boolean> => {
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return false;
   const { error } = await supabase
     .from('emotion_entries')
     .upsert(
-      { date, emotion, updated_at: new Date().toISOString() },
+      { user_id: user.id, date, emotion, updated_at: new Date().toISOString() },
       { onConflict: 'user_id,date' }
     );
 

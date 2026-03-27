@@ -1,5 +1,6 @@
 import { createContext, useContext, ReactNode, useCallback, useRef, useEffect, useState } from 'react';
 import { Session } from '@supabase/supabase-js';
+import { supabase } from '../lib/supabase';
 import { useAppData } from '../hooks/useAppData';
 import { useUndoRedo, HistoryAction, ActionCategory } from '../hooks/useUndoRedo';
 import {
@@ -407,6 +408,9 @@ export const DataProvider = ({
   // Re-sync on tab focus & periodically (5 minutes)
   // lastSyncAtRef: 60초 내 중복 발화(타이머 + 탭 포커스 동시 발생) 차단
   const lastSyncAtRef = useRef<number>(0);
+  // Realtime useEffect에서 최신 syncGoogleCalendar를 안정적으로 참조하기 위한 ref
+  const syncGoogleCalendarRef = useRef(syncGoogleCalendar);
+  useEffect(() => { syncGoogleCalendarRef.current = syncGoogleCalendar; }, [syncGoogleCalendar]);
 
   useEffect(() => {
     const triggerSync = () => {
@@ -431,6 +435,41 @@ export const DataProvider = ({
       clearInterval(intervalId);
     };
   }, [syncGoogleCalendar]);
+
+  // Supabase Realtime — 별도 useEffect (채널을 마운트 1회만 생성)
+  // syncGoogleCalendar와 같은 useEffect에 두면 함수 재생성마다 채널이
+  // teardown/re-create를 반복해 CHANNEL_ERROR가 발생하므로 분리
+  useEffect(() => {
+    // events / calendar_metadata 제외: iCloud/Google 동기화가 직접 관리.
+    // Realtime에서 events catch-up이 오면 외부 동기화가 반복 트리거되는 루프 방지.
+    // emotion·diary·todo·routines는 앱↔웹 간 즉시 반영이 목적.
+    const triggerRealtimeSync = () => {
+      if (selectedGoogleIdsRef.current.length === 0) return;
+      const now = Date.now();
+      if (now - lastSyncAtRef.current < 60_000) return;
+      lastSyncAtRef.current = now;
+      syncGoogleCalendarRef.current();
+    };
+
+    const realtimeChannel = supabase
+      .channel('riff-realtime')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'emotion_entries' },
+        () => triggerRealtimeSync())
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'routine_completions' },
+        () => triggerRealtimeSync())
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'todos' },
+        () => triggerRealtimeSync())
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'diary_entries' },
+        () => triggerRealtimeSync())
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'routines' },
+        () => triggerRealtimeSync())
+      .subscribe();
+
+    return () => {
+      clearTimeout(eventsDebounce);
+      supabase.removeChannel(realtimeChannel);
+    };
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
 
 
