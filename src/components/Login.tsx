@@ -51,17 +51,17 @@ export function Login() {
   return (
     <div className={styles.loginContainer}>
       <div className={styles.loginVisual}>
-        
+
         <div className={styles.loginHeader}>
           <h1 className={styles.loginTitle}>
-          <img src="/images/riff_logo.svg" alt="Riff" />
+            <img src="/images/riff_logo.svg" alt="Riff" />
           </h1>
           <p className={styles.loginSubtitle}>
-            시간을 재즈처럼 흐르게.
+            시간을 재즈처럼.
           </p>
         </div>
       </div>
-    
+
       <div className={styles.loginCard}>
         <div className={styles.buttonStack}>
           <div className={styles.buttonWrapper}>
