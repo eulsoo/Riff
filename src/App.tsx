@@ -3,6 +3,7 @@ import { Session } from '@supabase/supabase-js';
 import { supabase } from './lib/supabase';
 import { saveGoogleRefreshToken } from './services/api';
 import { clearCachedGoogleToken } from './lib/googleCalendar';
+import { LandingPage } from './components/landing/LandingPage';
 import { Login } from './components/Login';
 import { MainLayout } from './components/MainLayout';
 import { DataProvider } from './contexts/DataContext';
@@ -15,6 +16,7 @@ import styles from './App.module.css';
 export default function App() {
   const [session, setSession] = useState<Session | null>(null);
   const [sessionLoading, setSessionLoading] = useState(true);
+  const [showLanding, setShowLanding] = useState(true);
   const [currentYear, setCurrentYear] = useState(new Date().getFullYear());
   const [currentMonth, setCurrentMonth] = useState(new Date().getMonth() + 1);
   const [weekOrder, setWeekOrder] = useState<WeekOrder>(() => {
@@ -126,7 +128,11 @@ export default function App() {
   return (
     <div className={styles.appContainer}>
       {sessionLoading ? null : !session ? (
-        <Login />
+        showLanding ? (
+          <LandingPage onStart={() => setShowLanding(false)} />
+        ) : (
+          <Login />
+        )
       ) : (
         <SelectionProvider>
           <HoverProvider>
