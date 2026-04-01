@@ -178,7 +178,7 @@
 .primaryButton {
   width: 100%;
   padding: 0.7rem 1rem;
-  background-color: var(--color-blue-primary);
+  background-color: var(--color-brown-primary-50);
   color: white;
   border: none;
   border-radius: 0.5rem;
@@ -193,7 +193,7 @@
 }
 
 .primaryButton:hover:not(:disabled) {
-  background-color: var(--color-blue-primary-hover);
+  background-color: var(--color-brown-primary-60);
 }
 
 .primaryButton:disabled {

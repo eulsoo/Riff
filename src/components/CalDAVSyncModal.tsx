@@ -516,7 +516,7 @@ export function CalDAVSyncModal({
               <button
                 onClick={handleFetchCalendars}
                 disabled={loading || syncing}
-                className={styles.fetchButton}
+                className={shared.primaryButton}
               >
                 {loading && (
                   <div className={styles.spinner}></div>
@@ -529,7 +529,7 @@ export function CalDAVSyncModal({
                 <button
                   onClick={handleDisconnect}
                   disabled={loading || syncing}
-                  className={styles.disconnectButton}
+                  className={shared.primaryButton}
                 >
                   연동 해제 및 데이터 삭제
                 </button>
@@ -567,7 +567,7 @@ export function CalDAVSyncModal({
               <button
                 onClick={handleSync}
                 disabled={syncing || selectedCalendars.size === 0}
-                className={`${styles.syncButton} ${styles.syncButtonMargin}`}
+                className={`${shared.primaryButton} ${styles.syncButtonMargin}`}
               >
                 {syncing
                   ? (syncProgress && syncProgress.total > 0 ? `동기화 중... ${Math.round((syncProgress.current / syncProgress.total) * 100)}%` : '동기화 중...')
