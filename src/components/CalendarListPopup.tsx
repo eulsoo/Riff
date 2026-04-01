@@ -430,7 +430,7 @@ function CalendarListPopupComponent({
               <div className={styles.section}>
                 <div className={styles.sectionTitle} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                    <span>iCloud</span>
+                    <span>Riff ← iCloud</span>
                   </div>
                   <span
                     className={`material-symbols-rounded ${styles.actionIcon}`}
@@ -476,7 +476,7 @@ function CalendarListPopupComponent({
               <div className={styles.section}>
                 <div className={styles.sectionTitle} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                    <span>Google</span>
+                    <span>Riff ← Google</span>
                   </div>
                   <div className={styles.iconTooltipWrapper}>
                     <span

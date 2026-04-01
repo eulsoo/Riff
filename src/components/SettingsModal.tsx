@@ -254,7 +254,7 @@ export function SettingsModal({ onClose, initialAvatarUrl, initialWeekOrder, onS
         <div className={shared.modalContent}>
           {/* 프로필 이미지 */}
           <div className={shared.section}>
-            <p className={shared.sectionTitle}>프로필 이미지</p>
+            
             <div className={styles.avatarSection}>
 
               {/* 이미지 로딩 전용 hidden img */}
