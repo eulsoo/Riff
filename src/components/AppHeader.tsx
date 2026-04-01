@@ -59,15 +59,14 @@ export function AppHeader({
   return (
     <div className={styles.appHeader}>
       <div className={styles.appHeaderLeft}>
-        {!isCalendarPopupOpen && (
-          <button
-            onClick={onToggleCalendarPopup}
-            className={styles.toggleButton}
-            aria-label="캘린더 목록"
-          >
-            <span className="material-symbols-rounded">calendar_month</span>
-          </button>
-        )}
+        <button
+          onClick={onToggleCalendarPopup}
+          className={styles.toggleButton}
+          aria-label="캘린더 목록"
+          style={{ visibility: isCalendarPopupOpen ? 'hidden' : 'visible' }}
+        >
+          <span className="material-symbols-rounded">format_list_bulleted</span>
+        </button>
         {calendarPopupNode}
       </div>
 

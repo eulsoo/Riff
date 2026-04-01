@@ -190,7 +190,7 @@ export function RoutineModal({ routines, onClose, onAdd, onDelete, onUpdate }: R
               </div>
 
               {/* Create New Button */}
-              <button onClick={goToCreate} className={`${shared.accentButton} ${styles.createButton}`}>
+              <button onClick={goToCreate} className={`${shared.primaryButton}`}>
                 <span className="material-symbols-rounded" style={{ fontSize: '18px' }}>add</span>
                 새로 만들기
               </button>
