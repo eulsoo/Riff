@@ -4,6 +4,7 @@ import { supabase } from './lib/supabase';
 import { saveGoogleRefreshToken } from './services/api';
 import { clearCachedGoogleToken } from './lib/googleCalendar';
 import { LandingPage } from './components/landing/LandingPage';
+import { LegalPage } from './components/LegalPage';
 import { Login } from './components/Login';
 import { MainLayout } from './components/MainLayout';
 import { DataProvider } from './contexts/DataContext';
@@ -125,10 +126,17 @@ export default function App() {
     const currentWeekStart = getWeekStartForDate(new Date(), weekOrder);
     return getTodoWeekStart(currentWeekStart, weekOrder);
   }, [weekOrder]);
+  const pathname = typeof window !== 'undefined' ? window.location.pathname : '/';
+  const isPrivacyPage = pathname === '/privacy';
+  const isTermsPage = pathname === '/terms';
 
   return (
     <div className={styles.appContainer}>
-      {sessionLoading ? null : !session ? (
+      {isPrivacyPage ? (
+        <LegalPage type="privacy" />
+      ) : isTermsPage ? (
+        <LegalPage type="terms" />
+      ) : sessionLoading ? null : !session ? (
         showLanding ? (
           <LandingPage onStart={() => setShowLanding(false)} />
         ) : (
