@@ -137,15 +137,19 @@
   background-color: #f9fafb;
 }
 
-.loginButton.kakao {
-  background-color: #FEE500;
-  border-color: #FEE500;
-  color: #000000;
+.loginButton.apple {
+  background-color: #000000;
+  border-color: #000000;
+  color: #ffffff;
 }
 
-.loginButton.kakao:hover {
-  background-color: #FDD835;
-  border-color: #FDD835;
+.loginButton.apple:hover {
+  background-color: #1a1a1a;
+  border-color: #1a1a1a;
+}
+
+.loginButton.apple svg path {
+  fill: #ffffff;
 }
 
 
