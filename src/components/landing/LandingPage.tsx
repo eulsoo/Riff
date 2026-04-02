@@ -1,6 +1,4 @@
-import { useState } from 'react';
 import styles from './Landing.module.css';
-import { LegalModal } from '../LegalModal';
 
 interface LandingPageProps {
   onStart: () => void;
@@ -133,10 +131,7 @@ function Navbar({ onStart }: { onStart: () => void }) {
     <header className={styles.navbar}>
       <div className={styles.navInner}>
         <div className={styles.logo}>
-          <div className={styles.logoIcon}>
-            <CalendarIcon size={18} />
-          </div>
-          <span className={styles.logoText}>Riff</span>
+          <img src="/images/riff_logo.svg" alt="Riff" />
         </div>
         <button className={styles.navCta} onClick={onStart}>
           시작하기
@@ -253,13 +248,7 @@ function CTASection({ onStart }: { onStart: () => void }) {
 
 // ─── Footer ───────────────────────────────────────────────────────────────────
 
-function Footer({
-  onOpenPrivacy,
-  onOpenTerms,
-}: {
-  onOpenPrivacy: () => void;
-  onOpenTerms: () => void;
-}) {
+function Footer() {
   return (
     <footer className={styles.footer}>
       <div className={styles.footerInner}>
@@ -270,13 +259,13 @@ function Footer({
           <span>Riff © 2025</span>
         </div>
         <div className={styles.legalLinks}>
-          <button className={styles.legalLink} onClick={onOpenPrivacy}>
+          <a className={styles.legalLink} href="/privacy">
             개인정보처리방침
-          </button>
+          </a>
           <span className={styles.legalDivider}>|</span>
-          <button className={styles.legalLink} onClick={onOpenTerms}>
+          <a className={styles.legalLink} href="/terms">
             이용약관
-          </button>
+          </a>
         </div>
       </div>
     </footer>
@@ -286,9 +275,6 @@ function Footer({
 // ─── LandingPage (root) ───────────────────────────────────────────────────────
 
 export function LandingPage({ onStart }: LandingPageProps) {
-  const [privacyOpen, setPrivacyOpen] = useState(false);
-  const [termsOpen, setTermsOpen] = useState(false);
-
   return (
     <div className={styles.landing}>
       <Navbar onStart={onStart} />
@@ -360,13 +346,7 @@ export function LandingPage({ onStart }: LandingPageProps) {
         <CTASection onStart={onStart} />
       </main>
 
-      <Footer
-        onOpenPrivacy={() => setPrivacyOpen(true)}
-        onOpenTerms={() => setTermsOpen(true)}
-      />
-
-      <LegalModal type="privacy" open={privacyOpen} onClose={() => setPrivacyOpen(false)} />
-      <LegalModal type="terms" open={termsOpen} onClose={() => setTermsOpen(false)} />
+      <Footer />
     </div>
   );
 }

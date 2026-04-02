@@ -8,12 +8,12 @@
 .weekGridCurrent {
   /* border-width:2px !important; */
   /* border-color: #43b76d !important; */
-  box-shadow: 0 0 40px rgba(0, 255, 4, 0.1) !important;
+  box-shadow: 0 0 40px rgba(199, 125, 6, 0.1) !important;
 }
 .weekGrid.weekGridCurrent {
   /* Base: Gradient from soft white to pale peach */
   /* background: linear-gradient(to bottom, rgba(255, 255, 255, 0.95), rgba(255, 245, 242, 0.4)); */
-  border: 1px solid var(--color-green-primary) ;
+  border: 1px solid var(--color-brown-primary-30) ;
 }
 .weekGrid {
   background-color: white;

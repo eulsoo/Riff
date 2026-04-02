@@ -196,7 +196,7 @@ export function GoogleSyncModal({
                     console.error('Google Auth Failed:', e);
                   }
                 }}
-                className={styles.syncButton}
+                className={shared.primaryButton}
                 style={{ width: 'auto', padding: '0.75rem 1.5rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}
               >
                 <span className="material-symbols-rounded" style={{ fontSize: '20px' }}>login</span>

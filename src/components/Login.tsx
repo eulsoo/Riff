@@ -12,18 +12,11 @@ export function Login() {
     }
   }, []);
 
-  const handleLogin = async (provider: 'google' | 'kakao') => {
+  const handleLogin = async (provider: 'google' | 'apple') => {
     localStorage.setItem('last_login_provider', provider);
     let queryParams: { [key: string]: string } | undefined;
 
-    // 카카오 로그인 시 이메일 권한 요청 제외 (비즈니스 인증 문제 해결)
-    if (provider === 'kakao') {
-      queryParams = {
-        // 필수 동의 항목만 요청: 닉네임, 프로필 사진
-        // account_email을 제외하여 KOE205 에러 방지
-        scope: 'profile_nickname,profile_image',
-      };
-    } else if (provider === 'google') {
+    if (provider === 'google') {
       // 캘린더 읽기/쓰기 권한 및 백그라운드 사용을 위한 offline 옵션 추가
       queryParams = {
         access_type: 'offline',
@@ -36,7 +29,6 @@ export function Login() {
       options: {
         redirectTo: window.location.origin,
         queryParams,
-        // 구글 로그인 시 캘린더 범위를 요청
         scopes: provider === 'google' ? 'https://www.googleapis.com/auth/calendar' : undefined,
       },
     });
@@ -81,17 +73,17 @@ export function Login() {
           </div>
 
           <div className={styles.buttonWrapper}>
-            {lastProvider === 'kakao' && (
+            {lastProvider === 'apple' && (
               <div className={styles.lastLoginBadge}>최근 사용</div>
             )}
             <button
-              onClick={() => handleLogin('kakao')}
-              className={`${styles.loginButton} ${styles.kakao}`}
+              onClick={() => handleLogin('apple')}
+              className={`${styles.loginButton} ${styles.apple}`}
             >
               <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                <path fillRule="evenodd" clipRule="evenodd" d="M12 3C6.477 3 2 6.477 2 10.76C2 13.56 3.93 16.03 6.83 17.38C6.67 17.93 6.27 19.34 6.2 19.59C6.1 19.94 6.48 20.17 6.74 19.98C6.88 19.88 9.15 18.25 10.15 17.54C10.74 17.62 11.36 17.66 12 17.66C17.523 17.66 22 14.183 22 9.9C22 5.617 17.523 2.14 12 2.14V3Z" fill="#000000" />
+                <path d="M17.05 20.28c-.98.95-2.05.8-3.08.35-1.09-.46-2.09-.48-3.24 0-1.44.62-2.2.44-3.06-.35C2.79 15.25 3.51 7.7 9.05 7.4c1.35.07 2.29.74 3.08.8 1.18-.24 2.31-.93 3.57-.84 1.51.12 2.65.72 3.4 1.8-3.12 1.87-2.38 5.98.48 7.13-.57 1.5-1.32 2.99-2.54 4zm-3.1-17.56c.06 2.06-1.52 3.7-3.52 3.86-.22-1.99 1.55-3.72 3.52-3.86z" fill="#000000"/>
               </svg>
-              카카오로 시작하기
+              Apple로 계속하기
             </button>
           </div>
         </div>
