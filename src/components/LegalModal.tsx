@@ -71,6 +71,7 @@ export function PrivacyContent() {
           <li>Google Calendar 읽기·쓰기 권한 (OAuth 스코프: https://www.googleapis.com/auth/calendar)</li>
           <li>OAuth 액세스 토큰 및 리프레시 토큰</li>
           <li>Google Calendar에 저장된 일정 정보 (연동 범위 내)</li>
+          <li>실시간 변경 반영을 위한 동기화 채널 식별자 (channel_id, calendar_id) — 서버 임시 저장, Google 연동 해제 시 삭제</li>
         </ul>
         <p><strong>다. 서비스 이용 중 생성·수집 항목</strong></p>
         <ul>
@@ -220,7 +221,7 @@ export function PrivacyContent() {
         </ul>
       </div>
 
-      <p className={styles.legalFootnote}>시행일: 2026년 4월 2일 | 버전: 1.0</p>
+      <p className={styles.legalFootnote}>시행일: 2026년 4월 3일 | 버전: 1.1</p>
     </div>
   );
 }

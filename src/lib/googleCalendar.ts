@@ -2,6 +2,27 @@ import { supabase } from './supabase';
 import { Event } from '../types';
 
 // ─────────────────────────────────────────────────────────────
+// Google Watch Channel Registration
+// ─────────────────────────────────────────────────────────────
+
+/**
+ * Google Calendar Watch 채널을 등록한다.
+ * 실패 시 에러를 던지지 않고 조용히 무시 — 폴링 fallback으로 동작.
+ */
+export const registerGoogleWatchChannel = async (calendarId: string): Promise<void> => {
+  try {
+    const { error } = await supabase.functions.invoke('google-watch-register', {
+      body: { calendarIds: [calendarId] },
+    });
+    if (error) {
+      console.warn('[Google Watch] 채널 등록 실패 (폴링 fallback):', error);
+    }
+  } catch (e) {
+    console.warn('[Google Watch] 채널 등록 실패 (폴링 fallback):', e);
+  }
+};
+
+// ─────────────────────────────────────────────────────────────
 // Types
 // ─────────────────────────────────────────────────────────────
 

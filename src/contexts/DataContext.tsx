@@ -25,6 +25,7 @@ import {
   clearGoogleSyncToken,
   loadGoogleLastSyncTimes,
   saveGoogleLastSyncTimes,
+  registerGoogleWatchChannel,
 } from '../lib/googleCalendar';
 
 // localStorage key for selected google calendar IDs
@@ -351,6 +352,9 @@ export const DataProvider = ({
           // sync 성공 시각 저장 → 다음 sync에서 updatedMin으로 활용
           lastSyncTimesRef.current[calId] = new Date().toISOString();
           saveGoogleLastSyncTimes(lastSyncTimesRef.current);
+
+          // Watch 채널 등록 (백그라운드, 실패해도 폴링으로 fallback)
+          void registerGoogleWatchChannel(calId);
         } catch (err: any) {
           if (err?.message === 'SYNC_TOKEN_INVALID') {
             clearGoogleSyncToken(calId);
@@ -470,6 +474,35 @@ export const DataProvider = ({
       supabase.removeChannel(realtimeChannel);
     };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Google Webhook Broadcast 구독 — 웹훅 수신 시 즉시 loadData
+  // events 테이블 Realtime 구독 없이 별도 Broadcast 채널로 통지받아 sync 루프 방지
+  useEffect(() => {
+    if (!session?.user?.id || selectedGoogleCalendarIds.length === 0) return;
+
+    let broadcastDebounce: ReturnType<typeof setTimeout>;
+
+    const webhookChannel = supabase
+      .channel(`google-webhook-${session.user.id}`)
+      .on('broadcast', { event: 'sync-complete' }, (msg) => {
+        clearTimeout(broadcastDebounce);
+        broadcastDebounce = setTimeout(() => {
+          // lastSyncTimesRef도 갱신하여 다음 폴링의 중복 fetch 최소화
+          const calendarId = msg.payload?.calendarId as string | undefined;
+          if (calendarId) {
+            lastSyncTimesRef.current[calendarId] = new Date().toISOString();
+            saveGoogleLastSyncTimes(lastSyncTimesRef.current);
+          }
+          loadData(true);
+        }, 300);
+      })
+      .subscribe();
+
+    return () => {
+      clearTimeout(broadcastDebounce);
+      supabase.removeChannel(webhookChannel);
+    };
+  }, [session?.user?.id, selectedGoogleCalendarIds.length, loadData]); // eslint-disable-line react-hooks/exhaustive-deps
 
 
 
