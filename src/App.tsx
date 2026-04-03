@@ -82,10 +82,13 @@ export default function App() {
         // provider_refresh_token은 실제 OAuth 로그인 시에만 Google이 발급
         // sessionStorage 플래그로 같은 탭 세션 내 중복 저장 방지
         // (Supabase가 SIGNED_IN을 여러 번 발화하는 경우 대비)
+        console.log('[Auth] SIGNED_IN event, provider_refresh_token:', session.provider_refresh_token ? 'PRESENT' : 'NULL', 'window.opener:', !!window.opener);
         if (_event === 'SIGNED_IN' && session.provider_refresh_token && session.user?.id) {
           const dedupeKey = `grt_saved_${session.user.id}`;
+          console.log('[Auth] dedupeKey already set:', !!sessionStorage.getItem(dedupeKey));
           if (!sessionStorage.getItem(dedupeKey)) {
             sessionStorage.setItem(dedupeKey, '1');
+            console.log('[Auth] Calling saveGoogleRefreshToken...');
             saveGoogleRefreshToken(session.provider_refresh_token, session.access_token).catch(console.error);
           }
           // OAuth 팝업 창인 경우: 부모 탭에 완료 알림 후 닫기
