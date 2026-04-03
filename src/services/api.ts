@@ -1021,6 +1021,12 @@ export const updateEvent = async (id: string, updates: Partial<{
     delete payload.calendarUrl;
   }
 
+  // caldavUid -> caldav_uid 매핑
+  if ('caldavUid' in updates) {
+    payload.caldav_uid = (updates as any).caldavUid;
+    delete payload.caldavUid;
+  }
+
   const { data, error } = await supabase
     .from('events')
     .update(payload)
