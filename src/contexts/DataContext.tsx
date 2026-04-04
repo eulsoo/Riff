@@ -316,6 +316,9 @@ export const DataProvider = ({
       const timeMin = new Date(now.getFullYear(), now.getMonth() - 2, 1).toISOString();
       const timeMax = new Date(now.getFullYear(), now.getMonth() + 4, 0).toISOString();
 
+      // 삭제된 caldav uid 수집 (loadData 이후 state 필터링에 사용)
+      const deletedByCalendar: { calId: string; uids: string[] }[] = [];
+
       for (const calMeta of metaToSync) {
         const calId = calMeta.googleCalendarId!;
         if (!calId) continue;
@@ -351,13 +354,8 @@ export const DataProvider = ({
             bulkDeleteEventsByCaldavUids(toDelete, `google:${calId}`),
           ]);
 
-          // DB 삭제 후 React state에서도 즉시 제거
-          // mergeEventsWithLocal은 서버에 없는 이벤트를 "로컬 전용"으로 보존하므로
-          // 외부(Google)에서 삭제된 이벤트는 직접 필터링해야 함
           if (toDelete.length > 0) {
-            const deleteSet = new Set(toDelete);
-            const calUrl = `google:${calId}`;
-            setEvents(prev => prev.filter(e => !(e.caldavUid && deleteSet.has(e.caldavUid) && e.calendarUrl === calUrl)));
+            deletedByCalendar.push({ calId, uids: toDelete });
           }
 
           // sync 성공 시각 저장 → 다음 sync에서 updatedMin으로 활용
@@ -385,6 +383,20 @@ export const DataProvider = ({
 
       // 3. Reload local events state (force=true로 캐시/쓰로틀 무시 → 즉시 반영)
       await loadData(true);
+
+      // loadData 이후 state 필터링: mergeEventsWithLocal이 완료된 뒤 삭제 이벤트 제거
+      // (loadData 전에 하면 React 배칭으로 mergeEventsWithLocal의 prev에 여전히 삭제 이벤트가 남음)
+      if (deletedByCalendar.length > 0) {
+        setEvents(prev => {
+          let next = prev;
+          for (const { calId, uids } of deletedByCalendar) {
+            const deleteSet = new Set(uids);
+            const calUrl = `google:${calId}`;
+            next = next.filter(e => !(e.caldavUid && deleteSet.has(e.caldavUid) && e.calendarUrl === calUrl));
+          }
+          return next;
+        });
+      }
     } catch (err) {
       console.error('syncGoogleCalendar failed:', err);
     } finally {
