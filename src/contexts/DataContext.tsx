@@ -351,6 +351,15 @@ export const DataProvider = ({
             bulkDeleteEventsByCaldavUids(toDelete, `google:${calId}`),
           ]);
 
+          // DB 삭제 후 React state에서도 즉시 제거
+          // mergeEventsWithLocal은 서버에 없는 이벤트를 "로컬 전용"으로 보존하므로
+          // 외부(Google)에서 삭제된 이벤트는 직접 필터링해야 함
+          if (toDelete.length > 0) {
+            const deleteSet = new Set(toDelete);
+            const calUrl = `google:${calId}`;
+            setEvents(prev => prev.filter(e => !(e.caldavUid && deleteSet.has(e.caldavUid) && e.calendarUrl === calUrl)));
+          }
+
           // sync 성공 시각 저장 → 다음 sync에서 updatedMin으로 활용
           lastSyncTimesRef.current[calId] = new Date().toISOString();
           saveGoogleLastSyncTimes(lastSyncTimesRef.current);
