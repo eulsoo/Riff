@@ -49,6 +49,7 @@ export interface GoogleEvent {
   status?: string;       // "confirmed" | "tentative" | "cancelled"
   iCalUID?: string;
   etag?: string;
+  colorId?: string;      // 이벤트별 색상 ID (1~11)
 }
 
 export interface GoogleEventsResponse {
@@ -306,8 +307,8 @@ export const fetchGoogleEvents = async (
   const query = new URLSearchParams({
     maxResults: '2500',
     singleEvents: 'true',
-    orderBy: 'startTime',
     showDeleted: 'true',  // cancelled 이벤트 포함 (폴링으로도 삭제 감지)
+    // orderBy: 'startTime' — showDeleted와 병용 불가 (cancelled 이벤트는 start 필드 없음)
   });
 
   if (params.syncToken) {
