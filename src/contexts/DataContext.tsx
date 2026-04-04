@@ -344,6 +344,8 @@ export const DataProvider = ({
             }
           }
 
+          console.log(`[Google Sync] cal=${calId} updatedMin=${lastSyncTime ?? 'full'} total=${gEvents.length} upsert=${toUpsert.length} delete=${toDelete.length}`, toDelete);
+
           await Promise.all([
             bulkUpsertGoogleEvents(toUpsert as any),
             bulkDeleteEventsByCaldavUids(toDelete, `google:${calId}`),

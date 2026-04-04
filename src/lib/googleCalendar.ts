@@ -313,11 +313,13 @@ export const fetchGoogleEvents = async (
 
   if (params.syncToken) {
     query.set('syncToken', params.syncToken);
+  } else if (params.updatedMin) {
+    // 증분 sync: updatedMin만 사용. timeMin/timeMax와 함께 쓰면 cancelled 이벤트가
+    // start 필드 없음으로 인해 AND 필터에서 제외될 수 있음.
+    query.set('updatedMin', params.updatedMin);
   } else {
     if (params.timeMin) query.set('timeMin', params.timeMin);
     if (params.timeMax) query.set('timeMax', params.timeMax);
-    // updatedMin: 마지막 sync 이후 변경된 이벤트만 fetch (full sync 반복 방지)
-    if (params.updatedMin) query.set('updatedMin', params.updatedMin);
   }
 
   let allEvents: GoogleEvent[] = [];
