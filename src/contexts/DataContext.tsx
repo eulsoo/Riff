@@ -354,7 +354,7 @@ export const DataProvider = ({
           saveGoogleLastSyncTimes(lastSyncTimesRef.current);
 
           // Watch 채널 등록 (백그라운드, 실패해도 폴링으로 fallback)
-          void registerGoogleWatchChannel(calId);
+          void registerGoogleWatchChannel(calId, color);
         } catch (err: any) {
           if (err?.message === 'SYNC_TOKEN_INVALID') {
             clearGoogleSyncToken(calId);

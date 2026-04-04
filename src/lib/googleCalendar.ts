@@ -9,10 +9,10 @@ import { Event } from '../types';
  * Google Calendar Watch 채널을 등록한다.
  * 실패 시 에러를 던지지 않고 조용히 무시 — 폴링 fallback으로 동작.
  */
-export const registerGoogleWatchChannel = async (calendarId: string): Promise<void> => {
+export const registerGoogleWatchChannel = async (calendarId: string, color?: string): Promise<void> => {
   try {
     const { error } = await supabase.functions.invoke('google-watch-register', {
-      body: { calendarIds: [calendarId] },
+      body: { calendarIds: [calendarId], colors: { [calendarId]: color ?? '#4285F4' } },
     });
     if (error) {
       console.warn('[Google Watch] 채널 등록 실패 (폴링 fallback):', error);
@@ -307,6 +307,7 @@ export const fetchGoogleEvents = async (
     maxResults: '2500',
     singleEvents: 'true',
     orderBy: 'startTime',
+    showDeleted: 'true',  // cancelled 이벤트 포함 (폴링으로도 삭제 감지)
   });
 
   if (params.syncToken) {
@@ -423,7 +424,7 @@ export const mapGoogleEventToRiff = (
     startTime,
     endTime,
     endDate,
-    color,
+    color: gEvent.colorId ? googleColorIdToHex(gEvent.colorId, color) : color,
     calendarUrl: `google:${calendarId}`,
     caldavUid: gEvent.id,            // reuse caldavUid field as the google event ID
     source: 'google',

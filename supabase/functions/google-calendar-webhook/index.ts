@@ -186,10 +186,10 @@ serve(async (req) => {
   const serviceClient = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
 
   try {
-    // 1. channel_id → 채널 정보 조회
+    // 1. channel_id → 채널 정보 조회 (color 포함)
     const { data: channel, error: chErr } = await serviceClient
       .from('google_watch_channels')
-      .select('user_id, calendar_id, last_sync_at, channel_id')
+      .select('user_id, calendar_id, last_sync_at, channel_id, color')
       .eq('channel_id', channelId)
       .single();
 
@@ -203,14 +203,9 @@ serve(async (req) => {
       return new Response('Forbidden', { status: 403 });
     }
 
-    // 3. 캘린더 색상 조회
-    const { data: calMeta } = await serviceClient
-      .from('calendar_metadata')
-      .select('color')
-      .eq('user_id', channel.user_id)
-      .eq('google_calendar_id', channel.calendar_id)
-      .maybeSingle();
-    const color = calMeta?.color ?? '#4285F4';
+    // 3. 캘린더 색상 — google_watch_channels.color 사용 (채널 등록 시 클라이언트가 전달한 값)
+    const color = channel.color ?? '#4285F4';
+    console.log(`[Webhook] color=${color} for calendar_id=${channel.calendar_id}`);
 
     // 4. refresh_token 복호화 → access_token 발급
     const { data: tokenRow, error: tokenErr } = await serviceClient
@@ -274,13 +269,27 @@ serve(async (req) => {
       .eq('channel_id', channelId);
 
     // 9. Realtime Broadcast → 브라우저에 즉시 반영 신호
-    await serviceClient
-      .channel(`google-webhook-${channel.user_id}`)
-      .send({
-        type: 'broadcast',
-        event: 'sync-complete',
-        payload: { calendarId: channel.calendar_id },
-      });
+    // WebSocket 대신 HTTP Broadcast API 사용 (Edge Function에서 더 안정적)
+    // event 필드 = 클라이언트가 .on('broadcast', { event: '...' })로 구독하는 이름
+    const broadcastRes = await fetch(`${SUPABASE_URL}/realtime/v1/api/broadcast`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`,
+        'Content-Type': 'application/json',
+        'apikey': SUPABASE_SERVICE_ROLE_KEY,
+      },
+      body: JSON.stringify({
+        messages: [{
+          topic: `realtime:google-webhook-${channel.user_id}`,
+          event: 'sync-complete',
+          payload: { calendarId: channel.calendar_id },
+        }],
+      }),
+    }).catch(e => { console.error('[Webhook] broadcast HTTP error:', e); return null; });
+    if (broadcastRes && !broadcastRes.ok) {
+      const body = await broadcastRes.text().catch(() => '');
+      console.warn(`[Webhook] broadcast HTTP status=${broadcastRes.status} body=${body}`);
+    }
 
     console.log(`[Webhook] sync complete: user=${channel.user_id} cal=${channel.calendar_id} upsert=${toUpsert.length} delete=${toDeleteUids.length}`);
     return new Response('ok', { status: 200 });

@@ -78,7 +78,8 @@ async function registerChannelForCalendar(
   userId: string,
   accessToken: string,
   calendarId: string,
-  supabaseUrl: string
+  supabaseUrl: string,
+  color = '#4285F4'
 ): Promise<void> {
   const newChannelId = crypto.randomUUID();
   const webhookUrl = `${supabaseUrl}/functions/v1/google-calendar-webhook`;
@@ -136,6 +137,7 @@ async function registerChannelForCalendar(
         channel_id: newChannelId,
         resource_id: data.resourceId,
         expiry: new Date(Number(data.expiration)).toISOString(),
+        color,
         updated_at: new Date().toISOString(),
       },
       { onConflict: 'user_id,calendar_id' }
@@ -215,11 +217,12 @@ serve(async (req) => {
     }
 
     // ── 클라이언트 요청: user JWT로 본인 캘린더 등록 ───────────────────────
-    const userClient = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
-      global: { headers: { Authorization: req.headers.get('Authorization') ?? '' } },
-    });
-    const { data: { user }, error: userErr } = await userClient.auth.getUser();
+    const authHeader = req.headers.get('Authorization') ?? '';
+    const jwt = authHeader.replace('Bearer ', '');
+    const adminClient = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
+    const { data: { user }, error: userErr } = await adminClient.auth.getUser(jwt);
     if (userErr || !user) {
+      console.error('[WatchRegister] getUser failed:', userErr?.message, 'auth header present:', !!authHeader);
       return new Response('Unauthorized', { status: 401, headers: CORS_HEADERS });
     }
 
@@ -230,6 +233,7 @@ serve(async (req) => {
         headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' },
       });
     }
+    const colors: Record<string, string> = body.colors && typeof body.colors === 'object' ? body.colors : {};
 
     const serviceClient = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
 
@@ -238,7 +242,7 @@ serve(async (req) => {
         const accessToken = await getAccessTokenForUser(
           serviceClient, user.id, SUPABASE_SERVICE_ROLE_KEY, CLIENT_ID, CLIENT_SECRET
         );
-        await registerChannelForCalendar(serviceClient, user.id, accessToken, calendarId, SUPABASE_URL);
+        await registerChannelForCalendar(serviceClient, user.id, accessToken, calendarId, SUPABASE_URL, colors[calendarId] ?? '#4285F4');
       } catch (e) {
         console.error(`[WatchRegister] failed for cal=${calendarId}:`, e);
         // 개별 실패는 무시 — 폴링 fallback으로 동작
