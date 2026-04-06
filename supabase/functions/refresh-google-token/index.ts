@@ -44,10 +44,9 @@ async function decryptToken(encryptedStr: string, secret: string): Promise<strin
 
 // CORS: 환경변수 ALLOWED_ORIGIN으로 허용 오리진 제한 (미설정 시 개발 편의상 * 허용)
 const getAllowedOrigin = (requestOrigin: string): string => {
-  const allowedOrigin = Deno.env.get('ALLOWED_ORIGIN') || '*';
-  if (allowedOrigin === '*') return '*';
-  // 불일치 오리진에는 빈 문자열 반환 → 브라우저가 CORS 차단
-  return requestOrigin === allowedOrigin ? requestOrigin : '';
+  const allowedOrigins = (Deno.env.get('ALLOWED_ORIGIN') || '*').split(',').map((o: string) => o.trim());
+  if (allowedOrigins.includes('*')) return '*';
+  return allowedOrigins.includes(requestOrigin) ? requestOrigin : '';
 };
 
 const buildCorsHeaders = (origin: string) => ({
@@ -64,19 +63,24 @@ serve(async (req) => {
   }
 
   try {
-    const supabaseClient = createClient(
+    const serviceRoleKeyEarly = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '';
+    const adminClient = createClient(
       Deno.env.get('SUPABASE_URL') ?? '',
-      Deno.env.get('SUPABASE_ANON_KEY') ?? '',
-      { global: { headers: { Authorization: req.headers.get('Authorization')! } } }
+      serviceRoleKeyEarly,
     );
-
-    const { data: { user } } = await supabaseClient.auth.getUser();
+    const jwt = (req.headers.get('Authorization') ?? '').replace('Bearer ', '');
+    const { data: { user } } = await adminClient.auth.getUser(jwt);
     if (!user) {
       return new Response(JSON.stringify({ error: 'Unauthorized' }), {
         status: 401,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
     }
+    const supabaseClient = createClient(
+      Deno.env.get('SUPABASE_URL') ?? '',
+      Deno.env.get('SUPABASE_ANON_KEY') ?? '',
+      { global: { headers: { Authorization: req.headers.get('Authorization')! } } }
+    );
 
     const body = await req.json().catch(() => ({}));
 
