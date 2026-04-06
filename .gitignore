@@ -39,3 +39,4 @@ supabase_migration_001.sql
 # Claude Code
 .claude/worktrees/
 .claude/skills/
+.claude/settings.local.json
