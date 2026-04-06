@@ -143,7 +143,7 @@ function ImagePlaceholderIcon({ size = 24 }: { size?: number }) {
 
 // ─── Screenshot helper ─────────────────────────────────────────────────────────
 
-const SCREENSHOT_BASE = '/screenshots/';
+const SCREENSHOT_BASE = '/landing/';
 
 interface ScreenshotProps {
   filename: string;
@@ -212,16 +212,14 @@ function HeroSection({ onStart }: { onStart: () => void }) {
     <section className={styles.hero}>
       <div className={styles.heroContent}>
         <h1 className={styles.heroTitle}>
-          당신의 한 주를,
-          <br />
-          <span className={styles.heroTitleAccent}>제대로 살아봐</span>
+          시간을 재즈처럼
         </h1>
         <p className={styles.heroSub}>
           일정 · 루틴 · 할일 · 일기 · 감정까지 하나로. 기본 기능은 계속 무료, Pro는 14일 먼저 써보고 결정하세요.
         </p>
         <div className={styles.heroButtons}>
           <button className={styles.btnPrimary} onClick={onStart}>
-            시작하기 — 무료
+            시작하기 Free
           </button>
           <button className={styles.btnGhost} onClick={scrollToFeatures}>
             아래로 더 보기
@@ -232,7 +230,7 @@ function HeroSection({ onStart }: { onStart: () => void }) {
 
       <div className={styles.heroScreen}>
         <Screenshot
-          filename="screenshot-hero.png"
+          filename="screenshot-hero.jpg"
           hint="앱 전체 화면 스크린샷을 이곳에 추가하세요"
           aspectRatio="16 / 10"
         />
@@ -488,7 +486,7 @@ export function LandingPage({ onStart }: LandingPageProps) {
               { icon: <BookOpenIcon />, text: '일기 — 오늘 하루를 한 줄로' },
               { icon: <HeartIcon />, text: '감정 — 내가 어떤 날이었는지' },
             ]}
-            imageName="screenshot-weekly.png"
+            imageName="screenshot-weekly.jpg"
             imageHint="주간 그리드 클로즈업"
           />
           <FeatureSection
