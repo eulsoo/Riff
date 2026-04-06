@@ -120,7 +120,7 @@ export function TodoList({
     }
   };
 
-  const handleGlobalMouseUp = (e: MouseEvent) => {
+  const handleGlobalMouseUp = (_e: MouseEvent) => {
     // Use REFS to get fresh state without relying on closures
     const sourceIndex = dragIndexRef.current;
     const targetIndex = dropTargetIndexRef.current;
@@ -165,6 +165,15 @@ export function TodoList({
     if (longPressTimer.current) {
       clearTimeout(longPressTimer.current);
       longPressTimer.current = null;
+    }
+  };
+
+  const cancelLongPressIfMoved = (e: React.MouseEvent) => {
+    if (!dragStartPos.current || dragIndexRef.current !== null) return;
+    const dx = e.clientX - dragStartPos.current.x;
+    const dy = e.clientY - dragStartPos.current.y;
+    if (Math.hypot(dx, dy) > 5) {
+      cancelLongPress();
     }
   };
 
@@ -326,7 +335,7 @@ export function TodoList({
               className={`${styles.todoItem} ${dragIndex === index ? styles.todoItemDragging : ''}`}
               data-todo-index={index}
               onMouseDown={(e) => handleMouseDown(e, index)}
-              onMouseMove={() => cancelLongPress()}
+              onMouseMove={cancelLongPressIfMoved}
               onMouseLeave={() => cancelLongPress()}
               onMouseUp={() => cancelLongPress()}
             >

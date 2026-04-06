@@ -52,6 +52,10 @@
   position: relative;
 }
 
+.todoListItems .dropZone:first-child {
+  margin-left: -0.5rem;
+}
+
 .dropZone::after {
   content: '';
   position: absolute;
