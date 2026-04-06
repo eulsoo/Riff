@@ -1,9 +1,76 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import styles from './Landing.module.css';
+import { trackMarketingEvent } from '../../lib/marketingAnalytics';
 
 interface LandingPageProps {
   onStart: () => void;
 }
+
+interface LaunchPricingPlan {
+  name: string;
+  badge: string;
+  price: string;
+  description: string;
+  bullets: readonly string[];
+  cta: string;
+  planKey: 'free' | 'pro';
+  note?: string;
+}
+
+const launchPricingPlans: readonly LaunchPricingPlan[] = [
+  {
+    name: 'Free',
+    badge: '계속 무료',
+    price: '0원',
+    description: '주간 캘린더의 기본 가치를 충분히 느끼게 해주는 시작 플랜',
+    bullets: [
+      '주간 캘린더와 기본 일정 관리',
+      '루틴, 할일, 일기, 감정 기록',
+      '기본 캘린더 통합과 가벼운 개인 사용',
+    ],
+    cta: '무료로 시작하기',
+    planKey: 'free',
+  },
+  {
+    name: 'Pro',
+    badge: '런칭 얼리어답터',
+    price: '$7.99',
+    description: '파워유저를 위한 고급 워크플로우와 자동화를 여는 플랜',
+    bullets: [
+      '가입 즉시 14일 Pro 전체 체험',
+      '고급 뷰, 필터, 커스터마이징',
+      '확장 연동, 자동화, 향후 AI 기능 우선 제공',
+    ],
+    note: '연간 결제 $69 예정',
+    cta: '14일 Pro 체험 시작',
+    planKey: 'pro',
+  },
+] as const;
+
+const trialSteps = [
+  {
+    step: '1',
+    title: '가입하면 바로 14일 Pro',
+    description: '카드 입력 없이 모든 Pro 기능을 열어두고, 첫 2주 안에 진짜 습관이 맞는지 확인합니다.',
+  },
+  {
+    step: '2',
+    title: '체험이 끝나면 Free로 자동 전환',
+    description: '달력과 기록은 그대로 유지되고, 고급 기능만 잠깁니다. 억지 결제 유도는 하지 않습니다.',
+  },
+  {
+    step: '3',
+    title: '답답해지는 순간에 업그레이드',
+    description: '더 많은 뷰와 자동화가 필요해질 때 Pro로 올리면 됩니다. 무료도 실제로 계속 쓸 수 있게 설계합니다.',
+  },
+] as const;
+
+const launchMetrics = [
+  '첫 3일 안에 캘린더 연결하기',
+  '첫 이벤트 만들기와 첫 주간 뷰 진입',
+  '14일 체험 시작 대비 유료 전환율',
+  '무료 사용자 4주 유지율',
+] as const;
 
 // ─── Icons (inline SVG, no external dependency) ───────────────────────────────
 
@@ -150,7 +217,7 @@ function HeroSection({ onStart }: { onStart: () => void }) {
           <span className={styles.heroTitleAccent}>제대로 살아봐</span>
         </h1>
         <p className={styles.heroSub}>
-          일정 · 루틴 · 할일 · 일기 · 감정까지 — 흩어진 것들을 하나로
+          일정 · 루틴 · 할일 · 일기 · 감정까지 하나로. 기본 기능은 계속 무료, Pro는 14일 먼저 써보고 결정하세요.
         </p>
         <div className={styles.heroButtons}>
           <button className={styles.btnPrimary} onClick={onStart}>
@@ -169,6 +236,102 @@ function HeroSection({ onStart }: { onStart: () => void }) {
           hint="앱 전체 화면 스크린샷을 이곳에 추가하세요"
           aspectRatio="16 / 10"
         />
+      </div>
+    </section>
+  );
+}
+
+function PricingSection({ onStart }: { onStart: () => void }) {
+  const handlePlanClick = (planKey: 'free' | 'pro') => {
+    trackMarketingEvent('pricing_cta_clicked', {
+      plan: planKey,
+      entryPoint: 'pricing-section',
+    });
+    onStart();
+  };
+
+  return (
+    <section id="pricing" className={styles.pricingSection}>
+      <div className={styles.pricingHeader}>
+        <p className={styles.sectionEyebrow}>Launch Pricing</p>
+        <h2 className={styles.sectionTitle}>출시 가격은 낮게, 업그레이드 이유는 분명하게</h2>
+        <p className={styles.sectionDescription}>
+          몇 달 무료 대신, 계속 쓸 수 있는 Free와 충분히 써보고 결정하는 14일 Pro 체험으로 시작합니다.
+        </p>
+      </div>
+
+      <div className={styles.pricingGrid}>
+        {launchPricingPlans.map((plan) => (
+          <article
+            key={plan.name}
+            className={`${styles.pricingCard}${plan.planKey === 'pro' ? ` ${styles.pricingCardFeatured}` : ''}`}
+          >
+            <div className={styles.pricingCardHeader}>
+              <div>
+                <p className={styles.pricingPlanName}>{plan.name}</p>
+                <span className={styles.pricingBadge}>{plan.badge}</span>
+              </div>
+              <div className={styles.pricingPriceWrap}>
+                <strong className={styles.pricingPrice}>{plan.price}</strong>
+                {plan.planKey === 'pro' && <span className={styles.pricingPerMonth}>/ month</span>}
+              </div>
+            </div>
+
+            <p className={styles.pricingCardDescription}>{plan.description}</p>
+
+            <ul className={styles.pricingBulletList}>
+              {plan.bullets.map((bullet) => (
+                <li key={bullet} className={styles.pricingBulletItem}>
+                  <span className={styles.pricingBulletIcon}>
+                    <CheckSquareIcon />
+                  </span>
+                  <span>{bullet}</span>
+                </li>
+              ))}
+            </ul>
+
+            {plan.note && <p className={styles.pricingNote}>{plan.note}</p>}
+
+            <button className={styles.pricingButton} onClick={() => handlePlanClick(plan.planKey)}>
+              {plan.cta}
+            </button>
+          </article>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function TrialFlowSection() {
+  return (
+    <section className={styles.trialSection}>
+      <div className={styles.trialHeader}>
+        <p className={styles.sectionEyebrow}>Trial Flow</p>
+        <h2 className={styles.sectionTitle}>짧지만 충분한 체험, 강요 없는 전환</h2>
+        <p className={styles.sectionDescription}>
+          출시 초기에 중요한 건 억지로 결제시키는 게 아니라, 제품이 생활에 들어오는 순간을 빠르게 만드는 일입니다.
+        </p>
+      </div>
+
+      <div className={styles.trialGrid}>
+        {trialSteps.map((step) => (
+          <article key={step.step} className={styles.trialCard}>
+            <span className={styles.trialStep}>{step.step}</span>
+            <h3 className={styles.trialTitle}>{step.title}</h3>
+            <p className={styles.trialDescription}>{step.description}</p>
+          </article>
+        ))}
+      </div>
+
+      <div className={styles.metricsPanel}>
+        <h3 className={styles.metricsTitle}>런칭 직후 가장 먼저 볼 지표</h3>
+        <ul className={styles.metricsList}>
+          {launchMetrics.map((metric) => (
+            <li key={metric} className={styles.metricsItem}>
+              {metric}
+            </li>
+          ))}
+        </ul>
       </div>
     </section>
   );
@@ -268,12 +431,51 @@ function Footer() {
 // ─── LandingPage (root) ───────────────────────────────────────────────────────
 
 export function LandingPage({ onStart }: LandingPageProps) {
+  const pricingSectionRef = useRef<HTMLDivElement | null>(null);
+  const trialSectionRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (typeof window === 'undefined' || typeof IntersectionObserver === 'undefined') return;
+
+    const seenSections = new Set<string>();
+    const observer = new IntersectionObserver(
+      (entries) => {
+        entries.forEach((entry) => {
+          if (!entry.isIntersecting) return;
+
+          const trackedSection = entry.target.getAttribute('data-track-section');
+          if (!trackedSection || seenSections.has(trackedSection)) return;
+
+          seenSections.add(trackedSection);
+          trackMarketingEvent(trackedSection as 'pricing_section_viewed' | 'trial_flow_viewed', {
+            entryPoint: 'landing',
+          });
+          observer.unobserve(entry.target);
+        });
+      },
+      { threshold: 0.35 }
+    );
+
+    const sections = [pricingSectionRef.current, trialSectionRef.current].filter(Boolean) as HTMLElement[];
+    sections.forEach((section) => observer.observe(section));
+
+    return () => observer.disconnect();
+  }, []);
+
+  const handleStartClick = (source: string) => {
+    trackMarketingEvent('marketing_cta_clicked', {
+      source,
+      entryPoint: 'landing',
+    });
+    onStart();
+  };
+
   return (
     <div className={styles.landing}>
-      <Navbar onStart={onStart} />
+      <Navbar onStart={() => handleStartClick('navbar')} />
 
       <main>
-        <HeroSection onStart={onStart} />
+        <HeroSection onStart={() => handleStartClick('hero')} />
 
         <div className={styles.features} id="features">
           <FeatureSection
@@ -336,7 +538,15 @@ export function LandingPage({ onStart }: LandingPageProps) {
           />
         </div>
 
-        <CTASection onStart={onStart} />
+        <div ref={pricingSectionRef} data-track-section="pricing_section_viewed">
+          <PricingSection onStart={() => handleStartClick('pricing')} />
+        </div>
+
+        <div ref={trialSectionRef} data-track-section="trial_flow_viewed">
+          <TrialFlowSection />
+        </div>
+
+        <CTASection onStart={() => handleStartClick('final-cta')} />
       </main>
 
       <Footer />
