@@ -15,6 +15,7 @@ interface GoogleSyncModalProps {
   mode?: 'sync' | 'auth-only';
   authNoticeMessage?: string;
   onTokenRecovered?: () => void;
+  isConnectedOnOpen?: boolean;
 }
 
 export function GoogleSyncModal({
@@ -25,6 +26,7 @@ export function GoogleSyncModal({
   mode = 'sync',
   authNoticeMessage,
   onTokenRecovered,
+  isConnectedOnOpen = false,
 }: GoogleSyncModalProps) {
   const [step, setStep] = useState<'account' | 'selection'>('account');
   const [isConnected, setIsConnected] = useState(false);
@@ -37,6 +39,7 @@ export function GoogleSyncModal({
   const tokenRecoveredCalledRef = useRef(false);
   const authFlowStartedRef = useRef(false);
   const oauthHandledRef = useRef(false);
+  const handleGoToSelectionRef = useRef<() => Promise<void>>(() => Promise.resolve());
 
 
   const loadConnectedAccount = useCallback(async () => {
@@ -186,6 +189,11 @@ export function GoogleSyncModal({
           onClose();
           return;
         }
+        // 이미 연결된 유저: 계정연결 팝업 없이 바로 캘린더 선택으로 진입
+        if (isConnectedOnOpen && token && mode === 'sync') {
+          await handleGoToSelectionRef.current();
+          return;
+        }
       } finally {
         setLoading(false);
       }
@@ -241,6 +249,8 @@ export function GoogleSyncModal({
     }
   }, [existingGoogleCalendars]);
 
+  useEffect(() => { handleGoToSelectionRef.current = handleGoToSelection; }, [handleGoToSelection]);
+
   const toggleCalendar = (id: string) => {
     setSelectedIds(prev => {
       const next = new Set(prev);
@@ -260,7 +270,7 @@ export function GoogleSyncModal({
 
   const handleSync = async () => {
     if (selectedIds.size === 0) {
-      setError('동기화할 캘린더를 선택해주세요.');
+      onDisconnect();
       return;
     }
     setError(null);

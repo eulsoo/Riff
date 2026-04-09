@@ -14,6 +14,8 @@ interface CalDAVSyncModalProps {
   existingCalendars: CalendarMetadata[];
   authNoticeMessage?: string;
   onCalDAVAuthSuccess?: () => void;
+  isCloudSyncOnOpen?: boolean;
+  isAuthError?: boolean;
 }
 
 export function CalDAVSyncModal({
@@ -24,6 +26,8 @@ export function CalDAVSyncModal({
   existingCalendars,
   authNoticeMessage,
   onCalDAVAuthSuccess,
+  isCloudSyncOnOpen = false,
+  isAuthError = false,
 }: CalDAVSyncModalProps) {
   const [step, setStep] = useState<'credentials' | 'selection'>('credentials');
   const [serverUrl, setServerUrl] = useState('https://caldav.icloud.com');
@@ -35,6 +39,7 @@ export function CalDAVSyncModal({
   const [savePasswordChecked, setSavePasswordChecked] = useState(true);
   const [calendars, setCalendars] = useState<Calendar[]>([]);
   const [selectedCalendars, setSelectedCalendars] = useState<Set<string>>(new Set());
+  const [settingsLoaded, setSettingsLoaded] = useState(false);
   const [loading, setLoading] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const [syncProgress, setSyncProgress] = useState<{ current: number; total: number } | null>(null);
@@ -72,59 +77,72 @@ export function CalDAVSyncModal({
   // 기존 설정 불러오기
   useEffect(() => {
     const loadSettings = async () => {
-      // 1. DB에서 보안 설정 조회 (우선순위 높음)
       try {
-        const { data } = await import('../lib/supabase').then(m => m.supabase.auth.getSession());
-        const token = data.session?.access_token;
+        // 1. DB에서 보안 설정 조회 (우선순위 높음)
+        try {
+          const { data } = await import('../lib/supabase').then(m => m.supabase.auth.getSession());
+          const token = data.session?.access_token;
 
-        if (token) {
-          const response = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/caldav-proxy`, {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              'Authorization': `Bearer ${token}`
-            },
-            body: JSON.stringify({ action: 'loadSettings' })
-          });
+          if (token) {
+            const response = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/caldav-proxy`, {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${token}`
+              },
+              body: JSON.stringify({ action: 'loadSettings' })
+            });
 
-          if (response.ok) {
-            const result = await response.json();
-            if (result.exists) {
-              setServerUrl(result.serverUrl);
-              setUsername(result.username);
-              setSettingId(result.settingId);
-              setHasSavedPassword(result.hasPassword);
-              // Edge Function은 enabled 필드를 반환하지 않으므로 DB에서 직접 확인
-              const dbSettings = await getCalDAVSyncSettings();
-              setIsEnabled(dbSettings?.enabled ?? false);
-              return;
+            if (response.ok) {
+              const result = await response.json();
+              if (result.exists) {
+                setServerUrl(result.serverUrl);
+                setUsername(result.username);
+                setSettingId(result.settingId);
+                setHasSavedPassword(result.hasPassword);
+                // Edge Function은 enabled 필드를 반환하지 않으므로 DB에서 직접 확인
+                const dbSettings = await getCalDAVSyncSettings();
+                setIsEnabled(dbSettings?.enabled ?? false);
+                return;
+              }
             }
           }
+        } catch (e) {
+          console.error('보안 설정 로드 실패:', e);
         }
-      } catch (e) {
-        console.error('보안 설정 로드 실패:', e);
-      }
 
-      // 2. 로컬 설정 (구형 데이터)
-      const settings = await getCalDAVSyncSettings();
-      if (settings) {
-        setExistingSettings({
-          lastSyncAt: settings.lastSyncAt,
-          selectedCalendarUrls: settings.selectedCalendarUrls,
-          serverUrl: settings.serverUrl,
-          username: settings.username,
-        });
-        setServerUrl(settings.serverUrl);
-        setUsername(settings.username);
-        setIsEnabled(settings.enabled);
-        if (settings.password) {
-          setHasSavedPassword(true);
-          setSettingId(settings.id);
+        // 2. 로컬 설정 (구형 데이터)
+        const settings = await getCalDAVSyncSettings();
+        if (settings) {
+          setExistingSettings({
+            lastSyncAt: settings.lastSyncAt,
+            selectedCalendarUrls: settings.selectedCalendarUrls,
+            serverUrl: settings.serverUrl,
+            username: settings.username,
+          });
+          setServerUrl(settings.serverUrl);
+          setUsername(settings.username);
+          setIsEnabled(settings.enabled);
+          if (settings.password) {
+            setHasSavedPassword(true);
+            setSettingId(settings.id);
+          }
         }
+      } finally {
+        setSettingsLoaded(true);
       }
     };
     loadSettings();
   }, []);
+
+  // cloud_sync 상태로 모달 열릴 때: 자격증명 폼 건너뛰고 바로 캘린더 선택으로 진입
+  useEffect(() => {
+    if (!settingsLoaded) return;
+    if (isCloudSyncOnOpen && hasSavedPassword && isEnabled && !isAuthError) {
+      void handleFetchCalendars();
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [settingsLoaded]);
 
   // Step 1: 인증 및 캘린더 목록 가져오기
   const handleFetchCalendars = async () => {
@@ -251,7 +269,7 @@ export function CalDAVSyncModal({
   // 선택한 캘린더 동기화 및 설정 저장
   const handleSync = async () => {
     if (selectedCalendars.size === 0) {
-      setError('동기화할 캘린더를 선택해주세요.');
+      void handleSwitchDisconnect();
       return;
     }
 

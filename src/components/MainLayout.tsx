@@ -319,6 +319,9 @@ export const MainLayout = ({
   useEffect(() => {
     getCalDAVSyncSettings().then(r => setIsCalDAVCredentialsSaved(!!r?.password));
   }, []);
+  const [isGoogleOAuthConnected, setIsGoogleOAuthConnected] = useState(
+    () => typeof window !== 'undefined' && localStorage.getItem('googleOAuthConnected') === 'true'
+  );
   const [calDeleteState, setCalDeleteState] = useState<{
     isOpen: boolean;
     url: string;
@@ -1201,6 +1204,7 @@ export const MainLayout = ({
     setGoogleSyncModalMode('sync');
     setGoogleAuthNoticeMessage(undefined);
     clearGoogleTokenExpiredFlag();
+    setIsGoogleOAuthConnected(true);
     // 재동기화된 구글 캘린더를 exclude 목록에서 제거 (즉시 표시되도록)
     selectedMeta.forEach(m => {
       if (m.googleCalendarId) {
@@ -1219,13 +1223,16 @@ export const MainLayout = ({
       localStorage.removeItem('googleCalendarsMeta');
       localStorage.removeItem('googleSelectedCalendarIds');
       localStorage.removeItem('googleSyncTokens');
+      localStorage.removeItem('googleOAuthConnected');
+      setIsGoogleOAuthConnected(false);
+      clearGoogleTokenExpiredFlag();
       setIsGoogleSyncModalOpen(false);
       loadData(true);
       setToast({ message: 'Google 연동이 해제되었습니다.', type: 'success' });
     } else {
       setToast({ message: 'Google 연동 해제 중 오류가 발생했습니다.', type: 'error' });
     }
-  }, [loadData]);
+  }, [loadData, clearGoogleTokenExpiredFlag]);
 
   const handleGoogleTokenRecovered = useCallback(() => {
     clearGoogleTokenExpiredFlag();
@@ -1430,6 +1437,7 @@ export const MainLayout = ({
               isSyncingGoogle={isSyncingGoogle}
               hasGoogleProvider={hasGoogleProvider}
               isGoogleTokenExpired={isGoogleTokenExpired}
+              isGoogleOAuthConnected={isGoogleOAuthConnected}
               isCalDAVAuthError={isCalDAVAuthError}
               isCalDAVCredentialsSaved={isCalDAVCredentialsSaved}
               onShowToast={(message, type) => setToast({ message, type })}
@@ -1529,6 +1537,9 @@ export const MainLayout = ({
           onGoogleTokenRecovered={handleGoogleTokenRecovered}
           onCloseSettings={() => setIsSettingsModalOpen(false)}
           onSettingsSaved={({ avatarUrl: u, weekOrder: w }) => { setAvatarUrl(u); setWeekOrder(w); }}
+          googleSyncIsConnectedOnOpen={!isGoogleTokenExpired && (hasGoogleProvider || isGoogleOAuthConnected)}
+          calDAVIsCloudSyncOnOpen={calendarMetadata.some(c => isCalDAVSyncTarget(c)) && !isCalDAVAuthError && isCalDAVCredentialsSaved}
+          calDAVIsAuthError={isCalDAVAuthError}
         />
 
         {isTimeSettingsModalOpen && (
