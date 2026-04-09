@@ -495,7 +495,6 @@ export const DataProvider = ({
       .subscribe();
 
     return () => {
-      clearTimeout(eventsDebounce);
       supabase.removeChannel(realtimeChannel);
     };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
