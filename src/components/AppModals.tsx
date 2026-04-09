@@ -32,6 +32,7 @@ interface AppModalsProps {
   onUpdateRoutine: (routineId: string, updates: Partial<Omit<Routine, 'id'>>) => void;
   onCloseCalDAVModal: () => void;
   onCalDAVAuthSuccess?: () => void;
+  onCalDAVDisconnectSuccess?: () => void;
   onSyncComplete: (count: number, syncedCalendarUrls?: string[]) => void;
   onCloseSettings: () => void;
   onSettingsSaved: (data: { avatarUrl: string | null; weekOrder: WeekOrder }) => void;
@@ -46,6 +47,9 @@ interface AppModalsProps {
   googleSyncMode?: 'sync' | 'auth-only';
   googleAuthNoticeMessage?: string;
   onGoogleTokenRecovered?: () => void;
+  googleSyncIsConnectedOnOpen?: boolean;
+  calDAVIsCloudSyncOnOpen?: boolean;
+  calDAVIsAuthError?: boolean;
 }
 
 export function AppModals({
@@ -73,6 +77,7 @@ export function AppModals({
   onUpdateRoutine,
   onCloseCalDAVModal,
   onCalDAVAuthSuccess,
+  onCalDAVDisconnectSuccess,
   onSyncComplete,
   onCloseSettings,
   onSettingsSaved,
@@ -87,6 +92,9 @@ export function AppModals({
   googleSyncMode = 'sync',
   googleAuthNoticeMessage,
   onGoogleTokenRecovered,
+  googleSyncIsConnectedOnOpen,
+  calDAVIsCloudSyncOnOpen,
+  calDAVIsAuthError,
 }: AppModalsProps & { calDAVMode?: 'sync' | 'auth-only' }) {
   return (
     <>
@@ -123,10 +131,13 @@ export function AppModals({
         <CalDAVSyncModal
           onClose={onCloseCalDAVModal}
           onSyncComplete={onSyncComplete}
+          onDisconnectSuccess={onCalDAVDisconnectSuccess}
           mode={calDAVMode}
-          existingCalendars={calendars}
+          existingCalendars={allCalendars ?? calendars}
           authNoticeMessage={calDAVAuthNoticeMessage}
           onCalDAVAuthSuccess={onCalDAVAuthSuccess}
+          isCloudSyncOnOpen={calDAVIsCloudSyncOnOpen}
+          isAuthError={calDAVIsAuthError}
         />
       )}
 
@@ -139,6 +150,7 @@ export function AppModals({
           mode={googleSyncMode}
           authNoticeMessage={googleAuthNoticeMessage}
           onTokenRecovered={onGoogleTokenRecovered}
+          isConnectedOnOpen={googleSyncIsConnectedOnOpen}
         />
       )}
 

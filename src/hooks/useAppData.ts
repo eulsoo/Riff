@@ -82,6 +82,7 @@ export const useAppData = (
 
   const loadDataInFlightRef = useRef(false);
   const pendingForceLoadRef = useRef(false); // force=true 호출이 진행 중 load에 막혔을 때 재시도용
+  const pendingExcludeUrlsRef = useRef<string[] | undefined>(undefined); // 재시도 시 함께 전달할 excludeCalendarUrls
   const lastLoadSessionRef = useRef<string | null>(null);
   const lastLoadAtRef = useRef<number>(0);
   const lastLoadRangeRef = useRef<{ startDate: string; endDate: string } | null>(null);
@@ -148,7 +149,16 @@ export const useAppData = (
   const loadData = useCallback(async (force: boolean = false, excludeCalendarUrls?: string[]) => {
     if (!session) return;
     if (loadDataInFlightRef.current) {
-      if (force) pendingForceLoadRef.current = true;
+      if (force) {
+        pendingForceLoadRef.current = true;
+        // excludeCalendarUrls를 누적 저장 (기존 목록 + 새 목록 합산)
+        if (excludeCalendarUrls?.length) {
+          pendingExcludeUrlsRef.current = [
+            ...(pendingExcludeUrlsRef.current ?? []),
+            ...excludeCalendarUrls,
+          ];
+        }
+      }
       return;
     }
     const sessionId = session.user?.id || null;
@@ -268,7 +278,9 @@ export const useAppData = (
       loadDataInFlightRef.current = false;
       if (pendingForceLoadRef.current) {
         pendingForceLoadRef.current = false;
-        setTimeout(() => loadData(true), 0);
+        const pendingExclude = pendingExcludeUrlsRef.current;
+        pendingExcludeUrlsRef.current = undefined;
+        setTimeout(() => loadData(true, pendingExclude), 0);
       }
     }
   }, [session, getEventRange, rolloverTodosToCurrentWeek]);

@@ -37,6 +37,7 @@ export default function App() {
     'googleSelectedCalendarIds',    // 선택된 구글 캘린더 IDs
     'googleSyncTokens',             // 구글 동기화 토큰
     'googleTokenExpired',           // 구글 토큰 만료 플래그
+    'googleOAuthConnected',         // Google OAuth 독립 연동 완료 플래그 (Apple 로그인 유저용)
     'holiday_synced_v2',            // 공휴일 동기화 여부
   ];
 
@@ -59,6 +60,7 @@ export default function App() {
   };
 
   useEffect(() => {
+    console.log('[App init] URL search:', window.location.search, 'hash:', window.location.hash);
     supabase.auth.getSession().then(({ data: { session } }) => {
       if (session?.user?.id) {
         clearOtherUserLocalStorage(session.user.id);
@@ -70,6 +72,7 @@ export default function App() {
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange((_event, session) => {
+      console.log('[AuthChange]', _event, 'providers:', session?.user?.app_metadata?.providers, 'provider_token:', session?.provider_token ? 'PRESENT' : 'NULL', 'provider_refresh_token:', session?.provider_refresh_token ? 'PRESENT' : 'NULL');
       // Only update session if we actually have a new session.
       // Avoid setting null on TOKEN_REFRESHED failures to prevent
       // unmounting the entire app tree and losing unsaved work.
@@ -82,16 +85,16 @@ export default function App() {
         // provider_refresh_token은 실제 OAuth 로그인 시에만 Google이 발급
         // sessionStorage 플래그로 같은 탭 세션 내 중복 저장 방지
         // (Supabase가 SIGNED_IN을 여러 번 발화하는 경우 대비)
-        if (_event === 'SIGNED_IN' && session.provider_refresh_token && session.user?.id) {
-          saveGoogleRefreshToken(session.provider_refresh_token, session.access_token).catch(console.error);
-          // OAuth 팝업 창인 경우: 부모 탭에 완료 알림 후 닫기
-          if (window.opener) {
-            const bc = new BroadcastChannel('google-oauth');
-            // refresh token을 부모 창으로 전달해 부모에서 저장 (팝업 닫힘으로 인한 fetch 취소 이중 방지)
-            bc.postMessage({ type: 'oauth-complete', refreshToken: session.provider_refresh_token ?? null });
-            bc.close();
-            window.close();
+        const hasGoogleProvider =
+          session.user?.app_metadata?.providers?.includes('google') ||
+          session.user?.app_metadata?.provider === 'google';
+        // SIGNED_IN: signInWithOAuth / USER_UPDATED: linkIdentity 완료 시 발화
+        const isGoogleAuthEvent = (_event === 'SIGNED_IN' || _event === 'USER_UPDATED') && hasGoogleProvider && session.user?.id;
+        if (isGoogleAuthEvent) {
+          if (session.provider_refresh_token) {
+            saveGoogleRefreshToken(session.provider_refresh_token, session.access_token).catch(console.error);
           }
+          localStorage.setItem('googleOAuthConnected', 'true');
         }
       } else if (_event === 'SIGNED_OUT') {
         // Only clear session on explicit sign-out
