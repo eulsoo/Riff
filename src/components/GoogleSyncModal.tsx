@@ -1,12 +1,15 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { getGoogleProviderToken, fetchGoogleCalendarList, GoogleCalendar } from '../lib/googleCalendar';
-import { CalendarMetadata, saveGoogleRefreshToken } from '../services/api';
+import { getGoogleProviderToken, fetchGoogleCalendarList, clearCachedGoogleToken, setCachedGoogleToken, GoogleCalendar } from '../lib/googleCalendar';
+import { CalendarMetadata } from '../services/api';
+import { supabase, supabaseAnonKey } from '../lib/supabase';
+
+const SUPABASE_FUNCTIONS_URL = import.meta.env.VITE_SUPABASE_URL + '/functions/v1';
 import styles from './CalDAVSyncModal.module.css';
 import shared from './SharedModal.module.css';
 
 interface GoogleSyncModalProps {
   onClose: () => void;
-  onSyncComplete: (selectedCalendars: CalendarMetadata[]) => void;
+  onSyncComplete: (selectedCalendars: CalendarMetadata[]) => void | Promise<void>;
   onDisconnect: () => void;
   existingGoogleCalendars: CalendarMetadata[];
   mode?: 'sync' | 'auth-only';
@@ -23,24 +26,76 @@ export function GoogleSyncModal({
   authNoticeMessage,
   onTokenRecovered,
 }: GoogleSyncModalProps) {
+  const [step, setStep] = useState<'account' | 'selection'>('account');
+  const [isConnected, setIsConnected] = useState(false);
+  const [userEmail, setUserEmail] = useState<string | null>(null);
   const [calendars, setCalendars] = useState<GoogleCalendar[]>([]);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(true);
   const [syncing, setSyncing] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const hasExistingSync = existingGoogleCalendars.length > 0;
   const tokenRecoveredCalledRef = useRef(false);
+  const authFlowStartedRef = useRef(false);
+  const oauthHandledRef = useRef(false);
 
-  const loadCalendars = useCallback(async () => {
+
+  const loadConnectedAccount = useCallback(async () => {
+    const token = await getGoogleProviderToken();
+    if (!token) {
+      setIsConnected(false);
+      return null;
+    }
+
+    setIsConnected(true);
+    const { supabase } = await import('../lib/supabase');
+    const { data } = await supabase.auth.getSession();
+    setUserEmail(data.session?.user?.email ?? null);
+    return token;
+  }, []);
+
+  const buildSelectedCalendars = useCallback((list: GoogleCalendar[], ids: Set<string>) => {
+    return list
+      .filter(c => ids.has(c.id))
+      .map<CalendarMetadata>(gc => ({
+        url: `google:${gc.id}`,
+        displayName: gc.summary,
+        color: gc.backgroundColor,
+        type: 'google',
+        googleCalendarId: gc.id,
+        readOnly: gc.accessRole === 'reader' || gc.accessRole === 'freeBusyReader',
+        isVisible: true,
+      }));
+  }, []);
+
+  const runSelectedSync = useCallback(async (list: GoogleCalendar[], ids: Set<string>) => {
+    const selected = buildSelectedCalendars(list, ids);
+    if (selected.length === 0) {
+      setError('동기화할 캘린더를 선택해주세요.');
+      setSyncing(false);
+      return;
+    }
+
+    setSyncing(true);
+    await Promise.resolve(onSyncComplete(selected));
+  }, [buildSelectedCalendars, onSyncComplete]);
+
+  const handleOAuthRecovered = useCallback(async () => {
+    if (oauthHandledRef.current) return;
+    oauthHandledRef.current = true;
     setLoading(true);
     setError(null);
+
     try {
-      const token = await getGoogleProviderToken();
+      // Edge Function 실패 캐시 초기화 후 토큰 획득
+      clearCachedGoogleToken();
+
+      const token = await loadConnectedAccount();
       if (!token) {
-        setError('require_auth');
-        setLoading(false);
+        oauthHandledRef.current = false;
+        setError('Google 계정 연결을 확인하지 못했습니다. 다시 시도해주세요.');
         return;
       }
+
       if (mode === 'auth-only') {
         if (!tokenRecoveredCalledRef.current) {
           tokenRecoveredCalledRef.current = true;
@@ -49,33 +104,105 @@ export function GoogleSyncModal({
         onClose();
         return;
       }
+
       const list = await fetchGoogleCalendarList(token);
       setCalendars(list);
 
-      // Pre-select already-synced calendars
-      const existingIds = new Set(existingGoogleCalendars.map(c => c.googleCalendarId!));
-      if (existingIds.size > 0) {
-        setSelectedIds(existingIds);
-      } else {
-        // First time: select all by default
-        setSelectedIds(new Set(list.map(c => c.id)));
+      const existingIds = new Set(existingGoogleCalendars.map(c => c.googleCalendarId!).filter(Boolean));
+      const nextSelectedIds = existingIds.size > 0 ? existingIds : new Set(list.map(c => c.id));
+      setSelectedIds(nextSelectedIds);
+
+      if (authFlowStartedRef.current) {
+        await runSelectedSync(list, nextSelectedIds);
+        return;
       }
+
+      setStep('selection');
     } catch (err: any) {
-      setError('캘린더 목록을 불러오지 못했습니다: ' + (err?.message ?? ''));
+      oauthHandledRef.current = false;
+      setSyncing(false);
+      setError('Google 계정 연결 후 동기화를 완료하지 못했습니다: ' + (err?.message ?? ''));
     } finally {
       setLoading(false);
     }
-  }, [existingGoogleCalendars, mode, onClose, onTokenRecovered]);
+  }, [
+    existingGoogleCalendars,
+    loadConnectedAccount,
+    mode,
+    onClose,
+    onTokenRecovered,
+    runSelectedSync,
+  ]);
 
-  // Auto-fetch calendar list on mount
+  // Mount: 토큰 확인 + linkIdentity 리다이렉트 복귀 감지
   useEffect(() => {
-    void loadCalendars();
-  }, [loadCalendars]);
+    const init = async () => {
+      setLoading(true);
+      try {
+        // Google OAuth 직접 처리 복귀 감지 (sessionStorage 플래그 + URL code 파라미터)
+        const justLinked = sessionStorage.getItem('googleLinkPending') === '1';
+        if (justLinked) {
+          sessionStorage.removeItem('googleLinkPending');
+          // URL에서 code 파라미터 추출 후 Edge Function으로 교환
+          const params = new URLSearchParams(window.location.search);
+          const code = params.get('code');
+          if (code) {
+            // URL 정리 (code는 1회용이므로 즉시 제거)
+            history.replaceState({}, '', window.location.pathname);
+            const { data: { session } } = await supabase.auth.getSession();
+            const accessToken = session?.access_token;
+            if (accessToken) {
+              const resp = await fetch(`${SUPABASE_FUNCTIONS_URL}/refresh-google-token`, {
+                method: 'POST',
+                headers: {
+                  'Content-Type': 'application/json',
+                  'Authorization': `Bearer ${accessToken}`,
+                  'apikey': supabaseAnonKey,
+                },
+                body: JSON.stringify({ action: 'exchange', code, redirectUri: window.location.origin }),
+              });
+              if (!resp.ok) {
+                const err = await resp.json().catch(() => ({}));
+                setError('Google 토큰 교환 실패: ' + (err?.error ?? ''));
+                return;
+              }
+              // access_token 캐시에 저장
+              const { access_token, expires_in } = await resp.json();
+              if (access_token) {
+                setCachedGoogleToken(access_token, expires_in ?? 3300);
+              }
+            }
+          }
+          await handleOAuthRecovered();
+          return;
+        }
 
+        const token = await loadConnectedAccount();
+        if (mode === 'auth-only' && token) {
+          if (!tokenRecoveredCalledRef.current) {
+            tokenRecoveredCalledRef.current = true;
+            onTokenRecovered?.();
+          }
+          onClose();
+          return;
+        }
+      } finally {
+        setLoading(false);
+      }
+    };
+    void init();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // 탭 복귀 시 account 단계 + 미연결 상태면 재확인
   useEffect(() => {
     const handleVisibility = () => {
-      if (document.visibilityState === 'visible' && error === 'require_auth') {
-        void loadCalendars();
+      if (document.visibilityState === 'visible' && step === 'account' && !isConnected) {
+        if (authFlowStartedRef.current) {
+          void handleOAuthRecovered();
+          return;
+        }
+        void loadConnectedAccount();
       }
     };
     document.addEventListener('visibilitychange', handleVisibility);
@@ -84,7 +211,35 @@ export function GoogleSyncModal({
       document.removeEventListener('visibilitychange', handleVisibility);
       window.removeEventListener('focus', handleVisibility);
     };
-  }, [error, loadCalendars]);
+  }, [handleOAuthRecovered, isConnected, loadConnectedAccount, step]);
+
+
+  // "구글 캘린더 선택" 버튼 클릭 시 캘린더 목록 fetch 후 selection 단계로
+  const handleGoToSelection = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const token = await getGoogleProviderToken();
+      if (!token) {
+        setIsConnected(false);
+        return;
+      }
+      const list = await fetchGoogleCalendarList(token);
+      setCalendars(list);
+
+      const existingIds = new Set(existingGoogleCalendars.map(c => c.googleCalendarId!));
+      if (existingIds.size > 0) {
+        setSelectedIds(existingIds);
+      } else {
+        setSelectedIds(new Set(list.map(c => c.id)));
+      }
+      setStep('selection');
+    } catch (err: any) {
+      setError('캘린더 목록을 불러오지 못했습니다: ' + (err?.message ?? ''));
+    } finally {
+      setLoading(false);
+    }
+  }, [existingGoogleCalendars]);
 
   const toggleCalendar = (id: string) => {
     setSelectedIds(prev => {
@@ -108,21 +263,9 @@ export function GoogleSyncModal({
       setError('동기화할 캘린더를 선택해주세요.');
       return;
     }
-    setSyncing(true);
     setError(null);
     try {
-      const selected = calendars
-        .filter(c => selectedIds.has(c.id))
-        .map<CalendarMetadata>(gc => ({
-          url: `google:${gc.id}`,
-          displayName: gc.summary,
-          color: gc.backgroundColor,
-          type: 'google',
-          googleCalendarId: gc.id,
-          readOnly: gc.accessRole === 'reader' || gc.accessRole === 'freeBusyReader',
-          isVisible: true,
-        }));
-      onSyncComplete(selected);
+      await runSelectedSync(calendars, selectedIds);
     } catch (err: any) {
       setError(err?.message ?? '동기화 중 오류가 발생했습니다.');
       setSyncing(false);
@@ -134,8 +277,16 @@ export function GoogleSyncModal({
       <div className={shared.modalBackdrop} onClick={onClose} />
       <div className={shared.modal}>
         <div className={shared.modalHeader}>
-          <div className={shared.modalHeaderSpacer} />
-          <div className={shared.modalTitle}>Google 캘린더 선택</div>
+          <div className={shared.modalHeaderSpacer}>
+            {step === 'selection' && (
+              <button onClick={() => setStep('account')} className={shared.backButton} aria-label="뒤로">
+                <span className={`material-symbols-rounded ${shared.backIcon}`}>arrow_back_ios</span>
+              </button>
+            )}
+          </div>
+          <div className={shared.modalTitle}>
+            {step === 'account' ? '계정연결' : '캘린더 선택'}
+          </div>
           <div className={shared.modalHeaderSpacerEnd}>
             <button onClick={onClose} className={shared.modalCloseButton}>
               <span className={`material-symbols-rounded ${shared.modalCloseIcon}`}>close</span>
@@ -144,70 +295,103 @@ export function GoogleSyncModal({
         </div>
 
         <div className={shared.modalContent}>
-          {loading ? (
-            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '1rem', padding: '2rem 0' }}>
-              <div className={styles.spinner} />
-              <span style={{ fontSize: '0.9rem', color: '#6b7280' }}>캘린더 목록을 불러오는 중...</span>
-            </div>
-          ) : error === 'require_auth' ? (
-            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '1.5rem', padding: '2rem 0' }}>
-              <div className={styles.errorMessage} style={{ textAlign: 'center' }}>
-                {authNoticeMessage || '구글 캘린더 동기화를 위해 구글 계정 연결이 필요합니다.'}
+          {step === 'account' ? (
+            /* Account 단계 */
+            loading ? (
+              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '1rem', padding: '2rem 0' }}>
+                <div className={styles.spinner} style={{ borderColor: '#9333ea', borderTopColor: 'transparent' }} />
+                <span style={{ fontSize: '0.9rem', color: '#6b7280' }}>확인 중...</span>
               </div>
-              <button
-                onClick={async () => {
-                  try {
-                    const { supabase } = await import('../lib/supabase');
-                    const { data, error } = await supabase.auth.signInWithOAuth({
-                      provider: 'google',
-                      options: {
-                        redirectTo: window.location.origin,
-                        queryParams: { access_type: 'offline', prompt: 'consent' },
-                        scopes: 'https://www.googleapis.com/auth/calendar',
-                        skipBrowserRedirect: true,
-                      },
-                    });
-                    if (error) throw error;
-                    if (data?.url) {
-                      // 팝업 창으로 열어 OAuth 완료 후 두 번째 탭 생성 방지
-                      const popup = window.open(data.url, 'google-oauth', 'popup,width=520,height=640');
-                      const bc = new BroadcastChannel('google-oauth');
-                      bc.onmessage = (event) => {
-                        const msg = event.data;
-                        const isComplete = msg === 'oauth-complete' || msg?.type === 'oauth-complete';
-                        if (isComplete) {
-                          bc.close();
-                          // 팝업에서 전달된 refresh token을 부모 창에서 저장 (팝업 닫힘으로 fetch 취소 방지)
-                          if (msg?.refreshToken) {
-                            saveGoogleRefreshToken(msg.refreshToken).catch(console.error);
-                          }
-                          void loadCalendars();
+            ) : (
+              <div className={styles.accountSection}>
+                {authNoticeMessage && (
+                  <div className={styles.errorMessage} style={{ marginBottom: '0.75rem' }}>
+                    {authNoticeMessage}
+                  </div>
+                )}
+
+                {isConnected ? (
+                  /* 연결된 상태 */
+                  <div className={styles.accountInfo}>
+                    <span className="material-symbols-rounded" style={{ fontSize: '20px', color: '#6b7280' }}>account_circle</span>
+                    <span className={styles.accountEmail}>{userEmail ?? 'Google 계정 연결됨'}</span>
+                  </div>
+                ) : (
+                  /* 미연결 상태: OAuth 버튼 */
+                  <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '1rem', padding: '0.5rem 0' }}>
+                    <p style={{ fontSize: '0.85rem', color: '#6b7280', textAlign: 'center', margin: 0 }}>
+                      {authNoticeMessage || 'Google 캘린더 동기화를 위해 계정 연결이 필요합니다.'}
+                    </p>
+                    <button
+                      onClick={async () => {
+                        try {
+                          // Supabase identity 연결 없이 Google OAuth를 직접 처리
+                          // → identity_already_exists 에러 완전 회피
+                          const { data: { session } } = await supabase.auth.getSession();
+                          const accessToken = session?.access_token;
+                          if (!accessToken) throw new Error('로그인이 필요합니다.');
+
+                          const redirectUri = window.location.origin;
+                          const resp = await fetch(`${SUPABASE_FUNCTIONS_URL}/refresh-google-token`, {
+                            method: 'POST',
+                            headers: {
+                              'Content-Type': 'application/json',
+                              'Authorization': `Bearer ${accessToken}`,
+                              'apikey': supabaseAnonKey,
+                            },
+                            body: JSON.stringify({ action: 'getAuthUrl', redirectUri }),
+                          });
+                          if (!resp.ok) throw new Error('Google OAuth URL 생성 실패');
+                          const { url } = await resp.json();
+                          // 플래그 세팅 직후 이동 → 복귀 시 모달 자동 재개
+                          sessionStorage.setItem('googleLinkPending', '1');
+                          window.location.href = url;
+                        } catch (e) {
+                          console.error('Google Auth Failed:', e);
+                          setError('Google 연결 중 오류가 발생했습니다.');
                         }
-                      };
-                      // 팝업을 완료 없이 닫은 경우 채널 정리
-                      const checkClosed = setInterval(() => {
-                        if (popup?.closed) {
-                          clearInterval(checkClosed);
-                          bc.close();
-                        }
-                      }, 1000);
-                    }
-                  } catch (e) {
-                    console.error('Google Auth Failed:', e);
-                  }
-                }}
-                className={shared.primaryButton}
-                style={{ width: 'auto', padding: '0.75rem 1.5rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}
-              >
-                <span className="material-symbols-rounded" style={{ fontSize: '20px' }}>login</span>
-                Google 계정 연결하기
-              </button>
-            </div>
-          ) : error && calendars.length === 0 ? (
-            <div className={styles.errorMessage}>{error}</div>
+                      }}
+                      className={shared.primaryButton}
+                      style={{ width: 'auto', padding: '0.75rem 1.5rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}
+                    >
+                      구글 계정 연결
+                    </button>
+                  </div>
+                )}
+
+                {/* 구글 캘린더 선택 버튼 + 연동 해제 버튼 (연결된 경우만) */}
+                {isConnected && (
+                  <>
+                    <button
+                      onClick={() => void handleGoToSelection()}
+                      disabled={loading || syncing}
+                      className={`${shared.primaryButton} ${styles.syncButtonMargin}`}
+                    >
+                      {loading ? (
+                        <>
+                          <div className={styles.spinner} style={{ borderColor: 'white', borderTopColor: 'transparent' }} />
+                          불러오는 중...
+                        </>
+                      ) : '구글 캘린더 선택'}
+                    </button>
+                    <button
+                      onClick={onDisconnect}
+                      disabled={loading || syncing}
+                      className={styles.disconnectButton}
+                    >
+                      🔗 연동 해제 및 캘린더 삭제
+                    </button>
+                  </>
+                )}
+
+                {error && (
+                  <div className={styles.errorMessage}>{error}</div>
+                )}
+              </div>
+            )
           ) : (
+            /* Selection 단계 */
             <div className={`${styles.section} ${styles.selectionSection}`}>
-              {/* 전체 선택 */}
               <div className={styles.selectAllRow}>
                 <label className={styles.selectAllLabel}>
                   <input
@@ -221,7 +405,6 @@ export function GoogleSyncModal({
                 </label>
               </div>
 
-              {/* 캘린더 목록 */}
               <div className={styles.calendarList}>
                 {calendars.map(cal => (
                   <label key={cal.id} className={styles.calendarItem}>
@@ -237,30 +420,18 @@ export function GoogleSyncModal({
                 ))}
               </div>
 
-              {/* 동기화 버튼 */}
               <button
                 onClick={handleSync}
                 disabled={syncing || selectedIds.size === 0}
-                className={`${styles.syncButton} ${styles.syncButtonMargin}`}
+                className={`${shared.primaryButton} ${styles.syncButtonMargin}`}
               >
                 {syncing ? '동기화 중...' : `선택한 ${selectedIds.size}개 캘린더 동기화`}
               </button>
 
-              {/* 연동 해제 버튼 (이미 동기화된 경우만 표시) */}
-              {hasExistingSync && (
-                <button
-                  onClick={onDisconnect}
-                  disabled={syncing}
-                  className={styles.disconnectButton}
-                >
-                  Google 연동 해제 및 데이터 삭제
-                </button>
+              {error && (
+                <div className={styles.errorMessage}>{error}</div>
               )}
             </div>
-          )}
-
-          {error && error !== 'require_auth' && calendars.length > 0 && (
-            <div className={styles.errorMessage}>{error}</div>
           )}
         </div>
       </div>

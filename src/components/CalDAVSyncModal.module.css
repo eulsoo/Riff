@@ -80,10 +80,6 @@
   transition: all 0.2s;
 }
 
-.backButton:hover {
-  /* background: #f3f4f6; */
-  /* border-color: #d1d5db; */
-}
 
 .backIcon {
   width: 1.5rem;
@@ -433,6 +429,29 @@
 .corsMessage {
   margin-top: 0.5rem;
   font-size: 0.75rem;
+}
+
+/* ── Google account 단계 ── */
+.accountSection {
+  padding-top: 0.25rem;
+}
+
+.accountInfo {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.75rem 0.5rem;
+  color: #374151;
+}
+
+.accountEmail {
+  font-size: 0.875rem;
+  color: #374151;
+  word-break: break-all;
+}
+
+.syncButtonMargin {
+  margin-top: 0.75rem;
 }
 
 .selectAllRow {
