@@ -63,25 +63,19 @@ serve(async (req) => {
   }
 
   try {
-    const serviceRoleKeyEarly = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '';
-    const adminClient = createClient(
+    // anon 클라이언트 + Authorization 헤더 포워딩으로 JWT 검증 (Supabase 권장 패턴)
+    const supabaseClient = createClient(
       Deno.env.get('SUPABASE_URL') ?? '',
-      serviceRoleKeyEarly,
+      Deno.env.get('SUPABASE_ANON_KEY') ?? '',
+      { global: { headers: { Authorization: req.headers.get('Authorization') ?? '' } } }
     );
-    const jwt = (req.headers.get('Authorization') ?? '').replace('Bearer ', '');
-    const { data: { user } } = await adminClient.auth.getUser(jwt);
+    const { data: { user } } = await supabaseClient.auth.getUser();
     if (!user) {
       return new Response(JSON.stringify({ error: 'Unauthorized' }), {
         status: 401,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
     }
-    const supabaseClient = createClient(
-      Deno.env.get('SUPABASE_URL') ?? '',
-      Deno.env.get('SUPABASE_ANON_KEY') ?? '',
-      { global: { headers: { Authorization: req.headers.get('Authorization')! } } }
-    );
-
     const body = await req.json().catch(() => ({}));
 
     const clientId = Deno.env.get('VITE_GOOGLE_CLIENT_ID') || Deno.env.get('GOOGLE_CLIENT_ID');
