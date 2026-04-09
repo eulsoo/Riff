@@ -37,6 +37,7 @@ export default function App() {
     'googleSelectedCalendarIds',    // 선택된 구글 캘린더 IDs
     'googleSyncTokens',             // 구글 동기화 토큰
     'googleTokenExpired',           // 구글 토큰 만료 플래그
+    'googleOAuthConnected',         // Google OAuth 독립 연동 완료 플래그 (Apple 로그인 유저용)
     'holiday_synced_v2',            // 공휴일 동기화 여부
   ];
 
@@ -93,6 +94,7 @@ export default function App() {
           if (session.provider_refresh_token) {
             saveGoogleRefreshToken(session.provider_refresh_token, session.access_token).catch(console.error);
           }
+          localStorage.setItem('googleOAuthConnected', 'true');
         }
       } else if (_event === 'SIGNED_OUT') {
         // Only clear session on explicit sign-out

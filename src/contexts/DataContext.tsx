@@ -255,7 +255,9 @@ export const DataProvider = ({
         const hasGoogleProvider =
           session?.user?.app_metadata?.providers?.includes('google') ||
           session?.user?.app_metadata?.provider === 'google';
-        if (hasGoogleProvider) {
+        // Apple 로그인 유저가 Google OAuth 독립 연동을 완료한 경우도 포함
+        const isGoogleOAuthConnected = localStorage.getItem('googleOAuthConnected') === 'true';
+        if (hasGoogleProvider || isGoogleOAuthConnected) {
           localStorage.setItem('googleTokenExpired', 'true');
           setIsGoogleTokenExpired(true);
           console.warn('[Google] provider_token이 만료되었습니다. Google 섹션에서 재연결이 필요합니다.');

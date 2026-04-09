@@ -24,6 +24,7 @@ export interface CalendarListPopupProps {
   isSyncingGoogle?: boolean;
   hasGoogleProvider?: boolean;
   isGoogleTokenExpired?: boolean;
+  isGoogleOAuthConnected?: boolean;
   isCalDAVAuthError?: boolean;
   isCalDAVCredentialsSaved?: boolean;
   onShowToast?: (message: string, type: 'success' | 'error') => void;
@@ -230,6 +231,7 @@ function CalendarListPopupComponent({
   isSyncingGoogle,
   hasGoogleProvider = false,
   isGoogleTokenExpired = false,
+  isGoogleOAuthConnected = false,
   isCalDAVAuthError = false,
   isCalDAVCredentialsSaved = false,
   onShowToast,
@@ -386,8 +388,11 @@ function CalendarListPopupComponent({
 
   const currentCalColor = calendars.find(c => c.url === contextMenu?.calendarUrl)?.color || '#3b82f6';
 
-  // 섹션 헤더 아이콘용 (2-state: 연결됨 vs 미연결/오류)
-  const isGoogleCloudOff = (!hasGoogleProvider && groups.google.length === 0) || isGoogleTokenExpired;
+  // 섹션 헤더 아이콘용
+  // cloud_off: 미연동(Google 로그인도 없고 별도 OAuth도 없음) 또는 토큰 만료
+  // cloud: 연동됨 + 동기화된 캘린더 없음
+  // cloud_sync: 연동됨 + 동기화된 캘린더 있음
+  const isGoogleCloudOff = (!hasGoogleProvider && !isGoogleOAuthConnected && groups.google.length === 0) || isGoogleTokenExpired;
   // 자격증명 미저장(연결 안 됨)이거나 인증 오류이거나 캘린더가 없으면 cloud_off
   const isCalDAVCloudOff = groups.riffFromIcloud.length === 0 || isCalDAVAuthError || !isCalDAVCredentialsSaved;
 
@@ -491,7 +496,7 @@ function CalendarListPopupComponent({
                         fontVariationSettings: isSyncingGoogle ? undefined : "'FILL' 0, 'wght' 400",
                       }}
                       onClick={onOpenGoogleSync}
-                    >{isSyncingGoogle ? 'sync' : isGoogleCloudOff ? 'cloud_off' : 'cloud_sync'}</span>
+                    >{isSyncingGoogle ? 'sync' : isGoogleCloudOff ? 'cloud_off' : groups.google.length > 0 ? 'cloud_sync' : 'cloud'}</span>
                     <div className={styles.iconTooltip}>
                       {isSyncingGoogle ? '동기화 중...' : 'Google 캘린더 동기화'}
                     </div>

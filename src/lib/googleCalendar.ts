@@ -123,6 +123,7 @@ export const setCachedGoogleToken = (token: string, expiresIn: number) => {
   cachedTokenExpiry = Date.now() + (expiresIn - 60) * 1000;
   edgeFunctionFailed = false;
   edgeFunctionRetryAt = 0;
+  localStorage.setItem('googleOAuthConnected', 'true');
 };
 
 /** 캐시된 토큰을 초기화 (로그아웃 등에서 사용) */
