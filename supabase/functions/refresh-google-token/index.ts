@@ -84,6 +84,83 @@ serve(async (req) => {
 
     const body = await req.json().catch(() => ({}));
 
+    const clientId = Deno.env.get('VITE_GOOGLE_CLIENT_ID') || Deno.env.get('GOOGLE_CLIENT_ID');
+    const clientSecret = Deno.env.get('GOOGLE_CLIENT_SECRET');
+    const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
+
+    if (!clientId || !clientSecret || !serviceRoleKey) {
+      return new Response(JSON.stringify({ error: 'Server configuration error' }), {
+        status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
+
+    // ── getAuthUrl 액션: Google OAuth 인증 URL 생성 (client_id를 서버에서 관리) ──
+    if (body?.action === 'getAuthUrl') {
+      const { redirectUri } = body;
+      if (!redirectUri) {
+        return new Response(JSON.stringify({ error: 'redirectUri가 필요합니다.' }), {
+          status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
+      const url = new URL('https://accounts.google.com/o/oauth2/v2/auth');
+      url.searchParams.set('client_id', clientId);
+      url.searchParams.set('redirect_uri', redirectUri);
+      url.searchParams.set('response_type', 'code');
+      url.searchParams.set('scope', 'https://www.googleapis.com/auth/calendar');
+      url.searchParams.set('access_type', 'offline');
+      url.searchParams.set('prompt', 'consent');
+      return new Response(JSON.stringify({ url: url.toString() }), {
+        status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
+
+    // ── exchange 액션: Google authorization code → access_token + refresh_token ──
+    if (body?.action === 'exchange') {
+      const { code, redirectUri } = body;
+      if (!code || !redirectUri) {
+        return new Response(JSON.stringify({ error: 'code와 redirectUri가 필요합니다.' }), {
+          status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
+      const tokenResponse = await fetch('https://oauth2.googleapis.com/token', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: new URLSearchParams({
+          client_id: clientId,
+          client_secret: clientSecret,
+          code,
+          grant_type: 'authorization_code',
+          redirect_uri: redirectUri,
+        }).toString(),
+      });
+      const tokenData = await tokenResponse.json();
+      if (!tokenResponse.ok) {
+        console.error('Google 코드 교환 실패:', tokenData);
+        return new Response(JSON.stringify({ error: 'Google 코드 교환 실패', detail: tokenData }), {
+          status: tokenResponse.status, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
+      // refresh_token 암호화 후 저장
+      if (tokenData.refresh_token) {
+        const encrypted = await encryptToken(tokenData.refresh_token, serviceRoleKey);
+        const { error: upsertError } = await supabaseClient
+          .from('user_tokens')
+          .upsert({ user_id: user.id, provider_refresh_token: encrypted, updated_at: new Date().toISOString() });
+        if (upsertError) {
+          console.error('토큰 저장 실패:', upsertError);
+          return new Response(JSON.stringify({ error: '토큰 저장 중 오류가 발생했습니다.' }), {
+            status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+          });
+        }
+      }
+      return new Response(JSON.stringify({
+        access_token: tokenData.access_token,
+        expires_in: tokenData.expires_in,
+      }), {
+        status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
+
     // ── save 액션: 클라이언트에서 받은 refresh token을 암호화하여 저장 ──
     if (body?.action === 'save') {
       const { refreshToken } = body;
@@ -92,9 +169,6 @@ serve(async (req) => {
           status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
         });
       }
-      const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
-      if (!serviceRoleKey) throw new Error('SUPABASE_SERVICE_ROLE_KEY 환경변수가 설정되지 않았습니다.');
-
       const encrypted = await encryptToken(refreshToken, serviceRoleKey);
       const { error } = await supabaseClient
         .from('user_tokens')
@@ -125,20 +199,7 @@ serve(async (req) => {
       });
     }
 
-    const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
-    if (!serviceRoleKey) throw new Error('SUPABASE_SERVICE_ROLE_KEY 환경변수가 설정되지 않았습니다.');
-
     const refreshToken = await decryptToken(tokenData.provider_refresh_token, serviceRoleKey);
-
-    const clientId = Deno.env.get('VITE_GOOGLE_CLIENT_ID') || Deno.env.get('GOOGLE_CLIENT_ID');
-    const clientSecret = Deno.env.get('GOOGLE_CLIENT_SECRET');
-
-    if (!clientId || !clientSecret) {
-      return new Response(JSON.stringify({ error: 'Server configuration error' }), {
-        status: 500,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      });
-    }
 
     const tokenResponse = await fetch('https://oauth2.googleapis.com/token', {
       method: 'POST',

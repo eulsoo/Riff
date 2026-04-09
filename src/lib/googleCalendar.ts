@@ -117,6 +117,14 @@ let cachedTokenExpiry: number = 0;
 let edgeFunctionFailed = false; // 한 번 실패하면 주기 동안 재시도 안 함
 let edgeFunctionRetryAt: number = 0;
 
+/** access_token을 캐시에 직접 저장 (Google OAuth 코드 교환 후 사용) */
+export const setCachedGoogleToken = (token: string, expiresIn: number) => {
+  cachedToken = token;
+  cachedTokenExpiry = Date.now() + (expiresIn - 60) * 1000;
+  edgeFunctionFailed = false;
+  edgeFunctionRetryAt = 0;
+};
+
 /** 캐시된 토큰을 초기화 (로그아웃 등에서 사용) */
 export const clearCachedGoogleToken = () => {
   cachedToken = null;
@@ -127,21 +135,17 @@ export const clearCachedGoogleToken = () => {
 
 /**
  * Returns the Google OAuth access_token from the current Supabase session.
- * - 세션에 provider_token이 있으면 그것을 사용
- * - 없으면 Edge Function으로 갱신 시도 (55분 캐시)
+ * - Google OAuth 로그인 세션이면 provider_token 사용
+ * - 메모리 캐시에 유효한 토큰이 있으면 재사용 (Apple 로그인 후 별도 Google OAuth 연동 포함)
+ * - 없으면 Edge Function으로 user_tokens 테이블의 refresh_token 사용
  * - Edge Function 실패 시 10분 동안 재시도 안 함
  */
 export const getGoogleProviderToken = async (): Promise<string | null> => {
   const { data: { session } } = await supabase.auth.getSession();
+  const now = Date.now();
 
-  // Google 계정이 전혀 없는 유저 (예: 카카오 전용)는 즉시 반환
-  const hasGoogleProvider =
-    session?.user?.app_metadata?.providers?.includes('google') ||
-    session?.user?.app_metadata?.provider === 'google';
-  if (!hasGoogleProvider) return null;
-
-  // 현재 세션이 Google OAuth로 로그인된 경우에만 provider_token을 Google 토큰으로 사용
-  // (카카오로 로그인했을 때 provider_token은 카카오 토큰이므로 사용하면 안 됨)
+  // 1. Google OAuth 로그인 세션 → provider_token 사용 (캐시보다 우선)
+  // Apple 로그인 등 다른 provider의 provider_token과 혼용 방지
   const isCurrentlyGoogleSession = session?.user?.app_metadata?.provider === 'google';
   if (isCurrentlyGoogleSession && session?.provider_token) {
     cachedToken = null;
@@ -149,18 +153,21 @@ export const getGoogleProviderToken = async (): Promise<string | null> => {
     return session.provider_token;
   }
 
-  // 메모리 캐시에 유효한 토큰이 있으면 재사용 (Edge Function 호출 최소화)
-  const now = Date.now();
+  // 2. 메모리 캐시에 유효한 토큰이 있으면 재사용
+  // Apple 로그인 유저가 setCachedGoogleToken()으로 세팅한 토큰도 여기서 처리됨
   if (cachedToken && cachedTokenExpiry > now) {
     return cachedToken;
   }
 
-  // Edge Function 최근 실패 시 10분간 재시도 안 함 (401 루프 방지)
+  // 3. Edge Function 최근 실패 시 10분간 재시도 안 함 (401 루프 방지)
   if (edgeFunctionFailed && edgeFunctionRetryAt > now) {
     return null;
   }
 
-  // Edge Function으로 토큰 갱신 시도 (카카오+구글 연동 계정, 또는 세션 만료)
+  // 4. Edge Function으로 토큰 갱신 시도
+  // - Google 로그인 유저: Supabase가 저장한 refresh_token 사용
+  // - Apple 로그인 + Google 별도 OAuth 연동 유저: user_tokens 테이블의 refresh_token 사용
+  // - Google 연동이 전혀 없는 유저: Edge Function이 404 반환 → edgeFunctionFailed = true → 10분 차단
   try {
     const { data, error } = await supabase.functions.invoke('refresh-google-token', {
       method: 'POST',

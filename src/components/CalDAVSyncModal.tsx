@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useMemo } from 'react';
 import { Calendar, CalDAVConfig, getCalendars, syncSelectedCalendars, waitForSyncIdle } from '../services/caldav';
 import { saveCalDAVSyncSettings, getCalDAVSyncSettings, deleteAllCalDAVData, saveCalendarMetadata, normalizeCalendarUrl, CalendarMetadata } from '../services/api';
+import { isCalDAVSyncTarget } from '../services/calendarSyncUtils';
 import { supabase } from '../lib/supabase';
 import styles from './CalDAVSyncModal.module.css';
 import shared from './SharedModal.module.css';
@@ -8,6 +9,7 @@ import shared from './SharedModal.module.css';
 interface CalDAVSyncModalProps {
   onClose: () => void;
   onSyncComplete: (count: number, syncedCalendarUrls?: string[]) => void | Promise<void>;
+  onDisconnectSuccess?: () => void;
   mode?: 'sync' | 'auth-only';
   existingCalendars: CalendarMetadata[];
   authNoticeMessage?: string;
@@ -17,6 +19,7 @@ interface CalDAVSyncModalProps {
 export function CalDAVSyncModal({
   onClose,
   onSyncComplete,
+  onDisconnectSuccess,
   mode = 'sync',
   existingCalendars,
   authNoticeMessage,
@@ -28,6 +31,7 @@ export function CalDAVSyncModal({
   const [password, setPassword] = useState('');
   const [settingId, setSettingId] = useState<string | null>(null);
   const [hasSavedPassword, setHasSavedPassword] = useState(false);
+  const [isEnabled, setIsEnabled] = useState(false); // caldav_sync_settings.enabled
   const [savePasswordChecked, setSavePasswordChecked] = useState(true);
   const [calendars, setCalendars] = useState<Calendar[]>([]);
   const [selectedCalendars, setSelectedCalendars] = useState<Set<string>>(new Set());
@@ -41,7 +45,14 @@ export function CalDAVSyncModal({
     serverUrl?: string;
     username?: string;
   } | null>(null);
-  const autoFetchedRef = useRef(false);
+
+  // 연결 여부: 자격증명이 있고 enabled 상태여야 연결됨
+  const isConnected = hasSavedPassword && !!settingId && isEnabled;
+
+  // CalDAV 캘린더가 메타데이터에 등록돼 있으면 해제 버튼 표시
+  // (자격증명이 없어도 stale 메타데이터가 남아있을 수 있음)
+  // type 필드가 null인 오래된 데이터도 포함하기 위해 isCalDAVSyncTarget 사용
+  const hasCalDAVCalendars = existingCalendars.some(c => c.type === 'caldav' || isCalDAVSyncTarget(c));
 
   // Riff 섹션에서 iCloud로 연동된(createdFromApp) 캘린더는 iCloud 선택 목록에서 제외
   const selectableCalendars = useMemo(() => {
@@ -83,6 +94,9 @@ export function CalDAVSyncModal({
               setUsername(result.username);
               setSettingId(result.settingId);
               setHasSavedPassword(result.hasPassword);
+              // Edge Function은 enabled 필드를 반환하지 않으므로 DB에서 직접 확인
+              const dbSettings = await getCalDAVSyncSettings();
+              setIsEnabled(dbSettings?.enabled ?? false);
               return;
             }
           }
@@ -102,25 +116,15 @@ export function CalDAVSyncModal({
         });
         setServerUrl(settings.serverUrl);
         setUsername(settings.username);
+        setIsEnabled(settings.enabled);
+        if (settings.password) {
+          setHasSavedPassword(true);
+          setSettingId(settings.id);
+        }
       }
     };
     loadSettings();
   }, []);
-
-  // sync 모드 + 저장된 자격증명이 있으면 credentials 단계를 건너뛰고 바로 캘린더 목록 fetch
-  useEffect(() => {
-    if (
-      mode === 'sync' &&
-      hasSavedPassword &&
-      settingId &&
-      step === 'credentials' &&
-      !autoFetchedRef.current
-    ) {
-      autoFetchedRef.current = true;
-      handleFetchCalendars();
-    }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [hasSavedPassword, settingId]);
 
   // Step 1: 인증 및 캘린더 목록 가져오기
   const handleFetchCalendars = async () => {
@@ -147,11 +151,8 @@ export function CalDAVSyncModal({
 
       const rawCalendars = await getCalendars(config);
 
-      // Filter out system calendars (inbox, outbox, notification) and reminders
-      // These are not typically shown in the main calendar view
       const calendarList = rawCalendars.filter(cal => {
         const name = (cal.displayName || '').toLowerCase();
-        // Check for specific system names. 'reminders' is Apple's Reminders app list.
         const excludedKeywords = ['inbox', 'outbox', 'notification', 'reminders'];
         return !excludedKeywords.some(keyword => name.includes(keyword));
       });
@@ -174,7 +175,6 @@ export function CalDAVSyncModal({
               const result = await saveRes.json();
               setSettingId(result.settingId);
               setHasSavedPassword(true);
-              // 설정 저장 완료
             }
           }
         } catch (e) {
@@ -205,17 +205,13 @@ export function CalDAVSyncModal({
         return !normalized || !riffSyncedUrlSet.has(normalized);
       });
 
-      // 1. 현재 앱에 이미 등록된 캘린더 (동기화 중)
       const activeNormalizedUrls = new Set(existingCalendars.map(c => normalizeCalendarUrl(c.url)));
-
-      // 2. 저장된 설정의 선택된 URL
       const settingSelectedUrls = new Set(
         (existingSettings?.selectedCalendarUrls || []).map(u => normalizeCalendarUrl(u))
       );
 
       selectableCalendarList.forEach(cal => {
         const normUrl = normalizeCalendarUrl(cal.url);
-        // 이미 앱에 있거나, 설정에 저장되어 있다면 체크
         if (normUrl && (activeNormalizedUrls.has(normUrl) || settingSelectedUrls.has(normUrl))) {
           preSelected.add(cal.url);
         }
@@ -275,15 +271,12 @@ export function CalDAVSyncModal({
           readOnly: cal.readOnly
         }));
 
-      // 기존 구독 캘린더 메타데이터를 보존하면서 CalDAV 캘린더 업데이트
-      // iCloud 동기화가 구독 캘린더를 덮어쓰지 않도록 구독 캘린더를 분리하여 유지
       const existingSubscriptionCals = existingCalendars.filter(cal =>
         cal.type === 'subscription' ||
         cal.isSubscription === true ||
         (cal.url.startsWith('http') && cal.url.endsWith('.ics'))
       );
 
-      // 구독 캘린더를 새 CalDAV 목록에 합쳐서 저장 (중복 URL 방지)
       const metadataToSave = [
         ...newCalDAVMetadata,
         ...existingSubscriptionCals.filter(sub =>
@@ -299,7 +292,6 @@ export function CalDAVSyncModal({
         ? existingSettings.lastSyncAt
         : null;
 
-      // 모달 동기화 시 넓은 범위 + forceFullSync (재연결/재동기화 시 delta sync가 빈 결과를 주는 것 방지)
       const fullStart = new Date();
       fullStart.setMonth(fullStart.getMonth() - 6);
       const fullEnd = new Date();
@@ -312,7 +304,7 @@ export function CalDAVSyncModal({
           selectedUrls,
           {
             lastSyncAt,
-            forceFullSync: true, // sync token 무시하고 전체 fetch → 재동기화 직후 일정 즉시 표시
+            forceFullSync: true,
             manualRange: syncRange,
             onProgress: (cur, tot) => setSyncProgress({ current: cur, total: tot })
           }
@@ -320,7 +312,6 @@ export function CalDAVSyncModal({
 
       setSyncProgress({ current: 0, total: selectedCalendars.size });
       let count = await runSyncOnce();
-      // syncInFlight로 차단됐으면 백그라운드 sync 완료까지 대기 후 재시도
       if (count === 0) {
         await waitForSyncIdle();
         count = await runSyncOnce();
@@ -335,8 +326,6 @@ export function CalDAVSyncModal({
         syncIntervalMinutes: 60,
       });
 
-      // 실제로 동기화된(선택된) 캘린더 URL 전달 (재동기화 시 exclude 목록에서 제거용)
-      // loadData 완료 후 모달 닫기 → 일정이 화면에 표시된 뒤 닫힘
       await onSyncComplete(count, selectedUrls);
       onClose();
     } catch (err: any) {
@@ -347,34 +336,35 @@ export function CalDAVSyncModal({
     }
   };
 
-  const handleDisconnect = async () => {
-    if (!confirm('정말로 연동을 해제하고 모든 외부 캘린더 일정을 삭제하시겠습니까?\n이 작업은 되돌릴 수 없습니다.')) {
-      return;
-    }
-
+  // 스위치 OFF: 연동 해제 (confirm 없이, reload 없이)
+  const handleSwitchDisconnect = async () => {
     setSyncing(true);
+    setError(null);
     try {
       const success = await deleteAllCalDAVData();
       if (success) {
         if (typeof window !== 'undefined') {
+          localStorage.removeItem('caldavAuthError');
+          localStorage.removeItem('caldavCalendarMetadata');
           Object.keys(window.localStorage)
             .filter(key => key.startsWith('caldavSyncTokens'))
             .forEach(key => window.localStorage.removeItem(key));
         }
-
-        alert('연동이 해제되고 데이터가 삭제되었습니다.');
-        window.location.reload();
+        onDisconnectSuccess?.();
+        onClose();
       } else {
         throw new Error('데이터 삭제 중 오류가 발생했습니다.');
       }
     } catch (err: any) {
       console.error('Disconnect error:', err);
       setError(err.message || '연동 해제 실패');
+    } finally {
       setSyncing(false);
     }
   };
 
   // Unmount 시 포커스 해제 (Autofill 팝업 잔상 제거)
+  const containerRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     return () => {
       if (document.activeElement instanceof HTMLElement) {
@@ -384,19 +374,19 @@ export function CalDAVSyncModal({
   }, []);
 
   return (
-    <div id="caldav-sync-modal-container" className={shared.modalOverlay}>
+    <div id="caldav-sync-modal-container" className={shared.modalOverlay} ref={containerRef}>
       <div className={shared.modalBackdrop} onClick={onClose} />
       <div className={shared.modal}>
         <div className={shared.modalHeader}>
           <div className={shared.modalHeaderSpacer}>
-            {step === 'selection' && !autoFetchedRef.current && (
+            {step === 'selection' && (
               <button onClick={() => setStep('credentials')} className={shared.backButton} aria-label="뒤로">
                 <span className={`material-symbols-rounded ${shared.backIcon}`}>arrow_back_ios</span>
               </button>
             )}
           </div>
           <div className={shared.modalTitle}>
-            {step === 'credentials' ? '계정정보 입력' : '캘린더 선택'}
+            {step === 'credentials' ? '계정연결' : '캘린더 선택'}
           </div>
           <div className={shared.modalHeaderSpacerEnd}>
             <button onClick={onClose} className={shared.modalCloseButton}>
@@ -411,13 +401,8 @@ export function CalDAVSyncModal({
               {authNoticeMessage}
             </div>
           )}
-          {step === 'credentials' && mode === 'sync' && loading && hasSavedPassword ? (
-            /* 저장된 자격증명으로 자동 연결 중 */
-            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '12px', padding: '40px 0', color: '#6b7280' }}>
-              <div className={styles.spinner} />
-              <span style={{ fontSize: '0.9rem' }}>캘린더 목록 불러오는 중...</span>
-            </div>
-          ) : step === 'credentials' ? (
+
+          {step === 'credentials' ? (
             /* Step 1: Credentials Form */
             <form
               className={`${styles.section} ${styles.credentialsForm}`}
@@ -427,6 +412,17 @@ export function CalDAVSyncModal({
               }}
               autoComplete="off"
             >
+              {(isConnected || hasCalDAVCalendars) && (
+                <button
+                  type="button"
+                  onClick={() => void handleSwitchDisconnect()}
+                  disabled={loading || syncing}
+                  className={styles.disconnectButton}
+                  style={{ marginTop: 0, marginBottom: '1rem' }}
+                >
+                  🔗 연동 해제 및 캘린더 삭제
+                </button>
+              )}
               <div className={styles.formGroup}>
                 <label className={styles.formLabel}>서버 URL</label>
                 <input
@@ -461,6 +457,7 @@ export function CalDAVSyncModal({
                       🔒 안전하게 저장된 암호 사용 중
                     </div>
                     <button
+                      type="button"
                       onClick={() => {
                         setError(null);
                         setHasSavedPassword(false);
@@ -514,26 +511,15 @@ export function CalDAVSyncModal({
                 )}
               </div>
               <button
+                type="button"
                 onClick={handleFetchCalendars}
                 disabled={loading || syncing}
                 className={shared.primaryButton}
               >
-                {loading && (
-                  <div className={styles.spinner}></div>
-                )}
-                {loading ? '확인 중...' : '확인'}
+                {loading && <div className={styles.spinner} />}
+                {loading ? '확인 중...' : 'iCloud 캘린더 연결'}
               </button>
 
-
-              {existingSettings && (
-                <button
-                  onClick={handleDisconnect}
-                  disabled={loading || syncing}
-                  className={shared.primaryButton}
-                >
-                  연동 해제 및 데이터 삭제
-                </button>
-              )}
             </form>
           ) : (
             /* Step 2: Selection Form */

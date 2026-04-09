@@ -1435,7 +1435,6 @@ export const getCalDAVSyncSettings = async (): Promise<CalDAVSyncSettings | null
     const { data, error } = await supabase
       .from('caldav_sync_settings')
       .select('*')
-      .eq('enabled', true)
       .maybeSingle(); // .single() 대신 .maybeSingle() 사용 (없으면 null 반환)
 
     if (error) {
@@ -1556,14 +1555,19 @@ export const deleteAllCalDAVData = async (): Promise<boolean> => {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return false;
 
-  // 1. 설정 삭제
+  // 1. 자격증명(server_url, username, password)은 유지하고
+  //    선택된 캘린더 목록과 last_sync_at만 초기화 → 재연결 시 비밀번호 재입력 불필요
   const { error: settingsError } = await supabase
     .from('caldav_sync_settings')
-    .delete()
+    .update({
+      selected_calendar_urls: [],
+      last_sync_at: null,
+      enabled: false,
+    })
     .eq('user_id', user.id);
 
   if (settingsError) {
-    console.error('Error deleting sync settings:', settingsError);
+    console.error('Error resetting sync settings:', settingsError);
     return false;
   }
 
@@ -1571,13 +1575,29 @@ export const deleteAllCalDAVData = async (): Promise<boolean> => {
   const { error: eventsError } = await supabase
     .from('events')
     .delete()
-    .eq('source', 'caldav'); // RLS가 적용되어 있어 내 데이터만 삭제됨
+    .eq('source', 'caldav');
 
   if (eventsError) {
     console.error('Error deleting CalDAV events:', eventsError);
     return false;
   }
-  
+
+  // 3. calendar_metadata에서 CalDAV 캘린더 삭제
+  // type='caldav' 또는 type=null(오래된 데이터) 중 http:// URL인 것 — google/local/subscription 제외
+  const { error: metaError } = await supabase
+    .from('calendar_metadata')
+    .delete()
+    .eq('user_id', user.id)
+    .or('type.eq.caldav,type.is.null')
+    .not('url', 'like', 'google:%')
+    .not('url', 'like', 'local:%')
+    .not('is_subscription', 'eq', true);
+
+  if (metaError) {
+    console.error('Error deleting CalDAV calendar metadata:', metaError);
+    return false;
+  }
+
   return true;
 };
 
@@ -1594,6 +1614,13 @@ export const deleteAllGoogleData = async (): Promise<boolean> => {
     console.error('Error deleting Google events:', error);
     return false;
   }
+
+  // 웹훅 채널도 정리 (해제 후 불필요한 웹훅 신호 방지)
+  await supabase
+    .from('google_watch_channels')
+    .delete()
+    .eq('user_id', user.id);
+
   return true;
 };
 

@@ -134,7 +134,7 @@ export const MainLayout = ({
   const onSync = useCallback(async (range: SyncRange, isManual: boolean) => {
     // 1. Check Settings & Metadata
     const settings = await getCalDAVSyncSettings();
-    if (!settings) {
+    if (!settings || !settings.enabled) {
       if (isManual) console.log('Sync skipped: No settings found');
       return;
     }
@@ -315,6 +315,10 @@ export const MainLayout = ({
   const [isCalDAVAuthError, setIsCalDAVAuthError] = useState(
     () => typeof window !== 'undefined' && localStorage.getItem('caldavAuthError') === 'true'
   );
+  const [isCalDAVCredentialsSaved, setIsCalDAVCredentialsSaved] = useState(false);
+  useEffect(() => {
+    getCalDAVSyncSettings().then(r => setIsCalDAVCredentialsSaved(!!r?.password));
+  }, []);
   const [calDeleteState, setCalDeleteState] = useState<{
     isOpen: boolean;
     url: string;
@@ -393,6 +397,19 @@ export const MainLayout = ({
   const prevScrollHeightRef = useRef(0);
   const profileMenuRef = useRef<HTMLDivElement>(null);
   const hasScrolledRef = useRef(false);
+
+  // Google linkIdentity 리다이렉트 복귀 감지: sessionStorage 플래그 확인
+  useEffect(() => {
+    if (sessionStorage.getItem('googleLinkPending') === '1') {
+      // googleTokenExpired 플래그를 미리 해제해 아이콘이 즉시 정상화되도록 함
+      clearGoogleTokenExpiredFlag();
+      // 플래그는 GoogleSyncModal 내부에서 제거함 (모달 init에서 처리)
+      setGoogleSyncModalMode('sync');
+      setGoogleAuthNoticeMessage(undefined);
+      setIsGoogleSyncModalOpen(true);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Close profile menu on outside click
   useEffect(() => {
@@ -1153,6 +1170,7 @@ export const MainLayout = ({
   const handleSyncComplete = useCallback(async (count: number, syncedCalendarUrls?: string[]) => {
     localStorage.removeItem('caldavAuthError');
     setIsCalDAVAuthError(false);
+    setIsCalDAVCredentialsSaved(true);
     // 재동기화된 캘린더를 exclude 목록에서 제거 (다음 백그라운드 sync에서 포함되도록)
     if (syncedCalendarUrls?.length) {
       syncedCalendarUrls.forEach(u => {
@@ -1217,6 +1235,29 @@ export const MainLayout = ({
       setIsPostAuthSyncDialogOpen(true);
     }
   }, [clearGoogleTokenExpiredFlag, calendarMetadata]);
+
+  const handleCalDAVDisconnectSuccess = useCallback(async () => {
+    // type이 null인 오래된 CalDAV 데이터도 포함하기 위해 isCalDAVSyncTarget 사용
+    const caldavUrls = calendarMetadata
+      .filter(c => isCalDAVSyncTarget(c))
+      .map(c => c.url);
+
+    // unsyncedUrlsRef에 CalDAV URL 추가 → 렌더링 필터에서 즉시 제거
+    // 정리는 여기서 하지 않음 — loadData(force) 완료 시 mergeEventsWithLocal이
+    // excludeCalendarUrls로 state에서 제거하고, 다음 CalDAV sync 완료 시 clear()됨
+    caldavUrls.forEach(u => {
+      unsyncedUrlsRef.current.add(u);
+      const norm = normalizeCalendarUrl(u);
+      if (norm) unsyncedUrlsRef.current.add(norm);
+    });
+
+    setIsCalDAVAuthError(false);
+    setIsCalDAVCredentialsSaved(false);
+    refreshMetadata();
+    await loadData(true, caldavUrls.length > 0 ? caldavUrls : undefined);
+    setIsCalDAVModalOpen(false);
+    setToast({ message: 'iCloud 연동이 해제되었습니다.', type: 'success' });
+  }, [loadData, refreshMetadata, calendarMetadata]);
 
   const handleCalDAVAuthSuccess = useCallback(() => {
     setIsCalDAVAuthError(false);
@@ -1390,6 +1431,7 @@ export const MainLayout = ({
               hasGoogleProvider={hasGoogleProvider}
               isGoogleTokenExpired={isGoogleTokenExpired}
               isCalDAVAuthError={isCalDAVAuthError}
+              isCalDAVCredentialsSaved={isCalDAVCredentialsSaved}
               onShowToast={(message, type) => setToast({ message, type })}
             />
           ) : undefined
@@ -1483,6 +1525,7 @@ export const MainLayout = ({
           googleSyncMode={googleSyncModalMode}
           googleAuthNoticeMessage={googleAuthNoticeMessage}
           onCalDAVAuthSuccess={handleCalDAVAuthSuccess}
+          onCalDAVDisconnectSuccess={handleCalDAVDisconnectSuccess}
           onGoogleTokenRecovered={handleGoogleTokenRecovered}
           onCloseSettings={() => setIsSettingsModalOpen(false)}
           onSettingsSaved={({ avatarUrl: u, weekOrder: w }) => { setAvatarUrl(u); setWeekOrder(w); }}

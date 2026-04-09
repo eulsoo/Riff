@@ -25,6 +25,7 @@ export interface CalendarListPopupProps {
   hasGoogleProvider?: boolean;
   isGoogleTokenExpired?: boolean;
   isCalDAVAuthError?: boolean;
+  isCalDAVCredentialsSaved?: boolean;
   onShowToast?: (message: string, type: 'success' | 'error') => void;
 }
 
@@ -230,6 +231,7 @@ function CalendarListPopupComponent({
   hasGoogleProvider = false,
   isGoogleTokenExpired = false,
   isCalDAVAuthError = false,
+  isCalDAVCredentialsSaved = false,
   onShowToast,
 }: CalendarListPopupProps) {
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; calendarUrl: string } | null>(null);
@@ -386,7 +388,8 @@ function CalendarListPopupComponent({
 
   // 섹션 헤더 아이콘용 (2-state: 연결됨 vs 미연결/오류)
   const isGoogleCloudOff = (!hasGoogleProvider && groups.google.length === 0) || isGoogleTokenExpired;
-  const isCalDAVCloudOff = groups.riffFromIcloud.length === 0 || isCalDAVAuthError;
+  // 자격증명 미저장(연결 안 됨)이거나 인증 오류이거나 캘린더가 없으면 cloud_off
+  const isCalDAVCloudOff = groups.riffFromIcloud.length === 0 || isCalDAVAuthError || !isCalDAVCredentialsSaved;
 
   return (
     <>
