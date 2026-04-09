@@ -63,13 +63,21 @@ serve(async (req) => {
   }
 
   try {
-    // anon 클라이언트 + Authorization 헤더 포워딩으로 JWT 검증 (Supabase 권장 패턴)
+    const jwt = (req.headers.get('Authorization') ?? '').replace('Bearer ', '');
+    if (!jwt) {
+      return new Response(JSON.stringify({ error: 'Unauthorized' }), {
+        status: 401,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
+
+    // JWT 검증: anon 클라이언트에 명시적 JWT 전달
     const supabaseClient = createClient(
       Deno.env.get('SUPABASE_URL') ?? '',
       Deno.env.get('SUPABASE_ANON_KEY') ?? '',
-      { global: { headers: { Authorization: req.headers.get('Authorization') ?? '' } } }
+      { global: { headers: { Authorization: `Bearer ${jwt}` } } }
     );
-    const { data: { user } } = await supabaseClient.auth.getUser();
+    const { data: { user } } = await supabaseClient.auth.getUser(jwt);
     if (!user) {
       return new Response(JSON.stringify({ error: 'Unauthorized' }), {
         status: 401,
@@ -210,8 +218,13 @@ serve(async (req) => {
 
     if (!tokenResponse.ok) {
       console.error('Google 토큰 갱신 실패:', tokenResData);
-      return new Response(JSON.stringify({ error: 'Failed to refresh token with Google' }), {
-        status: tokenResponse.status,
+      // invalid_grant 등 토큰 자체가 무효한 경우 → 저장된 토큰 삭제 후 404 반환
+      // 클라이언트는 404를 "Google 연동 없음"으로 처리해 재인증 UI를 표시
+      if (tokenResData?.error === 'invalid_grant' || tokenResponse.status === 400) {
+        await supabaseClient.from('user_tokens').delete().eq('user_id', user.id);
+      }
+      return new Response(JSON.stringify({ error: 'No valid Google token', detail: tokenResData?.error }), {
+        status: 404,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
     }

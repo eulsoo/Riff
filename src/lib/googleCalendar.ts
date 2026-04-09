@@ -1,4 +1,4 @@
-import { supabase } from './supabase';
+import { supabase, supabaseAnonKey } from './supabase';
 import { Event } from '../types';
 
 // ─────────────────────────────────────────────────────────────
@@ -169,22 +169,35 @@ export const getGoogleProviderToken = async (): Promise<string | null> => {
   // - Google 로그인 유저: Supabase가 저장한 refresh_token 사용
   // - Apple 로그인 + Google 별도 OAuth 연동 유저: user_tokens 테이블의 refresh_token 사용
   // - Google 연동이 전혀 없는 유저: Edge Function이 404 반환 → edgeFunctionFailed = true → 10분 차단
+  const accessToken = session?.access_token;
+  if (!accessToken) {
+    return null;
+  }
   try {
-    const { data, error } = await supabase.functions.invoke('refresh-google-token', {
+    const supabaseUrl = import.meta.env.VITE_SUPABASE_URL as string;
+    const resp = await fetch(`${supabaseUrl}/functions/v1/refresh-google-token`, {
       method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${accessToken}`,
+        'apikey': supabaseAnonKey,
+      },
+      body: JSON.stringify({}),
     });
-
-    if (!error && data?.access_token) {
-      cachedToken = data.access_token as string;
-      const expiresIn = (data.expires_in as number | undefined) ?? 3300;
-      cachedTokenExpiry = now + (expiresIn - 60) * 1000;
-      edgeFunctionFailed = false;
-      return cachedToken;
-    } else {
-      edgeFunctionFailed = true;
-      edgeFunctionRetryAt = now + 10 * 60 * 1000;
-      return null;
+    if (resp.ok) {
+      const data = await resp.json();
+      if (data?.access_token) {
+        cachedToken = data.access_token as string;
+        const expiresIn = (data.expires_in as number | undefined) ?? 3300;
+        cachedTokenExpiry = now + (expiresIn - 60) * 1000;
+        edgeFunctionFailed = false;
+        return cachedToken;
+      }
     }
+    // 404 = Google 연동 없음 (정상), 그 외 = 오류 → 모두 10분 차단
+    edgeFunctionFailed = true;
+    edgeFunctionRetryAt = now + 10 * 60 * 1000;
+    return null;
   } catch (e) {
     console.error('Failed to refresh Google provider token via edge function', e);
     edgeFunctionFailed = true;
