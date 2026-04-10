@@ -75,6 +75,27 @@ const deduplicateLocalCalendars = (list: CalendarMetadata[]): {
   };
 };
 
+const GOOGLE_ORIGINAL_LOCAL_URL_MAP_KEY = 'googleOriginalLocalUrlMap';
+
+const readGoogleOriginalLocalUrlMap = (): Record<string, string> => {
+  if (typeof window === 'undefined') return {};
+  try {
+    const raw = window.localStorage.getItem(GOOGLE_ORIGINAL_LOCAL_URL_MAP_KEY);
+    return raw ? JSON.parse(raw) : {};
+  } catch {
+    return {};
+  }
+};
+
+const writeGoogleOriginalLocalUrlMap = (map: Record<string, string>) => {
+  if (typeof window === 'undefined') return;
+  try {
+    window.localStorage.setItem(GOOGLE_ORIGINAL_LOCAL_URL_MAP_KEY, JSON.stringify(map));
+  } catch {
+    // ignore
+  }
+};
+
 export const useCalendarMetadata = () => {
   const [calendarMetadata, setCalendarMetadata] = useState<CalendarMetadata[]>([]);
   const [visibleCalendarUrlSet, setVisibleCalendarUrlSet] = useState<Set<string>>(new Set());
@@ -412,10 +433,23 @@ export const useCalendarMetadata = () => {
       const filtered = prev.filter(c => c.url !== oldUrl);
       const next: CalendarMetadata[] = [...filtered, { ...newCalendar, isLocal: false, type: 'google' as const, createdFromApp: true }];
       persistAll(next);
+      // Google 외부삭제/동기화해제 시 기존 local URL도 함께 relink할 수 있도록 이력 저장
+      const googleUrl = normalizeCalendarUrl(newCalendar.url) || newCalendar.url;
+      if (googleUrl.startsWith('google:')) {
+        const map = readGoogleOriginalLocalUrlMap();
+        map[googleUrl] = oldUrl;
+        writeGoogleOriginalLocalUrlMap(map);
+      }
       deleteCalendarMetadataFromDB(oldUrl).catch(console.error);
       return next;
     });
   }, [persistAll]);
+
+  const getOriginalLocalUrlForGoogle = useCallback((googleUrl: string): string | undefined => {
+    const normalized = normalizeCalendarUrl(googleUrl) || googleUrl;
+    const map = readGoogleOriginalLocalUrlMap();
+    return map[normalized] || map[googleUrl];
+  }, []);
 
   const convertGoogleToLocal = useCallback((oldUrl: string): string => {
     const newLocalUrl = `local-unsynced-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
@@ -445,6 +479,9 @@ export const useCalendarMetadata = () => {
       next.add(newLocalUrl);
       return next;
     });
+    // 원래 local URL 이력은 유지한다.
+    // 이유: 외부 삭제/unsync 이후에도 일괄 복구(relink)가 재시도될 수 있어야 함.
+    // (map 정리는 별도 관리 시점에서 수행)
     return newLocalUrl;
   }, [persistAll]);
 
@@ -513,6 +550,7 @@ export const useCalendarMetadata = () => {
     convertLocalToGoogle,
     convertCalDAVToLocal,
     convertGoogleToLocal,
+    getOriginalLocalUrlForGoogle,
     deleteCalendar,
     refreshMetadata,
     refreshMetadataWithServerList,

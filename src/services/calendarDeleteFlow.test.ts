@@ -211,6 +211,39 @@ describe('calendarDeleteFlow', () => {
     );
   });
 
+  it('Google createdFromApp unsync: 원래 local URL 이력이 있으면 함께 relink한다', async () => {
+    const markUnsyncedUrl = vi.fn();
+    const removeGoogleCalendar = vi.fn();
+    const deleteCalendar = vi.fn();
+    const convertGoogleToLocal = vi.fn().mockReturnValue('local-unsynced-123');
+    const getOriginalLocalUrlForGoogle = vi.fn().mockReturnValue('local-legacy-1');
+    const deleteGoogleCalendarById = vi.fn().mockResolvedValue(undefined);
+    const loadData = vi.fn().mockResolvedValue(undefined);
+    const setToast = vi.fn();
+
+    await runCalendarUnsyncFlow({
+      url: 'google:my-cal-id',
+      isGoogle: true,
+      isCreatedFromApp: true,
+      markUnsyncedUrl,
+      removeGoogleCalendar,
+      deleteCalendar,
+      convertGoogleToLocal,
+      getOriginalLocalUrlForGoogle,
+      deleteGoogleCalendarById,
+      loadData,
+      setToast,
+    });
+
+    expect(mocked.relinkEventsByCalendarUrl).toHaveBeenCalledWith(
+      new Map([
+        ['google:my-cal-id', 'local-unsynced-123'],
+        ['local-legacy-1', 'local-unsynced-123'],
+      ]),
+      '[Unsync-Google]'
+    );
+  });
+
   // ── 시나리오 E: CalDAV createdFromApp unsync ──
 
   it('CalDAV createdFromApp unsync: relinkEvents 후 iCloud 캘린더를 삭제하고 Riff 이벤트를 보존한다', async () => {
