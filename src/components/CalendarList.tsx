@@ -61,7 +61,7 @@ export const CalendarList = memo(({
     <div className={styles.appWeeksList}>
       <div ref={topSentinelRef} className={styles.appSentinel} />
       {weeksData.map(({ weekStart, weekStartStr, todoWeekStartStr, weekStatus }) => (
-        <div key={weekStartStr} id={weekStatus === 'current' ? 'current-week' : undefined}>
+        <div key={weekStartStr} id={weekStatus === 'current' ? 'current-week' : undefined} data-week-start={weekStartStr}>
           <WeekCard
             weekStart={weekStart}
             todoWeekStart={todoWeekStartStr}
