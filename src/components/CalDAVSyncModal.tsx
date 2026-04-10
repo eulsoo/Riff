@@ -14,8 +14,6 @@ interface CalDAVSyncModalProps {
   existingCalendars: CalendarMetadata[];
   authNoticeMessage?: string;
   onCalDAVAuthSuccess?: () => void;
-  isCloudSyncOnOpen?: boolean;
-  isAuthError?: boolean;
 }
 
 export function CalDAVSyncModal({
@@ -26,8 +24,6 @@ export function CalDAVSyncModal({
   existingCalendars,
   authNoticeMessage,
   onCalDAVAuthSuccess,
-  isCloudSyncOnOpen = false,
-  isAuthError = false,
 }: CalDAVSyncModalProps) {
   const [step, setStep] = useState<'credentials' | 'selection'>('credentials');
   const [serverUrl, setServerUrl] = useState('https://caldav.icloud.com');
@@ -39,7 +35,6 @@ export function CalDAVSyncModal({
   const [savePasswordChecked, setSavePasswordChecked] = useState(true);
   const [calendars, setCalendars] = useState<Calendar[]>([]);
   const [selectedCalendars, setSelectedCalendars] = useState<Set<string>>(new Set());
-  const [settingsLoaded, setSettingsLoaded] = useState(false);
   const [loading, setLoading] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const [syncProgress, setSyncProgress] = useState<{ current: number; total: number } | null>(null);
@@ -129,20 +124,13 @@ export function CalDAVSyncModal({
           }
         }
       } finally {
-        setSettingsLoaded(true);
+        // 설정 로드 완료 (자동 스킵 없음 — 항상 credentials 단계부터 시작)
       }
     };
     loadSettings();
   }, []);
 
-  // cloud_sync 상태로 모달 열릴 때: 자격증명 폼 건너뛰고 바로 캘린더 선택으로 진입
-  useEffect(() => {
-    if (!settingsLoaded) return;
-    if (isCloudSyncOnOpen && hasSavedPassword && isEnabled && !isAuthError) {
-      void handleFetchCalendars();
-    }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [settingsLoaded]);
+  // cloud_sync/cloud_off 모두 항상 계정연결(credentials) 단계부터 시작 — 자동 스킵 없음
 
   // Step 1: 인증 및 캘린더 목록 가져오기
   const handleFetchCalendars = async () => {
@@ -430,17 +418,6 @@ export function CalDAVSyncModal({
               }}
               autoComplete="off"
             >
-              {(isConnected || hasCalDAVCalendars) && (
-                <button
-                  type="button"
-                  onClick={() => void handleSwitchDisconnect()}
-                  disabled={loading || syncing}
-                  className={styles.disconnectButton}
-                  style={{ marginTop: 0, marginBottom: '1rem' }}
-                >
-                  🔗 연동 해제 및 캘린더 삭제
-                </button>
-              )}
               <div className={styles.formGroup}>
                 <label className={styles.formLabel}>서버 URL</label>
                 <input
@@ -538,6 +515,16 @@ export function CalDAVSyncModal({
                 {loading ? '확인 중...' : 'iCloud 캘린더 연결'}
               </button>
 
+              {(isConnected || hasCalDAVCalendars) && (
+                <button
+                  type="button"
+                  onClick={() => void handleSwitchDisconnect()}
+                  disabled={loading || syncing}
+                  className={styles.disconnectButton}
+                >
+                  🔗 연동 해제 및 캘린더 삭제
+                </button>
+              )}
             </form>
           ) : (
             /* Step 2: Selection Form */

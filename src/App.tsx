@@ -13,11 +13,15 @@ import { DragProvider } from './contexts/DragContext';
 import { WeekOrder } from './types';
 import { getWeekStartForDate, getTodoWeekStart, formatLocalDate } from './utils/dateUtils';
 import styles from './App.module.css';
+import landingStyles from './components/landing/Landing.module.css';
+
+const SMALL_DEVICE_QUERY = '(max-width: 767px)';
 
 export default function App() {
   const [session, setSession] = useState<Session | null>(null);
   const [sessionLoading, setSessionLoading] = useState(true);
   const [showLanding, setShowLanding] = useState(true);
+  const [showSmallDeviceNotice, setShowSmallDeviceNotice] = useState(false);
   const [currentYear, setCurrentYear] = useState(new Date().getFullYear());
   const [currentMonth, setCurrentMonth] = useState(new Date().getMonth() + 1);
   const [weekOrder, setWeekOrder] = useState<WeekOrder>(() => {
@@ -125,6 +129,20 @@ export default function App() {
     const currentWeekStart = getWeekStartForDate(new Date(), weekOrder);
     return getTodoWeekStart(currentWeekStart, weekOrder);
   }, [weekOrder]);
+  const handleLandingStart = useCallback(() => {
+    if (typeof window !== 'undefined' && window.matchMedia(SMALL_DEVICE_QUERY).matches) {
+      setShowSmallDeviceNotice(true);
+      return;
+    }
+
+    setShowLanding(false);
+  }, []);
+
+  const handleSmallDeviceNoticeConfirm = useCallback(() => {
+    setShowSmallDeviceNotice(false);
+    setShowLanding(true);
+  }, []);
+
   const pathname = typeof window !== 'undefined' ? window.location.pathname : '/';
   const isPrivacyPage = pathname === '/privacy';
   const isTermsPage = pathname === '/terms';
@@ -136,8 +154,24 @@ export default function App() {
       ) : isTermsPage ? (
         <LegalPage type="terms" />
       ) : sessionLoading ? null : !session ? (
-        showLanding ? (
-          <LandingPage onStart={() => setShowLanding(false)} />
+        showSmallDeviceNotice ? (
+          <div className={landingStyles.smallDeviceNoticePage} role="dialog" aria-modal="true" aria-labelledby="small-device-notice-title">
+            <div className={landingStyles.smallDeviceNoticeCard}>
+              <p className={landingStyles.smallDeviceNoticeEyebrow}>Riff 접속 안내</p>
+              <h1 id="small-device-notice-title" className={landingStyles.smallDeviceNoticeTitle}>
+                작은 화면은 아직 지원하지 않아요
+              </h1>
+              <p className={landingStyles.smallDeviceNoticeDescription}>
+                Riff는 주간 일정 편집과 가독성을 위해 데스크탑 또는 태블릿 환경에 최적화되어 있어요.
+                더 큰 화면에서 접속해 주세요.
+              </p>
+              <button className={landingStyles.smallDeviceNoticeButton} onClick={handleSmallDeviceNoticeConfirm}>
+                확인
+              </button>
+            </div>
+          </div>
+        ) : showLanding ? (
+          <LandingPage onStart={handleLandingStart} />
         ) : (
           <Login />
         )

@@ -124,6 +124,7 @@ export const setCachedGoogleToken = (token: string, expiresIn: number) => {
   edgeFunctionFailed = false;
   edgeFunctionRetryAt = 0;
   localStorage.setItem('googleOAuthConnected', 'true');
+  window.dispatchEvent(new CustomEvent('googleOAuthConnected'));
 };
 
 /** 캐시된 토큰을 초기화 (로그아웃 등에서 사용) */
@@ -187,10 +188,8 @@ export const getGoogleProviderToken = async (): Promise<string | null> => {
     if (resp.ok) {
       const data = await resp.json();
       if (data?.access_token) {
-        cachedToken = data.access_token as string;
         const expiresIn = (data.expires_in as number | undefined) ?? 3300;
-        cachedTokenExpiry = now + (expiresIn - 60) * 1000;
-        edgeFunctionFailed = false;
+        setCachedGoogleToken(data.access_token as string, expiresIn);
         return cachedToken;
       }
     }

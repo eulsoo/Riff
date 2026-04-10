@@ -15,7 +15,6 @@ interface GoogleSyncModalProps {
   mode?: 'sync' | 'auth-only';
   authNoticeMessage?: string;
   onTokenRecovered?: () => void;
-  isConnectedOnOpen?: boolean;
 }
 
 export function GoogleSyncModal({
@@ -26,7 +25,6 @@ export function GoogleSyncModal({
   mode = 'sync',
   authNoticeMessage,
   onTokenRecovered,
-  isConnectedOnOpen = false,
 }: GoogleSyncModalProps) {
   const [step, setStep] = useState<'account' | 'selection'>('account');
   const [isConnected, setIsConnected] = useState(false);
@@ -189,11 +187,7 @@ export function GoogleSyncModal({
           onClose();
           return;
         }
-        // 이미 연결된 유저: 계정연결 팝업 없이 바로 캘린더 선택으로 진입
-        if (isConnectedOnOpen && token && mode === 'sync') {
-          await handleGoToSelectionRef.current();
-          return;
-        }
+        // sync 모드: 항상 계정연결(account) 단계 먼저 표시 → 유저가 "구글 캘린더 선택" 버튼으로 진입
       } finally {
         setLoading(false);
       }
