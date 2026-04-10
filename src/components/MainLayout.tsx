@@ -883,19 +883,49 @@ export const MainLayout = ({
     });
   }, [weeks, weekOrder]);
 
-  // --- Initial Scroll ---
-  useEffect(() => {
+  // --- Initial Scroll (sessionStorage 위치 복원 또는 오늘로 이동) ---
+  useLayoutEffect(() => {
     if (weeks.length > 0 && !hasScrolledRef.current) {
-      // DOM 렌더링 시간을 살짝 기다려줌
-      requestAnimationFrame(() => {
-        const todayElement = document.getElementById('current-week');
-        if (todayElement) {
-          todayElement.scrollIntoView({ behavior: 'auto', block: 'center' });
-          hasScrolledRef.current = true;
-        }
-      });
+      const savedWeekStart = sessionStorage.getItem('riff_scroll_week');
+      const targetEl = savedWeekStart
+        ? document.querySelector<HTMLElement>(`[data-week-start="${savedWeekStart}"]`)
+        : document.getElementById('current-week');
+      const fallbackEl = document.getElementById('current-week');
+      const el = targetEl ?? fallbackEl;
+      if (el) {
+        const rect = el.getBoundingClientRect();
+        const targetY = window.scrollY + rect.top - (window.innerHeight - rect.height) / 2;
+        window.scrollTo(0, Math.max(0, targetY));
+        hasScrolledRef.current = true;
+      }
     }
   }, [weeks]);
+
+  // --- 스크롤 위치 저장 (새로고침 복원용) ---
+  useEffect(() => {
+    let timer: ReturnType<typeof setTimeout>;
+    const handleScroll = () => {
+      clearTimeout(timer);
+      timer = setTimeout(() => {
+        const viewportMid = window.scrollY + window.innerHeight / 2;
+        const weekElements = document.querySelectorAll<HTMLElement>('[data-week-start]');
+        let closestEl: HTMLElement | null = null;
+        let minDist = Infinity;
+        weekElements.forEach(el => {
+          const rect = el.getBoundingClientRect();
+          const elMid = rect.top + window.scrollY + rect.height / 2;
+          const dist = Math.abs(elMid - viewportMid);
+          if (dist < minDist) { minDist = dist; closestEl = el; }
+        });
+        if (closestEl !== null) {
+          const weekStart = (closestEl as HTMLElement).dataset.weekStart;
+          if (weekStart) sessionStorage.setItem('riff_scroll_week', weekStart);
+        }
+      }, 150);
+    };
+    window.addEventListener('scroll', handleScroll, { passive: true });
+    return () => { clearTimeout(timer); window.removeEventListener('scroll', handleScroll); };
+  }, []);
 
   // --- Infinite Scroll ---
   useEffect(() => {
@@ -1742,6 +1772,7 @@ export const MainLayout = ({
         className={styles.appContent}
         ref={containerRef}
         onClick={handleBackgroundClick}
+
       >
         <CalendarList
           weeksData={renderedWeeksData}
