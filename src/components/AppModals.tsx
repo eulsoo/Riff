@@ -47,7 +47,6 @@ interface AppModalsProps {
   googleSyncMode?: 'sync' | 'auth-only';
   googleAuthNoticeMessage?: string;
   onGoogleTokenRecovered?: () => void;
-  googleSyncIsConnectedOnOpen?: boolean;
   calDAVIsCloudSyncOnOpen?: boolean;
   calDAVIsAuthError?: boolean;
 }
@@ -92,7 +91,6 @@ export function AppModals({
   googleSyncMode = 'sync',
   googleAuthNoticeMessage,
   onGoogleTokenRecovered,
-  googleSyncIsConnectedOnOpen,
   calDAVIsCloudSyncOnOpen,
   calDAVIsAuthError,
 }: AppModalsProps & { calDAVMode?: 'sync' | 'auth-only' }) {
@@ -150,7 +148,6 @@ export function AppModals({
           mode={googleSyncMode}
           authNoticeMessage={googleAuthNoticeMessage}
           onTokenRecovered={onGoogleTokenRecovered}
-          isConnectedOnOpen={googleSyncIsConnectedOnOpen}
         />
       )}
 

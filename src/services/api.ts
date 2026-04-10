@@ -1605,15 +1605,33 @@ export const deleteAllGoogleData = async (): Promise<boolean> => {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return false;
 
-  const { error } = await supabase
+  const { error: eventsError } = await supabase
     .from('events')
     .delete()
     .eq('source', 'google');
 
-  if (error) {
-    console.error('Error deleting Google events:', error);
+  if (eventsError) {
+    console.error('Error deleting Google events:', eventsError);
     return false;
   }
+
+  // Google 캘린더 메타데이터 삭제 (사이드바에서 제거)
+  const { error: metaError } = await supabase
+    .from('calendar_metadata')
+    .delete()
+    .eq('user_id', user.id)
+    .eq('type', 'google');
+
+  if (metaError) {
+    console.error('Error deleting Google calendar metadata:', metaError);
+    return false;
+  }
+
+  // user_tokens 테이블에서 저장된 Google refresh token 삭제
+  await supabase
+    .from('user_tokens')
+    .delete()
+    .eq('user_id', user.id);
 
   // 웹훅 채널도 정리 (해제 후 불필요한 웹훅 신호 방지)
   await supabase

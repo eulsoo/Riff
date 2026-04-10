@@ -85,6 +85,7 @@ interface DataContextType {
   isGoogleTokenExpired: boolean;
   clearGoogleTokenExpiredFlag: () => void;
   syncGoogleCalendar: (selectedMeta: CalendarMetadata[]) => Promise<void>;
+  clearGoogleCalendars: () => void;
   removeGoogleCalendar: (calendarId: string) => void;
   selectedGoogleCalendarIds: string[];
   toggleGoogleCalendarSelected: (calendarId: string) => void;
@@ -237,6 +238,10 @@ export const DataProvider = ({
   useEffect(() => {
     if (session) {
       loadData();
+      // Google OAuth 연결 상태를 초기화 시 probe: selectedGoogleIds가 비어있어도
+      // user_tokens에 refresh_token이 있으면 getGoogleProviderToken()이 토큰을 받아와
+      // setCachedGoogleToken() → 'googleOAuthConnected' 이벤트 → MainLayout state 갱신
+      getGoogleProviderToken().catch(() => {});
     }
   }, [session, loadData]);
 
@@ -951,6 +956,11 @@ export const DataProvider = ({
     // Google Calendar
     hasGoogleProvider: !!(session?.user?.app_metadata?.providers?.includes('google') || session?.user?.app_metadata?.provider === 'google'),
     googleCalendars, isSyncingGoogle, isGoogleTokenExpired, clearGoogleTokenExpiredFlag, syncGoogleCalendar,
+    clearGoogleCalendars: () => {
+      setGoogleCalendars([]);
+      setSelectedGoogleCalendarIds([]);
+      setEvents(prev => prev.filter(e => e.source !== 'google'));
+    },
     removeGoogleCalendar, selectedGoogleCalendarIds, toggleGoogleCalendarSelected,
     // External Calendar Deletion
     externallyDeletedCalendars, clearExternallyDeletedCalendars,

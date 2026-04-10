@@ -62,7 +62,7 @@ export const MainLayout = ({
     addRoutine, deleteRoutine, updateRoutine,
     fetchDiary, saveDiary, deleteDiary, setEmotion,
     loadData, // Add loadData for auto-sync refresh
-    syncGoogleCalendar, isSyncingGoogle, isGoogleTokenExpired, hasGoogleProvider, clearGoogleTokenExpiredFlag, googleCalendars, removeGoogleCalendar,
+    syncGoogleCalendar, isSyncingGoogle, isGoogleTokenExpired, hasGoogleProvider, clearGoogleTokenExpiredFlag, googleCalendars, removeGoogleCalendar, clearGoogleCalendars,
     externallyDeletedCalendars, clearExternallyDeletedCalendars,
   } = useData();
 
@@ -322,6 +322,11 @@ export const MainLayout = ({
   const [isGoogleOAuthConnected, setIsGoogleOAuthConnected] = useState(
     () => typeof window !== 'undefined' && localStorage.getItem('googleOAuthConnected') === 'true'
   );
+  useEffect(() => {
+    const handler = () => setIsGoogleOAuthConnected(true);
+    window.addEventListener('googleOAuthConnected', handler);
+    return () => window.removeEventListener('googleOAuthConnected', handler);
+  }, []);
   const [calDeleteState, setCalDeleteState] = useState<{
     isOpen: boolean;
     url: string;
@@ -1224,15 +1229,18 @@ export const MainLayout = ({
       localStorage.removeItem('googleSelectedCalendarIds');
       localStorage.removeItem('googleSyncTokens');
       localStorage.removeItem('googleOAuthConnected');
+      localStorage.removeItem('googleLastSyncTimes');
       setIsGoogleOAuthConnected(false);
+      clearCachedGoogleToken();
       clearGoogleTokenExpiredFlag();
+      clearGoogleCalendars();  // React state 즉시 초기화 → 사이드바 즉시 반영
       setIsGoogleSyncModalOpen(false);
       loadData(true);
       setToast({ message: 'Google 연동이 해제되었습니다.', type: 'success' });
     } else {
       setToast({ message: 'Google 연동 해제 중 오류가 발생했습니다.', type: 'error' });
     }
-  }, [loadData, clearGoogleTokenExpiredFlag]);
+  }, [loadData, clearGoogleTokenExpiredFlag, clearGoogleCalendars]);
 
   const handleGoogleTokenRecovered = useCallback(() => {
     clearGoogleTokenExpiredFlag();
@@ -1537,7 +1545,6 @@ export const MainLayout = ({
           onGoogleTokenRecovered={handleGoogleTokenRecovered}
           onCloseSettings={() => setIsSettingsModalOpen(false)}
           onSettingsSaved={({ avatarUrl: u, weekOrder: w }) => { setAvatarUrl(u); setWeekOrder(w); }}
-          googleSyncIsConnectedOnOpen={!isGoogleTokenExpired && (hasGoogleProvider || isGoogleOAuthConnected)}
           calDAVIsCloudSyncOnOpen={calendarMetadata.some(c => isCalDAVSyncTarget(c)) && !isCalDAVAuthError && isCalDAVCredentialsSaved}
           calDAVIsAuthError={isCalDAVAuthError}
         />
