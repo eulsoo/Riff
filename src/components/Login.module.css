@@ -31,13 +31,13 @@
   text-align: center;
 }
 .loginTitle img {
-  width: 300px;
+  width: 200px;
 }
 
 .loginSubtitle {
-  font-size: 2rem;
+  font-size: 0;
   font-weight: 700;
-  color: #3ED880;
+  color: var(--color-secondary);
   text-align: center;
 }
 

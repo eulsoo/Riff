@@ -7,6 +7,8 @@ import { CalendarDeleteState } from '../services/calendarDeleteFlow';
 import { getGoogleProviderToken } from '../lib/googleCalendar';
 
 const PENDING_GOOGLE_LOCAL_SYNC_KEY = 'pendingGoogleLocalCalendarSync';
+const PENDING_GOOGLE_AUTH_CONTEXT_KEY = 'pendingGoogleAuthContext';
+const RIFF_TO_GOOGLE_CONTEXT = 'riff-to-google';
 
 type ToastPayload = { message: string; type: 'loading' | 'success' | 'error' | 'info' };
 type SetToast = (toast: ToastPayload | null) => void;
@@ -141,6 +143,8 @@ export const useSyncHandlers = ({
 
         if (result.status === 'needs-auth') {
           localStorage.setItem(PENDING_GOOGLE_LOCAL_SYNC_KEY, JSON.stringify(calendar));
+          // 인증 복귀 후 MainLayout이 Riff<-Google 안내 팝업을 띄우지 않도록 컨텍스트 표시
+          localStorage.setItem(PENDING_GOOGLE_AUTH_CONTEXT_KEY, RIFF_TO_GOOGLE_CONTEXT);
           setGoogleSyncModalMode('auth-only');
           setGoogleAuthNoticeMessage(
             'Google 계정 연결이 만료되었거나 해제되었습니다. 다시 연결 후 동기화를 진행해주세요.'
@@ -162,6 +166,7 @@ export const useSyncHandlers = ({
 
         convertLocalToGoogle(calendar.url, result.newCalendar);
         localStorage.removeItem(PENDING_GOOGLE_LOCAL_SYNC_KEY);
+        localStorage.removeItem(PENDING_GOOGLE_AUTH_CONTEXT_KEY);
         clearGoogleTokenExpiredFlag();
         setGoogleAuthNoticeMessage(undefined);
         setToast({ message: 'Google 캘린더에 추가되었습니다.', type: 'success' });
@@ -234,6 +239,7 @@ export const useSyncHandlers = ({
         const result = await syncLocalCalendarToGoogle(cal);
 
         if (result.status === 'needs-auth') {
+          localStorage.setItem(PENDING_GOOGLE_AUTH_CONTEXT_KEY, RIFF_TO_GOOGLE_CONTEXT);
           setGoogleSyncModalMode('auth-only');
           setGoogleAuthNoticeMessage(
             'Google 계정 연결이 만료되었거나 해제되었습니다. 다시 연결 후 동기화를 진행해주세요.'
@@ -253,6 +259,7 @@ export const useSyncHandlers = ({
         }
 
         updateLocalCalendar(cal.url, { googleCalendarId: result.newCalendar.googleCalendarId });
+        localStorage.removeItem(PENDING_GOOGLE_AUTH_CONTEXT_KEY);
         clearGoogleTokenExpiredFlag();
         setToast({ message: 'Google 캘린더에도 동기화되었습니다.', type: 'success' });
       } catch (e) {

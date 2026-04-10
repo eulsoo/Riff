@@ -136,8 +136,8 @@
 }
 
 .btnPrimary:hover {
-  background-color: var(--color-gray-700);
-  transform: translateY(-1px);
+  transform: scale(1.05);
+  transition: transform 0.15s;
 }
 
 .btnGhost {
@@ -849,26 +849,19 @@
 .smallDeviceNoticeCard {
   width: 100%;
   max-width: 420px;
-  border-radius: 20px;
-  padding: 1.75rem 1.5rem;
-  background: rgba(255, 255, 255, 0.86);
-  border: 1px solid rgba(89, 60, 34, 0.12);
-  box-shadow: 0 18px 46px rgba(89, 60, 34, 0.14);
   text-align: center;
 }
 
-.smallDeviceNoticeEyebrow {
-  margin: 0 0 0.6rem;
-  font-size: 0.82rem;
-  font-weight: 700;
-  letter-spacing: 0.08em;
-  color: var(--color-brown-primary-60);
-  text-transform: uppercase;
+.smallDeviceNoticeImage {
+  width: 120px;
+  height: auto;
+  display: block;
+  margin: 0 auto 0.7rem;
 }
 
 .smallDeviceNoticeTitle {
   margin: 0 0 0.85rem;
-  font-size: clamp(1.5rem, 7vw, 1.9rem);
+  font-size: clamp(1.4rem, 6vw, 1.3rem);
   line-height: 1.25;
   letter-spacing: -0.02em;
   color: var(--color-brown-primary-70);
@@ -883,22 +876,21 @@
 
 .smallDeviceNoticeButton {
   margin-top: 1.4rem;
-  width: 100%;
   border: none;
-  border-radius: 12px;
+  border-radius: 9999px;
   background-color: var(--color-secondary);
   color: var(--color-brown-primary-70);
   font-size: 1rem;
-  font-weight: 700;
-  padding: 0.86rem 1rem;
+  font-weight: 600;
+  padding: 0.875rem 2.25rem;
   font-family: inherit;
   cursor: pointer;
-  transition: transform 0.12s ease, filter 0.2s ease;
+  transition: background-color 0.15s, transform 0.1s;
 }
 
 .smallDeviceNoticeButton:hover {
+  background-color: var(--color-gray-700);
   transform: translateY(-1px);
-  filter: brightness(0.97);
 }
 
 /* ===== Responsive ===== */

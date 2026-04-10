@@ -1,9 +1,10 @@
-import { CalendarMetadata } from './api';
+import { CalendarMetadata, fetchEvents, normalizeCalendarUrl, updateEvent } from './api';
 import {
   createGoogleCalendar,
   deleteGoogleCalendar,
   fetchGoogleCalendarList,
   getGoogleProviderToken,
+  uploadEventToGoogle,
   type GoogleCalendarMutationError,
 } from '../lib/googleCalendar';
 
@@ -20,6 +21,8 @@ const isGoogleAuthError = (error: unknown): boolean => {
 };
 
 const normalizeName = (name?: string): string => (name || '').trim().toLowerCase();
+const isWritableGoogleCalendar = (accessRole?: string): boolean =>
+  accessRole === 'owner' || accessRole === 'writer';
 
 export const syncLocalCalendarToGoogle = async (
   calendar: CalendarMetadata
@@ -31,19 +34,50 @@ export const syncLocalCalendarToGoogle = async (
     const targetName = normalizeName(calendar.displayName);
     const list = await fetchGoogleCalendarList(token);
     const existing = list.find(
-      gc => normalizeName(gc.summary) === targetName
+      gc => normalizeName(gc.summary) === targetName && isWritableGoogleCalendar(gc.accessRole)
     );
 
     const created = existing
       ? { id: existing.id, summary: existing.summary, backgroundColor: existing.backgroundColor }
       : await createGoogleCalendar(token, calendar.displayName, calendar.color);
+    const googleCalendarUrl = `google:${created.id}`;
+
+    // 기존 로컬 이벤트를 Google 캘린더로 업로드하고
+    // DB의 calendar_url + caldav_uid(google event id 재사용) + source를 동기화
+    const existingEvents = await fetchEvents();
+    const localEvents = existingEvents.filter(e =>
+      normalizeCalendarUrl(e.calendarUrl) === normalizeCalendarUrl(calendar.url)
+    );
+    let uploadedCount = 0;
+    for (const event of localEvents) {
+      try {
+        const googleEventId = await uploadEventToGoogle(token, created.id, event);
+        if (!googleEventId) continue;
+        await updateEvent(event.id, {
+          calendarUrl: googleCalendarUrl,
+          caldavUid: googleEventId,
+          source: 'google',
+        });
+        uploadedCount += 1;
+      } catch (e) {
+        console.warn('[Google Sync] 이벤트 업로드 실패:', event.title, e);
+      }
+    }
+
+    if (localEvents.length > 0 && uploadedCount === 0) {
+      return {
+        status: 'error',
+        message: 'Google 캘린더로 이벤트를 업로드하지 못했습니다. 캘린더 권한을 확인해주세요.',
+      };
+    }
 
     return {
       status: 'success',
       newCalendar: {
-        url: `google:${created.id}`,
+        url: googleCalendarUrl,
         displayName: created.summary || calendar.displayName,
-        color: created.backgroundColor || calendar.color,
+        // Riff 로컬 캘린더 색상을 그대로 유지해 UI 색 일관성 보장
+        color: calendar.color,
         type: 'google',
         googleCalendarId: created.id,
         readOnly: false,
