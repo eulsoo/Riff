@@ -9,14 +9,14 @@ export async function createCalDavEvent(
   config: CalDAVConfig,
   calendarUrl: string,
   event: Partial<Event>
-): Promise<{ success: boolean; etag?: string }> {
+): Promise<{ success: boolean; etag?: string; uid: string }> {
 
   // Re-generate UID if missing to be sure
   const uid = event.caldavUid || `vividly-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
   const eventWithUid = { ...event, caldavUid: uid };
   const finalIcs = serializeEventToICS(eventWithUid);
 
-  return await invokeCalDavProxy<{ success: boolean; etag?: string }>({
+  const result = await invokeCalDavProxy<{ success: boolean; etag?: string }>({
     serverUrl: config.serverUrl,
     username: config.username,
     password: config.password,
@@ -24,8 +24,9 @@ export async function createCalDavEvent(
     calendarUrl,
     eventUid: uid,
     eventData: finalIcs,
-    settingId: config.settingId  // Add settingId
+    settingId: config.settingId
   });
+  return { ...result, uid };
 }
 
 export async function updateCalDavEvent(

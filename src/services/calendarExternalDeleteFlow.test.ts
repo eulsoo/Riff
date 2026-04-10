@@ -50,6 +50,27 @@ describe('handleGoogleExternalDelete', () => {
     expect(result.message).toContain('전환');
     expect(result.type).toBe('info');
   });
+
+  it('Riff→Google 외부 삭제: 원래 local URL 이력이 있으면 함께 re-link한다', async () => {
+    const result = await handleGoogleExternalDelete('cal-123', true, {
+      calendarName: '개인',
+      convertGoogleToLocal: mocked.convertGoogleToLocal,
+      getOriginalLocalUrlForGoogle: () => 'local-legacy-1',
+      relinkEventsByCalendarUrl: mocked.relinkEventsByCalendarUrl,
+      removeGoogleCalendar: mocked.removeGoogleCalendar,
+      deleteEventsByCalendarUrl: mocked.deleteEventsByCalendarUrl,
+    });
+
+    expect(mocked.relinkEventsByCalendarUrl).toHaveBeenCalledWith(
+      new Map([
+        ['google:cal-123', 'local-unsynced-123'],
+        ['local-legacy-1', 'local-unsynced-123'],
+      ]),
+      '[ExternalDelete-Google-CreatedFromApp]'
+    );
+    expect(result.message).toContain('전환');
+    expect(result.type).toBe('info');
+  });
 });
 
 describe('handleCalDAVExternalDelete', () => {

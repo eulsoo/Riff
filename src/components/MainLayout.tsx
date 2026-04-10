@@ -21,7 +21,7 @@ import { runCalendarDeleteFlow, runCalendarUnsyncFlow } from '../services/calend
 import { handleGoogleExternalDelete } from '../services/calendarExternalDeleteFlow';
 import { deleteGoogleCalendarById } from '../services/calendarGoogleSyncFlow';
 import { getWeekStartForDate, getTodoWeekStart, formatLocalDate } from '../utils/dateUtils';
-import { clearCachedGoogleToken } from '../lib/googleCalendar';
+import { clearCachedGoogleToken, fetchGoogleCalendarList, getGoogleProviderToken } from '../lib/googleCalendar';
 import { HistoryAction } from '../hooks/useUndoRedo';
 import { ModalPosition } from './EventModal';
 import { EmotionModal } from './EmotionModal';
@@ -32,6 +32,10 @@ const AppModals = lazy(() => import('./AppModals').then(module => ({ default: mo
 const DiaryModal = lazy(() => import('./DiaryModal').then(module => ({ default: module.DiaryModal })));
 const TimeSettingsModal = lazy(() => import('./TimeSettingsModal').then(module => ({ default: module.TimeSettingsModal })));
 import { SubscribeModal } from './SubscribeModal';
+
+const PENDING_GOOGLE_LOCAL_SYNC_KEY = 'pendingGoogleLocalCalendarSync';
+const PENDING_GOOGLE_AUTH_CONTEXT_KEY = 'pendingGoogleAuthContext';
+const RIFF_TO_GOOGLE_CONTEXT = 'riff-to-google';
 
 interface MainLayoutProps {
   session: Session;
@@ -83,6 +87,7 @@ export const MainLayout = ({
     convertLocalToGoogle,
     convertCalDAVToLocal,
     convertGoogleToLocal,
+    getOriginalLocalUrlForGoogle,
     deleteCalendar,
     refreshMetadata,
     refreshMetadataWithServerList
@@ -212,41 +217,73 @@ export const MainLayout = ({
   // --- UI States ---
   const [isCalendarPopupOpen, setIsCalendarPopupOpen] = useState(false);
 
-  // 캘린더 팝업 열릴 때 서버 목록과 비교해 자동으로 아이콘 상태 업데이트
-  // (Mac Calendar에서 삭제된 캘린더 감지 → 평범한 로컬로 전환)
+  // 서버 목록과 비교해 외부 삭제를 자동 반영:
+  // - createdFromApp=true: 로컬로 전환(아이콘/스위치 OFF)
+  // - createdFromApp=false: Riff에서도 제거
   const lastCalendarCheckRef = useRef<number>(0);
+  const isCalendarCheckRunningRef = useRef(false);
+  const checkCalDAVServerCalendars = useCallback(
+    async (tag: string, options?: { force?: boolean }) => {
+      const hasCalDAVTarget = calendarMetadata.some(c => isCalDAVSyncTarget(c));
+      if (!hasCalDAVTarget) return;
+      if (isCalendarCheckRunningRef.current) return;
+
+      const now = Date.now();
+      const COOLDOWN_MS = 15_000;
+      if (!options?.force && now - lastCalendarCheckRef.current < COOLDOWN_MS) return;
+      lastCalendarCheckRef.current = now;
+
+      isCalendarCheckRunningRef.current = true;
+      try {
+        await runCalDAVServerCheck(tag, {
+          refreshMetadataWithServerList,
+          loadData,
+          onClearAuthError: () => {
+            localStorage.removeItem('caldavAuthError');
+            setIsCalDAVAuthError(false);
+          },
+          onRestoredCalendar: (name) =>
+            setToast({ message: `iCloud 캘린더(${name})가 삭제되어 Riff 로컬 캘린더로 전환됐습니다.`, type: 'info' }),
+          onDeletedCalendar: (name) =>
+            setToast({ message: `iCloud에서 삭제된 캘린더(${name})를 Riff에서도 제거했습니다.`, type: 'info' }),
+        });
+      } catch (e: any) {
+        console.warn(`${tag} Server calendar check failed:`, e);
+        const msg = String(e?.message || e || '');
+        if (isCalDAVAuthErrorMessage(msg)) {
+          localStorage.setItem('caldavAuthError', 'true');
+          setIsCalDAVAuthError(true);
+        }
+      } finally {
+        isCalendarCheckRunningRef.current = false;
+      }
+    },
+    [calendarMetadata, refreshMetadataWithServerList, loadData]
+  );
+
   useEffect(() => {
     if (!isCalendarPopupOpen) return;
+    // 팝업을 다시 열었을 때는 즉시 확인해서 아이콘/스위치를 바로 반영
+    void checkCalDAVServerCalendars('[PopupCheck]', { force: true });
+  }, [isCalendarPopupOpen, checkCalDAVServerCalendars]);
 
-    const COOLDOWN_MS = 60_000; // 60초 쿨다운
-    const now = Date.now();
-    if (now - lastCalendarCheckRef.current < COOLDOWN_MS) return;
-
-    const hasCreatedFromApp = calendarMetadata.some(c => c.createdFromApp);
-    if (!hasCreatedFromApp) return;
-
-    lastCalendarCheckRef.current = now;
-
-    runCalDAVServerCheck('[PopupCheck]', {
-      refreshMetadataWithServerList,
-      loadData,
-      onClearAuthError: () => {
-        localStorage.removeItem('caldavAuthError');
-        setIsCalDAVAuthError(false);
-      },
-      onRestoredCalendar: (name) =>
-        setToast({ message: `iCloud 캘린더(${name})가 삭제되어 Riff 로컬 캘린더로 전환됐습니다.`, type: 'info' }),
-      onDeletedCalendar: (name) =>
-        setToast({ message: `iCloud에서 삭제된 캘린더(${name})를 Riff에서도 제거했습니다.`, type: 'info' }),
-    }).catch((e: any) => {
-      console.warn('[PopupCheck] Server calendar check failed:', e);
-      const msg = String(e?.message || e || '');
-      if (isCalDAVAuthErrorMessage(msg)) {
-        localStorage.setItem('caldavAuthError', 'true');
-        setIsCalDAVAuthError(true);
+  useEffect(() => {
+    const onWindowFocus = () => {
+      void checkCalDAVServerCalendars('[FocusCheck]');
+    };
+    const onVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        void checkCalDAVServerCalendars('[VisibilityCheck]');
       }
-    });
-  }, [isCalendarPopupOpen, calendarMetadata, refreshMetadataWithServerList, loadData]);
+    };
+
+    window.addEventListener('focus', onWindowFocus);
+    document.addEventListener('visibilitychange', onVisibilityChange);
+    return () => {
+      window.removeEventListener('focus', onWindowFocus);
+      document.removeEventListener('visibilitychange', onVisibilityChange);
+    };
+  }, [checkCalDAVServerCalendars]);
 
   const [isProfileMenuOpen, setIsProfileMenuOpen] = useState(false);
   const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false);
@@ -269,6 +306,8 @@ export const MainLayout = ({
   useEffect(() => () => {
     if (pendingSyncTimerRef.current) clearTimeout(pendingSyncTimerRef.current);
   }, []);
+  const isAutoRepairOrphanRunningRef = useRef(false);
+  const lastAutoRepairToastAtRef = useRef<number>(0);
   const [isRoutineModalOpen, setIsRoutineModalOpen] = useState(false);
   const [isTimeSettingsModalOpen, setIsTimeSettingsModalOpen] = useState(false);
   const [appTimezone, setAppTimezone] = useState(() => {
@@ -409,10 +448,15 @@ export const MainLayout = ({
   // Google linkIdentity 리다이렉트 복귀 감지: sessionStorage 플래그 확인
   useEffect(() => {
     if (sessionStorage.getItem('googleLinkPending') === '1') {
+      const pendingGoogleLocalSync = localStorage.getItem(PENDING_GOOGLE_LOCAL_SYNC_KEY);
+      const pendingGoogleAuthContext = localStorage.getItem(PENDING_GOOGLE_AUTH_CONTEXT_KEY);
+      const isRiffToGoogleAuthRecovery =
+        pendingGoogleAuthContext === RIFF_TO_GOOGLE_CONTEXT || !!pendingGoogleLocalSync;
       // googleTokenExpired 플래그를 미리 해제해 아이콘이 즉시 정상화되도록 함
       clearGoogleTokenExpiredFlag();
       // 플래그는 GoogleSyncModal 내부에서 제거함 (모달 init에서 처리)
-      setGoogleSyncModalMode('sync');
+      // Riff→Google 인증 복귀는 selection으로 가지 않도록 auth-only로 연다.
+      setGoogleSyncModalMode(isRiffToGoogleAuthRecovery ? 'auth-only' : 'sync');
       setGoogleAuthNoticeMessage(undefined);
       setIsGoogleSyncModalOpen(true);
     }
@@ -461,21 +505,9 @@ export const MainLayout = ({
     }
 
     hasMetadataCheckedRef.current = true;
-    runCalDAVServerCheck('[Metadata]', {
-      refreshMetadataWithServerList,
-      loadData,
-      onClearAuthError: () => {
-        localStorage.removeItem('caldavAuthError');
-        setIsCalDAVAuthError(false);
-      },
-      onRestoredCalendar: (name) =>
-        setToast({ message: `iCloud 캘린더(${name})가 삭제되어 Riff 로컬 캘린더로 전환됐습니다.`, type: 'info' }),
-      onDeletedCalendar: (name) =>
-        setToast({ message: `iCloud에서 삭제된 캘린더(${name})를 Riff에서도 제거했습니다.`, type: 'info' }),
-    })
-      .catch(e => console.warn('[MainLayout] Metadata validation failed:', e))
+    checkCalDAVServerCalendars('[Metadata]', { force: true })
       .finally(() => setIsSyncEnabled(true));
-  }, [calendarMetadata, refreshMetadataWithServerList, loadData, isSyncEnabled]);
+  }, [calendarMetadata, checkCalDAVServerCalendars, isSyncEnabled]);
 
 
 
@@ -601,6 +633,154 @@ export const MainLayout = ({
     }
     return list;
   }, [events, visibleCalendarUrlSet, selectedEvent, draftEvent, calendarMetadata, hiddenCalendarUrls]);
+
+  // 과거 sync/unsync 꼬임으로 남은 고아 local URL 이벤트를 자동 복구한다.
+  // 규칙:
+  // - calendarMetadata에 없는 local URL만 대상
+  // - (1) 이벤트 색상이 "유일하게 매칭되는" 캘린더 색상일 때 우선 relink
+  // - (2) 색상으로 못 고르면 제목 기반 vote로 relink
+  // - oldUrl 그룹이 단일 targetUrl로만 수렴할 때만 안전하게 적용
+  useEffect(() => {
+    if (isAutoRepairOrphanRunningRef.current) return;
+    if (calendarMetadata.length === 0 || events.length === 0) return;
+
+    const knownUrls = new Set(
+      calendarMetadata.map(c => normalizeCalendarUrl(c.url) || c.url)
+    );
+    const normalizeColorKey = (color?: string): string => {
+      const raw = (color || '').trim().toLowerCase();
+      if (!raw) return raw;
+      const rgbMatch = raw.match(/^rgba?\(\s*(\d{1,3})\s*,\s*(\d{1,3})\s*,\s*(\d{1,3})/);
+      if (rgbMatch) {
+        const r = Math.min(255, Math.max(0, Number(rgbMatch[1])));
+        const g = Math.min(255, Math.max(0, Number(rgbMatch[2])));
+        const b = Math.min(255, Math.max(0, Number(rgbMatch[3])));
+        return `#${r.toString(16).padStart(2, '0')}${g.toString(16).padStart(2, '0')}${b.toString(16).padStart(2, '0')}`;
+      }
+      return raw;
+    };
+
+    // 동일 색상 캘린더가 여러 개면 자동 복구가 위험하므로 제외
+    const colorToUrls = new Map<string, string[]>();
+    for (const cal of calendarMetadata) {
+      const key = normalizeColorKey(cal.color);
+      if (!key) continue;
+      const list = colorToUrls.get(key) || [];
+      list.push(normalizeCalendarUrl(cal.url) || cal.url);
+      colorToUrls.set(key, list);
+    }
+
+    const orphanEvents = events.filter(e => {
+      if (!e.calendarUrl) return false;
+      const norm = normalizeCalendarUrl(e.calendarUrl) || e.calendarUrl;
+      // known metadata에 없는 URL 전체를 복구 대상으로 본다.
+      // (local-* 뿐 아니라 과거 https/google 잔존 URL도 포함)
+      if (knownUrls.has(norm)) return false;
+      // 구독(.ics) 이벤트는 자동 복구 대상에서 제외
+      if (norm.endsWith('.ics')) return false;
+      return true;
+    });
+    if (orphanEvents.length === 0) {
+      return;
+    }
+
+    const oldUrlToCandidateTargets = new Map<string, Set<string>>();
+
+    // 제목 기반 fallback을 위한 "제목 -> 소속 캘린더 URL 후보" 맵
+    const titleToKnownCalendarUrls = new Map<string, Set<string>>();
+    for (const ev of events) {
+      if (!ev.calendarUrl) continue;
+      const normUrl = normalizeCalendarUrl(ev.calendarUrl) || ev.calendarUrl;
+      if (!knownUrls.has(normUrl)) continue;
+      const titleKey = (ev.title || '').trim().toLowerCase();
+      if (!titleKey) continue;
+      if (!titleToKnownCalendarUrls.has(titleKey)) {
+        titleToKnownCalendarUrls.set(titleKey, new Set<string>());
+      }
+      titleToKnownCalendarUrls.get(titleKey)!.add(normUrl);
+    }
+    for (const ev of orphanEvents) {
+      const oldUrl = normalizeCalendarUrl(ev.calendarUrl) || ev.calendarUrl || '';
+      const candidates = colorToUrls.get(normalizeColorKey(ev.color)) || [];
+      // 색상으로 단일 캘린더만 매칭될 때만 후보로 인정
+      if (candidates.length !== 1) continue;
+      if (!oldUrlToCandidateTargets.has(oldUrl)) {
+        oldUrlToCandidateTargets.set(oldUrl, new Set<string>());
+      }
+      oldUrlToCandidateTargets.get(oldUrl)!.add(candidates[0]);
+    }
+
+    // 색상 매칭 실패 그룹에 대해 제목 기반 vote fallback
+    const orphanByOldUrl = new Map<string, typeof orphanEvents>();
+    for (const ev of orphanEvents) {
+      const oldUrl = normalizeCalendarUrl(ev.calendarUrl) || ev.calendarUrl || '';
+      if (!orphanByOldUrl.has(oldUrl)) orphanByOldUrl.set(oldUrl, []);
+      orphanByOldUrl.get(oldUrl)!.push(ev);
+    }
+    for (const [oldUrl, group] of orphanByOldUrl.entries()) {
+      if (oldUrlToCandidateTargets.has(oldUrl)) continue;
+
+      const vote = new Map<string, number>();
+      for (const ev of group) {
+        const titleKey = (ev.title || '').trim().toLowerCase();
+        if (!titleKey) continue;
+        const owners = titleToKnownCalendarUrls.get(titleKey);
+        // 제목이 유일한 소속으로 식별되는 경우에만 투표
+        if (!owners || owners.size !== 1) continue;
+        const [ownerUrl] = Array.from(owners);
+        vote.set(ownerUrl, (vote.get(ownerUrl) || 0) + 1);
+      }
+      if (vote.size === 0) continue;
+
+      const sorted = Array.from(vote.entries()).sort((a, b) => b[1] - a[1]);
+      const [topUrl, topScore] = sorted[0];
+      const secondScore = sorted[1]?.[1] || 0;
+      // 최다 득표가 유일할 때만 안전하게 채택
+      if (topScore > 0 && topScore > secondScore) {
+        oldUrlToCandidateTargets.set(oldUrl, new Set([topUrl]));
+      }
+    }
+
+    const remap = new Map<string, string>();
+    for (const [oldUrl, candidates] of oldUrlToCandidateTargets.entries()) {
+      if (candidates.size === 1) {
+        const [targetUrl] = Array.from(candidates);
+        if (targetUrl && targetUrl !== oldUrl) {
+          remap.set(oldUrl, targetUrl);
+        }
+      }
+    }
+
+    if (remap.size === 0) return;
+
+    const remapEntries = Array.from(remap.entries());
+    console.info('[AutoRepair-OrphanLocal] detected remap candidates:', {
+      count: remapEntries.length,
+      entries: remapEntries,
+    });
+
+    isAutoRepairOrphanRunningRef.current = true;
+    relinkEventsByCalendarUrl(remap, '[AutoRepair-OrphanLocal]')
+      .then(() => loadData(true))
+      .then(() => {
+        console.info('[AutoRepair-OrphanLocal] applied successfully:', {
+          count: remapEntries.length,
+          entries: remapEntries,
+        });
+        const now = Date.now();
+        const TOAST_COOLDOWN_MS = 5 * 60 * 1000; // 5분
+        if (now - lastAutoRepairToastAtRef.current >= TOAST_COOLDOWN_MS) {
+          lastAutoRepairToastAtRef.current = now;
+          setToast({ message: '캘린더 상태를 최신으로 정리했습니다.', type: 'info' });
+        }
+      })
+      .catch(err => {
+        console.warn('[AutoRepair-OrphanLocal] failed:', err);
+      })
+      .finally(() => {
+        isAutoRepairOrphanRunningRef.current = false;
+      });
+  }, [calendarMetadata, events, loadData]);
 
 
 
@@ -1154,6 +1334,7 @@ export const MainLayout = ({
         deleteCalendar,
         convertCalDAVToLocal,
         convertGoogleToLocal,
+        getOriginalLocalUrlForGoogle,
         deleteGoogleCalendarById,
         loadData,
         setToast,
@@ -1172,7 +1353,7 @@ export const MainLayout = ({
     if (result.serverDeleteFailed && result.localDelete) {
       setServerDeleteFailedDialog({ isOpen: true, calName: calDeleteState.name, localDelete: result.localDelete });
     }
-  }, [calDeleteState, calDeleteOption, deleteCalendar, loadData, removeGoogleCalendar]);
+  }, [calDeleteState, calDeleteOption, deleteCalendar, loadData, removeGoogleCalendar, convertCalDAVToLocal, convertGoogleToLocal, getOriginalLocalUrlForGoogle]);
 
 
   const handleSyncComplete = useCallback(async (count: number, syncedCalendarUrls?: string[]) => {
@@ -1244,6 +1425,16 @@ export const MainLayout = ({
 
   const handleGoogleTokenRecovered = useCallback(() => {
     clearGoogleTokenExpiredFlag();
+    const pendingGoogleLocalSync = localStorage.getItem(PENDING_GOOGLE_LOCAL_SYNC_KEY);
+    const pendingGoogleAuthContext = localStorage.getItem(PENDING_GOOGLE_AUTH_CONTEXT_KEY);
+    const isRiffToGoogleAuthRecovery =
+      pendingGoogleAuthContext === RIFF_TO_GOOGLE_CONTEXT || !!pendingGoogleLocalSync;
+    if (isRiffToGoogleAuthRecovery) {
+      // Riff→Google 내보내기 인증 복귀는 자동 재개(useSyncHandlers)에 맡기고
+      // Riff←Google 선택 팝업 유도는 건너뛴다.
+      localStorage.removeItem(PENDING_GOOGLE_AUTH_CONTEXT_KEY);
+      return;
+    }
     const hasExistingGoogleCals = calendarMetadata.some(c => c.type === 'google');
     if (!hasExistingGoogleCals) {
       setPostAuthSyncService('google');
@@ -1257,10 +1448,23 @@ export const MainLayout = ({
       .filter(c => isCalDAVSyncTarget(c))
       .map(c => c.url);
 
-    // unsyncedUrlsRef에 CalDAV URL 추가 → 렌더링 필터에서 즉시 제거
-    // 정리는 여기서 하지 않음 — loadData(force) 완료 시 mergeEventsWithLocal이
-    // excludeCalendarUrls로 state에서 제거하고, 다음 CalDAV sync 완료 시 clear()됨
-    caldavUrls.forEach(u => {
+    // Riff에서 만들어 iCloud로 내보낸(createdFromApp=true) 캘린더는 삭제하지 않고 로컬 전환
+    // deleteAllCalDAVData가 이미 이 캘린더들의 DB metadata는 보존했으므로
+    // 여기서 React state + localStorage + DB를 로컬 URL로 전환
+    const createdFromAppCals = calendarMetadata.filter(c => c.createdFromApp && isCalDAVSyncTarget(c));
+    const urlRemap = new Map<string, string>();
+    for (const cal of createdFromAppCals) {
+      const newLocalUrl = convertCalDAVToLocal(cal.url); // React state + localStorage 갱신
+      urlRemap.set(cal.url, newLocalUrl);
+    }
+    if (urlRemap.size > 0) {
+      // events.calendar_url도 새 로컬 URL로 업데이트
+      await relinkEventsByCalendarUrl(urlRemap, '[CalDAV-Disconnect]');
+    }
+
+    // iCloud→Riff 캘린더(createdFromApp=false)는 unsyncedUrlsRef에 추가 → 렌더링에서 즉시 제거
+    const iCloudOnlyUrls = caldavUrls.filter(u => !urlRemap.has(u));
+    iCloudOnlyUrls.forEach(u => {
       unsyncedUrlsRef.current.add(u);
       const norm = normalizeCalendarUrl(u);
       if (norm) unsyncedUrlsRef.current.add(norm);
@@ -1269,10 +1473,10 @@ export const MainLayout = ({
     setIsCalDAVAuthError(false);
     setIsCalDAVCredentialsSaved(false);
     refreshMetadata();
-    await loadData(true, caldavUrls.length > 0 ? caldavUrls : undefined);
+    await loadData(true, iCloudOnlyUrls.length > 0 ? iCloudOnlyUrls : undefined);
     setIsCalDAVModalOpen(false);
     setToast({ message: 'iCloud 연동이 해제되었습니다.', type: 'success' });
-  }, [loadData, refreshMetadata, calendarMetadata]);
+  }, [loadData, refreshMetadata, calendarMetadata, convertCalDAVToLocal]);
 
   const handleCalDAVAuthSuccess = useCallback(() => {
     setIsCalDAVAuthError(false);
@@ -1291,13 +1495,71 @@ export const MainLayout = ({
     const result = await handleGoogleExternalDelete(calId, createdFromApp, {
       calendarName: name,
       convertGoogleToLocal,
+      getOriginalLocalUrlForGoogle,
       relinkEventsByCalendarUrl,
       removeGoogleCalendar,
       deleteEventsByCalendarUrl: async (u: string) => { await deleteEventsByCalendarUrl(u); },
     });
     setToast({ message: result.message, type: result.type as 'info' });
     loadData(true);
-  }, [calendarMetadata, convertGoogleToLocal, relinkEventsByCalendarUrl, removeGoogleCalendar, loadData]);
+  }, [calendarMetadata, convertGoogleToLocal, getOriginalLocalUrlForGoogle, relinkEventsByCalendarUrl, removeGoogleCalendar, loadData]);
+
+  const lastGoogleCalendarCheckRef = useRef<number>(0);
+  const isGoogleCalendarCheckRunningRef = useRef(false);
+  const checkGoogleCreatedFromAppCalendars = useCallback(async (options?: { force?: boolean }) => {
+    const targets = calendarMetadata.filter(
+      c => c.type === 'google' && c.createdFromApp && !!c.googleCalendarId
+    );
+    if (targets.length === 0) return;
+    if (isGoogleCalendarCheckRunningRef.current) return;
+
+    const now = Date.now();
+    const COOLDOWN_MS = 15_000;
+    if (!options?.force && now - lastGoogleCalendarCheckRef.current < COOLDOWN_MS) return;
+    lastGoogleCalendarCheckRef.current = now;
+
+    isGoogleCalendarCheckRunningRef.current = true;
+    try {
+      const token = await getGoogleProviderToken();
+      if (!token) return;
+      const serverCalendars = await fetchGoogleCalendarList(token);
+      const serverIds = new Set(serverCalendars.map(c => c.id));
+
+      for (const cal of targets) {
+        const calId = cal.googleCalendarId!;
+        if (!serverIds.has(calId)) {
+          await handleGoogleCalendarDeletedExternally(calId, true);
+        }
+      }
+    } catch (e) {
+      console.warn('[GoogleExternalCheck] failed:', e);
+    } finally {
+      isGoogleCalendarCheckRunningRef.current = false;
+    }
+  }, [calendarMetadata, handleGoogleCalendarDeletedExternally]);
+
+  useEffect(() => {
+    if (!isCalendarPopupOpen) return;
+    void checkGoogleCreatedFromAppCalendars({ force: true });
+  }, [isCalendarPopupOpen, checkGoogleCreatedFromAppCalendars]);
+
+  useEffect(() => {
+    const onWindowFocus = () => {
+      void checkGoogleCreatedFromAppCalendars();
+    };
+    const onVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        void checkGoogleCreatedFromAppCalendars();
+      }
+    };
+
+    window.addEventListener('focus', onWindowFocus);
+    document.addEventListener('visibilitychange', onVisibilityChange);
+    return () => {
+      window.removeEventListener('focus', onWindowFocus);
+      document.removeEventListener('visibilitychange', onVisibilityChange);
+    };
+  }, [checkGoogleCreatedFromAppCalendars]);
 
   useEffect(() => {
     if (externallyDeletedCalendars.length === 0) return;

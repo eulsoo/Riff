@@ -1,5 +1,5 @@
-import { CalendarMetadata, getCalDAVSyncSettings } from './api';
-import { createRemoteCalendar, renameRemoteCalendar, CalDAVConfig } from './caldav';
+import { CalendarMetadata, getCalDAVSyncSettings, fetchEvents, updateEventUID } from './api';
+import { createRemoteCalendar, renameRemoteCalendar, createCalDavEvent, CalDAVConfig } from './caldav';
 
 const buildCalDAVConfig = (settings: {
   serverUrl: string;
@@ -38,6 +38,20 @@ export const syncLocalCalendarToMac = async (
     const result = await createRemoteCalendar(config, calendar.displayName, calendar.color);
     if (!result.success) {
       return { status: 'error', message: '원격 캘린더 생성에 실패했습니다.' };
+    }
+
+    // 기존 로컬 이벤트를 CalDAV 서버에 업로드하고 DB의 caldav_uid + calendar_url 갱신
+    const existingEvents = await fetchEvents();
+    const calEvents = existingEvents.filter(e => e.calendarUrl === calendar.url);
+    for (const event of calEvents) {
+      try {
+        const { success, uid } = await createCalDavEvent(config, result.calendarUrl, event);
+        if (success) {
+          await updateEventUID(event.id, uid, result.calendarUrl);
+        }
+      } catch (e) {
+        console.warn('[Mac Sync] 이벤트 업로드 실패:', event.title, e);
+      }
     }
 
     return {

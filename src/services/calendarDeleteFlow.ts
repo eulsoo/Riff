@@ -79,6 +79,7 @@ interface UnsyncFlowParams {
   deleteCalendar: (url: string) => void;
   convertCalDAVToLocal?: (oldUrl: string) => string;
   convertGoogleToLocal?: (oldUrl: string) => string;
+  getOriginalLocalUrlForGoogle?: (googleUrl: string) => string | undefined;
   deleteGoogleCalendarById?: (calendarId: string) => Promise<void>;
   loadData: (force?: boolean, excludeCalendarUrls?: string[]) => Promise<void>;
   setToast: (toast: { message: string; type: 'loading' | 'success' | 'error' } | null) => void;
@@ -93,6 +94,7 @@ export const runCalendarUnsyncFlow = async ({
   deleteCalendar,
   convertCalDAVToLocal,
   convertGoogleToLocal,
+  getOriginalLocalUrlForGoogle,
   deleteGoogleCalendarById,
   loadData,
   setToast,
@@ -103,9 +105,14 @@ export const runCalendarUnsyncFlow = async ({
   if (isGoogle) {
     // Riff에서 만들어 Google로 내보낸 캘린더: Riff 보존 + Google 삭제
     if (isCreatedFromApp && convertGoogleToLocal && deleteGoogleCalendarById) {
+      const originalLocalUrl = getOriginalLocalUrlForGoogle?.(url);
       const newLocalUrl = convertGoogleToLocal(url);
       try {
-        await relinkEventsByCalendarUrl(new Map([[url, newLocalUrl]]), '[Unsync-Google]');
+        const urlMap = new Map<string, string>([[url, newLocalUrl]]);
+        if (originalLocalUrl && originalLocalUrl !== newLocalUrl) {
+          urlMap.set(originalLocalUrl, newLocalUrl);
+        }
+        await relinkEventsByCalendarUrl(urlMap, '[Unsync-Google]');
         const calendarId = url.replace('google:', '');
         await deleteGoogleCalendarById(calendarId);
         await loadData(true, [url]);

@@ -1555,6 +1555,18 @@ export const deleteAllCalDAVData = async (): Promise<boolean> => {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return false;
 
+  // 0. Riff에서 만들어 iCloud로 내보낸(createdFromApp=true) CalDAV 캘린더 URL 조회
+  //    이 캘린더들은 삭제하지 않고 caller(MainLayout)에서 로컬 전환 처리함
+  const { data: preservedMeta } = await supabase
+    .from('calendar_metadata')
+    .select('url')
+    .eq('user_id', user.id)
+    .eq('created_from_app', true)
+    .or('type.eq.caldav,type.is.null')
+    .not('url', 'like', 'google:%')
+    .not('url', 'like', 'local:%');
+  const preservedUrls = (preservedMeta ?? []).map(r => r.url as string);
+
   // 1. 자격증명(server_url, username, password)은 유지하고
   //    선택된 캘린더 목록과 last_sync_at만 초기화 → 재연결 시 비밀번호 재입력 불필요
   const { error: settingsError } = await supabase
@@ -1571,19 +1583,38 @@ export const deleteAllCalDAVData = async (): Promise<boolean> => {
     return false;
   }
 
-  // 2. CalDAV 이벤트 삭제
-  const { error: eventsError } = await supabase
-    .from('events')
-    .delete()
-    .eq('source', 'caldav');
-
-  if (eventsError) {
-    console.error('Error deleting CalDAV events:', eventsError);
-    return false;
+  // 2. CalDAV 이벤트 삭제 (보존 캘린더 URL 제외)
+  //    보존 캘린더의 이벤트는 source='local' + caldav_uid=null로 변환 (데이터 보존)
+  if (preservedUrls.length > 0) {
+    // iCloud→Riff 이벤트만 삭제 (보존 URL 제외)
+    const { error: eventsError } = await supabase
+      .from('events')
+      .delete()
+      .eq('source', 'caldav')
+      .not('calendar_url', 'in', `(${preservedUrls.join(',')})`);
+    if (eventsError) {
+      console.error('Error deleting CalDAV events:', eventsError);
+      return false;
+    }
+    // 보존 캘린더 이벤트: CalDAV 연결 해제 (source='local', caldav_uid=null)
+    await supabase
+      .from('events')
+      .update({ source: 'local', caldav_uid: null })
+      .in('calendar_url', preservedUrls);
+  } else {
+    const { error: eventsError } = await supabase
+      .from('events')
+      .delete()
+      .eq('source', 'caldav');
+    if (eventsError) {
+      console.error('Error deleting CalDAV events:', eventsError);
+      return false;
+    }
   }
 
   // 3. calendar_metadata에서 CalDAV 캘린더 삭제
   // type='caldav' 또는 type=null(오래된 데이터) 중 http:// URL인 것 — google/local/subscription 제외
+  // createdFromApp=true 캘린더는 제외 — caller에서 로컬 전환 처리
   const { error: metaError } = await supabase
     .from('calendar_metadata')
     .delete()
@@ -1591,7 +1622,8 @@ export const deleteAllCalDAVData = async (): Promise<boolean> => {
     .or('type.eq.caldav,type.is.null')
     .not('url', 'like', 'google:%')
     .not('url', 'like', 'local:%')
-    .not('is_subscription', 'eq', true);
+    .not('is_subscription', 'eq', true)
+    .not('created_from_app', 'eq', true);
 
   if (metaError) {
     console.error('Error deleting CalDAV calendar metadata:', metaError);

@@ -157,9 +157,9 @@ export default function App() {
         showSmallDeviceNotice ? (
           <div className={landingStyles.smallDeviceNoticePage} role="dialog" aria-modal="true" aria-labelledby="small-device-notice-title">
             <div className={landingStyles.smallDeviceNoticeCard}>
-              <p className={landingStyles.smallDeviceNoticeEyebrow}>Riff 접속 안내</p>
+              <img src="/images/em_uimin_curious.png" alt="유민 캐릭터" className={landingStyles.smallDeviceNoticeImage} />
               <h1 id="small-device-notice-title" className={landingStyles.smallDeviceNoticeTitle}>
-                작은 화면은 아직 지원하지 않아요
+                스마트폰 앱도 열심히 만들고 있어요.
               </h1>
               <p className={landingStyles.smallDeviceNoticeDescription}>
                 Riff는 주간 일정 편집과 가독성을 위해 데스크탑 또는 태블릿 환경에 최적화되어 있어요.

@@ -1,6 +1,7 @@
 export interface GoogleExternalDeleteOpts {
   calendarName: string;
   convertGoogleToLocal: (url: string) => string;
+  getOriginalLocalUrlForGoogle?: (url: string) => string | undefined;
   relinkEventsByCalendarUrl: (remap: Map<string, string>, prefix: string) => Promise<void>;
   removeGoogleCalendar: (calId: string) => void;
   deleteEventsByCalendarUrl: (url: string) => Promise<void>;
@@ -28,8 +29,13 @@ export const handleGoogleExternalDelete = async (
   const url = `google:${calId}`;
 
   if (createdFromApp) {
+    const originalLocalUrl = opts.getOriginalLocalUrlForGoogle?.(url);
     const newLocalUrl = opts.convertGoogleToLocal(url);
-    await opts.relinkEventsByCalendarUrl(new Map([[url, newLocalUrl]]), '[ExternalDelete-Google-CreatedFromApp]');
+    const remap = new Map<string, string>([[url, newLocalUrl]]);
+    if (originalLocalUrl && originalLocalUrl !== newLocalUrl) {
+      remap.set(originalLocalUrl, newLocalUrl);
+    }
+    await opts.relinkEventsByCalendarUrl(remap, '[ExternalDelete-Google-CreatedFromApp]');
     return {
       message: `Google 캘린더(${opts.calendarName})가 삭제되어 Riff 로컬 캘린더로 전환됐습니다.`,
       type: 'info',
