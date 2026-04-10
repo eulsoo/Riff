@@ -22,15 +22,51 @@ export default function App() {
   const [sessionLoading, setSessionLoading] = useState(true);
   const [showLanding, setShowLanding] = useState(true);
   const [showSmallDeviceNotice, setShowSmallDeviceNotice] = useState(false);
-  const [currentYear, setCurrentYear] = useState(new Date().getFullYear());
-  const [currentMonth, setCurrentMonth] = useState(new Date().getMonth() + 1);
+  const [currentYear, setCurrentYear] = useState(() => {
+    try {
+      const savedWeek = sessionStorage.getItem('riff_scroll_week');
+      if (savedWeek) return new Date(savedWeek + 'T00:00:00').getFullYear();
+    } catch { /* ignore */ }
+    return new Date().getFullYear();
+  });
+  const [currentMonth, setCurrentMonth] = useState(() => {
+    try {
+      const savedWeek = sessionStorage.getItem('riff_scroll_week');
+      if (savedWeek) return new Date(savedWeek + 'T00:00:00').getMonth() + 1;
+    } catch { /* ignore */ }
+    return new Date().getMonth() + 1;
+  });
   const [weekOrder, setWeekOrder] = useState<WeekOrder>(() => {
     const saved = typeof window !== 'undefined' ? window.localStorage.getItem('weekOrder') : null;
     return saved === 'sun' ? 'sun' : 'mon';
   });
 
-  const [pastWeeks, setPastWeeks] = useState(8);
-  const [futureWeeks, setFutureWeeks] = useState(12);
+  const [pastWeeks, setPastWeeks] = useState(() => {
+    try {
+      const savedWeek = sessionStorage.getItem('riff_scroll_week');
+      if (savedWeek) {
+        const weekOrderVal = (localStorage.getItem('weekOrder') === 'sun' ? 'sun' : 'mon') as WeekOrder;
+        const savedDate = new Date(savedWeek + 'T00:00:00');
+        const currentWeekStart = getWeekStartForDate(new Date(), weekOrderVal);
+        const diffWeeks = Math.round((currentWeekStart.getTime() - savedDate.getTime()) / (7 * 24 * 60 * 60 * 1000));
+        if (diffWeeks > 8) return diffWeeks + 4;
+      }
+    } catch { /* ignore */ }
+    return 8;
+  });
+  const [futureWeeks, setFutureWeeks] = useState(() => {
+    try {
+      const savedWeek = sessionStorage.getItem('riff_scroll_week');
+      if (savedWeek) {
+        const weekOrderVal = (localStorage.getItem('weekOrder') === 'sun' ? 'sun' : 'mon') as WeekOrder;
+        const savedDate = new Date(savedWeek + 'T00:00:00');
+        const currentWeekStart = getWeekStartForDate(new Date(), weekOrderVal);
+        const diffWeeks = Math.round((savedDate.getTime() - currentWeekStart.getTime()) / (7 * 24 * 60 * 60 * 1000));
+        if (diffWeeks > 12) return diffWeeks + 4;
+      }
+    } catch { /* ignore */ }
+    return 12;
+  });
 
   // 사용자별 localStorage 키 목록 (로그인 사용자가 바뀌면 초기화해야 함)
   const USER_SCOPED_LS_KEYS = [
