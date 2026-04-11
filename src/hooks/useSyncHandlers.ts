@@ -41,6 +41,7 @@ export interface UseSyncHandlersOptions {
   setIsGoogleSyncModalOpen: (v: boolean) => void;
   setGoogleSyncModalMode: (mode: 'sync' | 'auth-only') => void;
   setGoogleAuthNoticeMessage: (msg: string | undefined) => void;
+  closeAllModals: () => void;
 }
 
 export const useSyncHandlers = ({
@@ -65,6 +66,7 @@ export const useSyncHandlers = ({
   setIsGoogleSyncModalOpen,
   setGoogleSyncModalMode,
   setGoogleAuthNoticeMessage,
+  closeAllModals,
 }: UseSyncHandlersOptions) => {
   // ── handleUpdateLocalCalendar ────────────────────────────────────────────
   const handleUpdateLocalCalendar = useCallback(
@@ -328,6 +330,7 @@ export const useSyncHandlers = ({
       action: 'sync' | 'unsync' | 'reconnect'
     ) => {
       if (action === 'reconnect') {
+        closeAllModals();
         if (service === 'icloud') {
           setCalDAVModalMode('auth-only');
           setCalDAVAuthNoticeMessage(
