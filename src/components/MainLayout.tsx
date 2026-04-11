@@ -1831,6 +1831,7 @@ export const MainLayout = ({
           onGoogleSyncComplete={handleGoogleSyncComplete}
           onGoogleDisconnect={handleGoogleDisconnect}
           googleCalendars={googleCalendars}
+          hasGoogleProvider={hasGoogleProvider}
           googleSyncMode={googleSyncModalMode}
           googleAuthNoticeMessage={googleAuthNoticeMessage}
           onCalDAVAuthSuccess={handleCalDAVAuthSuccess}

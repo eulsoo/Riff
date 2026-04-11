@@ -12,6 +12,7 @@ interface GoogleSyncModalProps {
   onSyncComplete: (selectedCalendars: CalendarMetadata[]) => void | Promise<void>;
   onDisconnect: () => void;
   existingGoogleCalendars: CalendarMetadata[];
+  hasGoogleProvider?: boolean;
   mode?: 'sync' | 'auth-only';
   authNoticeMessage?: string;
   onTokenRecovered?: () => void;
@@ -22,6 +23,7 @@ export function GoogleSyncModal({
   onSyncComplete,
   onDisconnect,
   existingGoogleCalendars,
+  hasGoogleProvider = false,
   mode = 'sync',
   authNoticeMessage,
   onTokenRecovered,
@@ -187,7 +189,12 @@ export function GoogleSyncModal({
           onClose();
           return;
         }
-        // sync 모드: 항상 계정연결(account) 단계 먼저 표시 → 유저가 "구글 캘린더 선택" 버튼으로 진입
+        // Google 로그인 유저 + sync 모드 + 토큰 만료 아님 + 동기화된 캘린더 없음
+        // → account 단계 건너뛰고 바로 캘린더 선택으로 진입
+        if (hasGoogleProvider && mode === 'sync' && !authNoticeMessage && token && existingGoogleCalendars.length === 0) {
+          await handleGoToSelectionRef.current();
+          return;
+        }
       } finally {
         setLoading(false);
       }
@@ -363,7 +370,7 @@ export function GoogleSyncModal({
                   </div>
                 )}
 
-                {/* 구글 캘린더 선택 버튼 + 연동 해제 버튼 (연결된 경우만) */}
+                {/* 구글 캘린더 선택 버튼 + 해제/삭제 버튼 (연결된 경우만) */}
                 {isConnected && (
                   <>
                     <button
@@ -378,13 +385,17 @@ export function GoogleSyncModal({
                         </>
                       ) : '구글 캘린더 선택'}
                     </button>
-                    <button
-                      onClick={onDisconnect}
-                      disabled={loading || syncing}
-                      className={styles.disconnectButton}
-                    >
-                      🔗 연동 해제 및 캘린더 삭제
-                    </button>
+                    {/* Google 로그인 유저: 동기화된 캘린더가 있을 때만 "삭제" 버튼 표시 */}
+                    {/* Apple 로그인 유저: 항상 "연동 해제 및 캘린더 삭제" 버튼 표시 */}
+                    {(!hasGoogleProvider || existingGoogleCalendars.length > 0) && (
+                      <button
+                        onClick={onDisconnect}
+                        disabled={loading || syncing}
+                        className={styles.disconnectButton}
+                      >
+                        🔗 {hasGoogleProvider ? '동기화된 캘린더 삭제' : '연동 해제 및 캘린더 삭제'}
+                      </button>
+                    )}
                   </>
                 )}
 
