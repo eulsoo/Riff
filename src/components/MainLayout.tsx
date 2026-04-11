@@ -291,8 +291,23 @@ export const MainLayout = ({
   const [isCalDAVModalOpen, setIsCalDAVModalOpen] = useState(false);
   const [calDAVModalMode, setCalDAVModalMode] = useState<'sync' | 'auth-only'>('sync');
   const [calDAVAuthNoticeMessage, setCalDAVAuthNoticeMessage] = useState<string | undefined>(undefined);
-  const [isGoogleSyncModalOpen, setIsGoogleSyncModalOpen] = useState(false);
-  const [googleSyncModalMode, setGoogleSyncModalMode] = useState<'sync' | 'auth-only'>('sync');
+  const [isGoogleSyncModalOpen, setIsGoogleSyncModalOpenRaw] = useState(
+    // OAuth 복귀 직후(googleLinkPending='1') 또는 이전에 열려 있던 상태(googleSyncModalOpen='1')면 즉시 열림
+    () => sessionStorage.getItem('googleSyncModalOpen') === '1'
+       || sessionStorage.getItem('googleLinkPending') === '1'
+  );
+  const setIsGoogleSyncModalOpen = useCallback((open: boolean) => {
+    if (open) sessionStorage.setItem('googleSyncModalOpen', '1');
+    else sessionStorage.removeItem('googleSyncModalOpen');
+    setIsGoogleSyncModalOpenRaw(open);
+  }, []);
+  const [googleSyncModalMode, setGoogleSyncModalModeRaw] = useState<'sync' | 'auth-only'>(
+    () => (sessionStorage.getItem('googleSyncModalMode') as 'sync' | 'auth-only') || 'sync'
+  );
+  const setGoogleSyncModalMode = useCallback((mode: 'sync' | 'auth-only') => {
+    sessionStorage.setItem('googleSyncModalMode', mode);
+    setGoogleSyncModalModeRaw(mode);
+  }, []);
   const [googleAuthNoticeMessage, setGoogleAuthNoticeMessage] = useState<string | undefined>(undefined);
   const [pendingSyncCalendar, setPendingSyncCalendar] = useState<CalendarMetadata | null>(null);
   const googleLocalSyncInFlightRef = useRef<Set<string>>(new Set());
@@ -459,6 +474,7 @@ export const MainLayout = ({
       setGoogleSyncModalMode(isRiffToGoogleAuthRecovery ? 'auth-only' : 'sync');
       setGoogleAuthNoticeMessage(undefined);
       setIsGoogleSyncModalOpen(true);
+      if (!isRiffToGoogleAuthRecovery) setIsCalendarPopupOpen(true);
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
