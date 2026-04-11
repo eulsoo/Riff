@@ -413,6 +413,18 @@ export const MainLayout = ({
     }
   }, [toast]);
 
+  // 중앙 팝업 모달 전체 닫기 — 새 모달 열기 전에 호출해 겹침 방지
+  const closeAllModals = useCallback(() => {
+    setIsCalDAVModalOpen(false);
+    setIsGoogleSyncModalOpen(false);
+    setIsSubscribeModalOpen(false);
+    setIsEventModalOpen(false);
+    setDraftEvent(null);
+    setIsRoutineModalOpen(false);
+    setIsSettingsModalOpen(false);
+    setIsTimeSettingsModalOpen(false);
+  }, [setIsGoogleSyncModalOpen]);
+
   // ── 동기화 핸들러 훅 ──────────────────────────────────────────────────────
   const {
     handleUpdateLocalCalendar,
@@ -444,6 +456,7 @@ export const MainLayout = ({
     setIsGoogleSyncModalOpen,
     setGoogleSyncModalMode,
     setGoogleAuthNoticeMessage,
+    closeAllModals,
   });
 
   // 구독 이벤트 드래그 시도 시 토스트 표시
@@ -553,18 +566,21 @@ export const MainLayout = ({
 
   const handleOpenRoutineFromHeader = useCallback(() => {
     closeHeaderPanels();
+    closeAllModals();
     setIsRoutineModalOpen(true);
-  }, [closeHeaderPanels]);
+  }, [closeHeaderPanels, closeAllModals]);
 
   const handleOpenSettingsFromHeader = useCallback(() => {
     closeHeaderPanels();
+    closeAllModals();
     setIsSettingsModalOpen(true);
-  }, [closeHeaderPanels]);
+  }, [closeHeaderPanels, closeAllModals]);
 
   const handleOpenTimeSettingsFromHeader = useCallback(() => {
     closeHeaderPanels();
+    closeAllModals();
     setIsTimeSettingsModalOpen(true);
-  }, [closeHeaderPanels]);
+  }, [closeHeaderPanels, closeAllModals]);
 
   const handleToggleRoutines = useCallback(() => {
     setShowRoutines(prev => !prev);
@@ -996,6 +1012,7 @@ export const MainLayout = ({
     const defaultStart = timeSlot === 'pm' ? '13:00' : timeSlot === 'am' ? '09:00' : '';
     const defaultEnd = timeSlot === 'pm' ? '14:00' : timeSlot === 'am' ? '10:00' : '';
 
+    closeAllModals();
     setDraftEvent({ date, title: '', startTime: defaultStart, endTime: defaultEnd, color: '#B3E5FC' });
     setSelectedEvent(null);
     setSelectedDate(date);
@@ -1060,6 +1077,7 @@ export const MainLayout = ({
   }, []);
 
   const handleEventDoubleClick = useCallback((event: Event, anchorEl?: HTMLElement) => {
+    closeAllModals();
     setSelectedEvent(event);
     setSelectedDate(event.date);
     setIsEventModalOpen(true);
@@ -1738,14 +1756,17 @@ export const MainLayout = ({
               onDeleteCalendar={handleDeleteCalendar}
               onSyncSwitchToggle={handleSyncSwitchToggle}
               onOpenCalDAVModal={() => {
+                closeAllModals();
                 setCalDAVModalMode('sync');
                 setCalDAVAuthNoticeMessage(undefined);
                 setIsCalDAVModalOpen(true);
               }}
               onOpenSubscribeModal={() => {
+                closeAllModals();
                 setIsSubscribeModalOpen(true);
               }}
               onOpenGoogleSync={() => {
+                closeAllModals();
                 setGoogleSyncModalMode('sync');
                 setGoogleAuthNoticeMessage(undefined);
                 setIsGoogleSyncModalOpen(true);
@@ -1984,10 +2005,12 @@ export const MainLayout = ({
         onConfirm={() => {
           setIsPostAuthSyncDialogOpen(false);
           if (postAuthSyncService === 'caldav') {
+            closeAllModals();
             setCalDAVModalMode('sync');
             setCalDAVAuthNoticeMessage(undefined);
             setIsCalDAVModalOpen(true);
           } else {
+            closeAllModals();
             setGoogleSyncModalMode('sync');
             setGoogleAuthNoticeMessage(undefined);
             setIsGoogleSyncModalOpen(true);
