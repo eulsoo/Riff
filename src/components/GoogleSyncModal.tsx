@@ -149,11 +149,13 @@ export function GoogleSyncModal({
           // URL에서 code 파라미터 추출 후 Edge Function으로 교환
           const params = new URLSearchParams(window.location.search);
           const code = params.get('code');
+          let googleAccessToken: string | null = null;
           if (code) {
             // URL 정리 (code는 1회용이므로 즉시 제거)
             history.replaceState({}, '', window.location.pathname);
             const { data: { session } } = await supabase.auth.getSession();
             const accessToken = session?.access_token;
+            setUserEmail(session?.user?.email ?? null);
             if (accessToken) {
               const resp = await fetch(`${SUPABASE_FUNCTIONS_URL}/refresh-google-token`, {
                 method: 'POST',
@@ -169,14 +171,30 @@ export function GoogleSyncModal({
                 setError('Google 토큰 교환 실패: ' + (err?.error ?? ''));
                 return;
               }
-              // access_token 캐시에 저장
               const { access_token, expires_in } = await resp.json();
               if (access_token) {
                 setCachedGoogleToken(access_token, expires_in ?? 3300);
+                googleAccessToken = access_token;
               }
             }
           }
-          await handleOAuthRecovered();
+          // 교환된 access_token으로 바로 캘린더 목록 조회 → selection 단계로 직행
+          // (handleOAuthRecovered 경유 시 clearCachedGoogleToken → Edge Function 재호출 불필요)
+          if (googleAccessToken) {
+            try {
+              const list = await fetchGoogleCalendarList(googleAccessToken);
+              setCalendars(list);
+              setIsConnected(true);
+              const existingIds = new Set(existingGoogleCalendars.map(c => c.googleCalendarId!).filter(Boolean));
+              setSelectedIds(existingIds.size > 0 ? existingIds : new Set(list.map(c => c.id)));
+              setStep('selection');
+            } catch (err: any) {
+              setError('캘린더 목록을 불러오지 못했습니다: ' + (err?.message ?? ''));
+            }
+          } else {
+            // code가 없거나 교환 실패 시 기존 흐름으로 fallback
+            await handleOAuthRecovered();
+          }
           return;
         }
 
@@ -191,8 +209,17 @@ export function GoogleSyncModal({
         }
         // Google 로그인 유저 + sync 모드 + 토큰 만료 아님 + 동기화된 캘린더 없음
         // → account 단계 건너뛰고 바로 캘린더 선택으로 진입
+        // (handleGoToSelectionRef.current는 init 시점에 아직 초기값이므로 직접 호출)
         if (hasGoogleProvider && mode === 'sync' && !authNoticeMessage && token && existingGoogleCalendars.length === 0) {
-          await handleGoToSelectionRef.current();
+          try {
+            const list = await fetchGoogleCalendarList(token);
+            setCalendars(list);
+            const existingIds = new Set(existingGoogleCalendars.map(c => c.googleCalendarId!).filter(Boolean));
+            setSelectedIds(existingIds.size > 0 ? existingIds : new Set(list.map(c => c.id)));
+            setStep('selection');
+          } catch (err: any) {
+            setError('캘린더 목록을 불러오지 못했습니다: ' + (err?.message ?? ''));
+          }
           return;
         }
       } finally {
